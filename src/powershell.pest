@@ -10,69 +10,81 @@ program = { SOI ~ statements ~ EOI }
 statements = _{ statement ~ (terminator? ~ statement)* ~ terminator? }
 
 statement = _{ 
-	 if_statement 
-    | foreach_loop 
-    | while_loop 
-    | for_loop 
-    | function_definition
-    | pipeline 
+	if_statement 
+    | foreach_statement 
+    | while_statement 
+    | for_statement 
+    | function_statement
+    | pipeline_statement 
     | expression
 }
 
-expression = _{
-assignment |
-	comparison_expression
-	| array_literal
+expression = {
+    assignment_exp 
+    | comparison_exp
     | increment_decrement_exp
-	| additive 
-	| atomic
+    | array_exp
+	| additive_exp
+    | atomic
     | statement_block
-    | command_call
-}
-subexpression = { "$" ~ "(" ~ expression ~ ")" }
-atomic = _{
-	cast_expression
-	| subexpression
-    | range
-    | value
-    | variable
-    | "(" ~ expression ~ ")"
+    | command_call //are you sure?
 }
 
 increment_decrement_exp = _{ pre_inc_exp | post_inc_exp | pre_dec_exp | post_dec_exp }
+
+atomic = _{
+	cast_expression
+    | subexpression
+    | parenthesis_exp
+    | range
+    | value
+    | variable
+}
+
+cast_expression = {
+    "[" ~ type_name  ~ "]" ~ postfix_expr 
+}
+
+parenthesis_exp = _{ "(" ~ expression ~ ")" }
+subexpression = _{ "$" ~ parenthesis_exp }
 
 pre_inc_exp = { atomic ~ "++"}
 post_inc_exp = { "++" ~ atomic}
 pre_dec_exp = { atomic ~ "--"}
 post_dec_exp = { "--" ~ atomic}
 
-comparison_expression = ${ additive ~ WHITESPACE+ ~ comparison_operator ~ WHITESPACE+ ~ additive }
+comparison_exp = ${ additive_exp ~ WHITESPACE+ ~ comparison_op ~ WHITESPACE+ ~ additive_exp }
 
-//member_access = { atomic ~ ((("."| "::") ~ (simple_name | string_literal)))* }
-//member_access = { atomic ~ ((("."| "::") ~ (simple_name | string_literal | method_call)))* }
+additive_exp = { multiplicative_exp ~ (WHITESPACE* ~ additive_op ~ WHITESPACE* ~ multiplicative_exp)* }
+additive_op = _{ plus | minus }
+plus = { "+" }
+minus = {"-"}
 
-//method_call = { identifier ~ "(" ~ (expression ~ ("," ~ expression)*)? ~ ")" }
+multiplicative_exp = { postfix_expr ~ (WHITESPACE* ~ multiplicative_op ~ WHITESPACE* ~ postfix_expr)* }
+multiplicative_op = _{ mul | divide | mod }
+mul = { "*" }
+divide = {"/"}
+mod = {"%"}
 
-additive = _{ multiplicative ~ (WHITESPACE* ~ ("+" | "-") ~ WHITESPACE* ~ multiplicative)* }
-multiplicative = _{ postfix_expr ~ (WHITESPACE* ~ ("*" | "/" | "%") ~ WHITESPACE* ~ postfix_expr)* }
-postfix_expr  = _{ atomic ~ ( member_suffix )* }
+postfix_expr  = { atomic ~ ( member_suffix )* }
 
-assignment = { variable ~ assignement_operator ~ expression }
+assignment_exp = { variable ~ assignement_op ~ expression }
+assignement_op = _{"=" | "!=" | "+=" | "*=" | "/=" | "%=" | "-="}
 
 if_statement = {
     "if" ~ BREAK* ~ "(" ~ expression ~ ")" ~ WHITESPACE* ~ statement_block ~
     (WHITESPACE* ~ "else" ~ WHITESPACE* ~ statement_block)?
 }
 
-foreach_loop = {
+foreach_statement = {
     "foreach" ~ BREAK* ~ "(" ~ BREAK* ~ variable ~ BREAK* ~ "in" ~ expression ~")" ~ BREAK* ~ statement_block
 }
 
-while_loop = {
+while_statement = {
     "while" ~ BREAK* ~ "(" ~ expression ~ ")" ~ BREAK* ~ statement_block
 }
 
-for_loop     = _{ "for" ~ WHITESPACE* ~ "("
+for_statement     = _{ "for" ~ WHITESPACE* ~ "("
                       ~ WHITESPACE* ~ initializer_list? ~ WHITESPACE* ~ ";"
                       ~ WHITESPACE* ~ expression? ~ WHITESPACE* ~ ";"
                       ~ WHITESPACE* ~ iterator_list? ~ WHITESPACE* ~ ")"
@@ -83,15 +95,11 @@ iterator_list     = _{ expression ~ ( WHITESPACE* ~ "," ~ WHITESPACE* ~ expressi
 
 statement_block = { "{" ~ statement* ~ "}" }
 
-pipeline = { command_call ~ (WHITESPACE* ~ "|" ~ WHITESPACE* ~ command_call)* }
+pipeline_statement = { command_call ~ (WHITESPACE* ~ "|" ~ WHITESPACE* ~ command_call)* }
 
-command_call = @{ command_ident ~ (BREAK+ ~ expression)* }
+command_call = { command_ident ~ (BREAK+ ~ expression)* }
 
-cast_expression = {
-    "[" ~ type_name  ~ "]" ~ postfix_expr 
-}
-
-function_definition = {
+function_statement = {
     "function" ~ WHITESPACE+ ~ identifier ~ WHITESPACE* ~ block_with_params?
 }
 
@@ -103,7 +111,7 @@ param_list = { variable ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ variable)* }
 
 block = { "{" ~ statement* ~ expression* ~ "}" }
 
-array_literal = _{ implicit_array | explicit_array }
+array_exp = _{ implicit_array | explicit_array }
 
 implicit_array = { atomic ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ atomic)+ }
 
@@ -113,11 +121,9 @@ expression_list = { atomic ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ expression)* }
 
 range = { number ~ ".." ~ number }
 
-comparison_operator = _{ "-as" | "-ccontains" | "-ceq" | "-cge" | "-cgt" | "-cle" | "-clike" | "-clt" | "-cmatch" | "-cne" | "-cnotcontains" | "-cnotlike" | "-cnotmatch" | "-contains" | "-creplace" | "-csplit" | "-eq" | "-ge" | "-gt" | "-icontains" | "-ieq" | "-ige" | "-igt" | "-ile" | "-ilike" | "-ilt" | "-imatch" | "-in" | "-ine" | "-inotcontains" | "-inotlike" | "-inotmatch" | "-ireplace" | "-is" | "-isnot" | "-isplit" | "-join" | "-le" | "-like" | "-lt" | "-match" | "-ne" | "-notcontains" | "-notin" | "-notlike" | "-notmatch" | "-replace" | "-shl" | "-shr" | "-split" }
+comparison_op = { "-as" | "-ccontains" | "-ceq" | "-cge" | "-cgt" | "-cle" | "-clike" | "-clt" | "-cmatch" | "-cne" | "-cnotcontains" | "-cnotlike" | "-cnotmatch" | "-contains" | "-creplace" | "-csplit" | "-eq" | "-ge" | "-gt" | "-icontains" | "-ieq" | "-ige" | "-igt" | "-ile" | "-ilike" | "-ilt" | "-imatch" | "-in" | "-ine" | "-inotcontains" | "-inotlike" | "-inotmatch" | "-ireplace" | "-is" | "-isnot" | "-isplit" | "-join" | "-le" | "-like" | "-lt" | "-match" | "-ne" | "-notcontains" | "-notin" | "-notlike" | "-notmatch" | "-replace" | "-shl" | "-shr" | "-split" }
 
 simple_operator = _{ "-" | "+" | "*" | "/" | "%" }
-
-assignement_operator = _{"=" | "!=" | "+=" | "*=" | "/=" | "%=" | "-="}
 
 value = _{ expandable_string_literal | string_literal | number }
 
@@ -130,12 +136,13 @@ string_text           = { (!( "$" | "`" | "\"" ) ~ ANY)+ }
 string_escaped
     = { "`" ~ ANY }
 
-number = _{ float | hex | binary | int }
+//number = { float | hex | binary | int }
+number = { hex | binary | int }
 int = @{ ASCII_DIGIT+ }
-float = @{
-    ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ |
-    "." ~ ASCII_DIGIT+
-}
+//float = @{
+//    ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ |
+//    "." ~ ASCII_DIGIT+
+//}
 hex = @{ "0x" ~ ASCII_HEX_DIGIT+ }
 binary = @{ "0b" ~ ASCII_BIN_DIGIT+ }
 
@@ -148,7 +155,6 @@ member_suffix = _{
     | method_invocation
 }
 dot_member         = { "." ~ expression }
-//dot_member 		= _{ "." ~ ( subexpr | identifier ~ ( "(" ~ (expression ~ ("," ~ expression)*)? ~ ")" )? ) }
 static_member      = { "::" ~ identifier }
 index_access       = { "[" ~ expression ~ "]" }
 method_invocation  = { "(" ~ argument_list? ~ ")" }
