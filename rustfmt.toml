@@ -1,0 +1,8 @@
+edition = "2024"
+imports_granularity = "Crate"
+reorder_modules = true
+reorder_imports = true
+format_strings = true
+merge_derives = true
+wrap_comments = true
+group_imports = "StdExternalCrate"

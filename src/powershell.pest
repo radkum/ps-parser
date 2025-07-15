@@ -1,0 +1,162 @@
+BREAK     = _{ " " | "\t" }
+WHITESPACE     = _{ BREAK | NEWLINE | single_line_comment | block_comment}
+NEWLINE        = _{ "\n" | "\r\n" }
+single_line_comment = _{ "#" ~ (!NEWLINE ~ ANY)* }
+block_comment = _{ "<#" ~ (!"#>" ~ ANY)* ~ "#>" }
+terminator = _{ ";" | WHITESPACE }
+
+program = { SOI ~ statements ~ EOI }
+
+statements = _{ statement ~ (terminator? ~ statement)* ~ terminator? }
+
+statement = _{ 
+	 if_statement 
+    | foreach_loop 
+    | while_loop 
+    | for_loop 
+    | function_definition
+    | pipeline 
+    | expression
+}
+
+expression = _{
+assignment |
+	comparison_expression
+	| array_literal
+    | increment_decrement_exp
+	| additive 
+	| atomic
+    | statement_block
+    | command_call
+}
+subexpression = { "$" ~ "(" ~ expression ~ ")" }
+atomic = _{
+	cast_expression
+	| subexpression
+    | range
+    | value
+    | variable
+    | "(" ~ expression ~ ")"
+}
+
+increment_decrement_exp = _{ pre_inc_exp | post_inc_exp | pre_dec_exp | post_dec_exp }
+
+pre_inc_exp = { atomic ~ "++"}
+post_inc_exp = { "++" ~ atomic}
+pre_dec_exp = { atomic ~ "--"}
+post_dec_exp = { "--" ~ atomic}
+
+comparison_expression = ${ additive ~ WHITESPACE+ ~ comparison_operator ~ WHITESPACE+ ~ additive }
+
+//member_access = { atomic ~ ((("."| "::") ~ (simple_name | string_literal)))* }
+//member_access = { atomic ~ ((("."| "::") ~ (simple_name | string_literal | method_call)))* }
+
+//method_call = { identifier ~ "(" ~ (expression ~ ("," ~ expression)*)? ~ ")" }
+
+additive = _{ multiplicative ~ (WHITESPACE* ~ ("+" | "-") ~ WHITESPACE* ~ multiplicative)* }
+multiplicative = _{ postfix_expr ~ (WHITESPACE* ~ ("*" | "/" | "%") ~ WHITESPACE* ~ postfix_expr)* }
+postfix_expr  = _{ atomic ~ ( member_suffix )* }
+
+assignment = { variable ~ assignement_operator ~ expression }
+
+if_statement = {
+    "if" ~ BREAK* ~ "(" ~ expression ~ ")" ~ WHITESPACE* ~ statement_block ~
+    (WHITESPACE* ~ "else" ~ WHITESPACE* ~ statement_block)?
+}
+
+foreach_loop = {
+    "foreach" ~ BREAK* ~ "(" ~ BREAK* ~ variable ~ BREAK* ~ "in" ~ expression ~")" ~ BREAK* ~ statement_block
+}
+
+while_loop = {
+    "while" ~ BREAK* ~ "(" ~ expression ~ ")" ~ BREAK* ~ statement_block
+}
+
+for_loop     = _{ "for" ~ WHITESPACE* ~ "("
+                      ~ WHITESPACE* ~ initializer_list? ~ WHITESPACE* ~ ";"
+                      ~ WHITESPACE* ~ expression? ~ WHITESPACE* ~ ";"
+                      ~ WHITESPACE* ~ iterator_list? ~ WHITESPACE* ~ ")"
+                      ~ WHITESPACE* ~ block }
+
+initializer_list  = _{ expression ~ ( WHITESPACE* ~ "," ~ WHITESPACE* ~ expression )* }
+iterator_list     = _{ expression ~ ( WHITESPACE* ~ "," ~ WHITESPACE* ~ expression )* }
+
+statement_block = { "{" ~ statement* ~ "}" }
+
+pipeline = { command_call ~ (WHITESPACE* ~ "|" ~ WHITESPACE* ~ command_call)* }
+
+command_call = @{ command_ident ~ (BREAK+ ~ expression)* }
+
+cast_expression = {
+    "[" ~ type_name  ~ "]" ~ postfix_expr 
+}
+
+function_definition = {
+    "function" ~ WHITESPACE+ ~ identifier ~ WHITESPACE* ~ block_with_params?
+}
+
+block_with_params = { block ~ param_block? | param_block ~ block }
+
+param_block = { "param" ~ WHITESPACE* ~ "(" ~ WHITESPACE* ~ param_list? ~ WHITESPACE* ~ ")" }
+
+param_list = { variable ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ variable)* }
+
+block = { "{" ~ statement* ~ expression* ~ "}" }
+
+array_literal = _{ implicit_array | explicit_array }
+
+implicit_array = { atomic ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ atomic)+ }
+
+explicit_array = { "@(" ~ WHITESPACE* ~ expression_list? ~ WHITESPACE* ~ ")" }
+
+expression_list = { atomic ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ expression)* }
+
+range = { number ~ ".." ~ number }
+
+comparison_operator = _{ "-as" | "-ccontains" | "-ceq" | "-cge" | "-cgt" | "-cle" | "-clike" | "-clt" | "-cmatch" | "-cne" | "-cnotcontains" | "-cnotlike" | "-cnotmatch" | "-contains" | "-creplace" | "-csplit" | "-eq" | "-ge" | "-gt" | "-icontains" | "-ieq" | "-ige" | "-igt" | "-ile" | "-ilike" | "-ilt" | "-imatch" | "-in" | "-ine" | "-inotcontains" | "-inotlike" | "-inotmatch" | "-ireplace" | "-is" | "-isnot" | "-isplit" | "-join" | "-le" | "-like" | "-lt" | "-match" | "-ne" | "-notcontains" | "-notin" | "-notlike" | "-notmatch" | "-replace" | "-shl" | "-shr" | "-split" }
+
+simple_operator = _{ "-" | "+" | "*" | "/" | "%" }
+
+assignement_operator = _{"=" | "!=" | "+=" | "*=" | "/=" | "%=" | "-="}
+
+value = _{ expandable_string_literal | string_literal | number }
+
+string_literal = @{ "'" ~ (("\\'" | !"'" ~ ANY))* ~ "'" }
+
+expandable_string_literal = _{ "\"" ~ expandable_string_content ~ "\"" }
+expandable_string_content = { expandable_string_elem* }
+expandable_string_elem = _{ string_escaped | string_text | variable | subexpression }
+string_text           = { (!( "$" | "`" | "\"" ) ~ ANY)+ }
+string_escaped
+    = { "`" ~ ANY }
+
+number = _{ float | hex | binary | int }
+int = @{ ASCII_DIGIT+ }
+float = @{
+    ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ |
+    "." ~ ASCII_DIGIT+
+}
+hex = @{ "0x" ~ ASCII_HEX_DIGIT+ }
+binary = @{ "0b" ~ ASCII_BIN_DIGIT+ }
+
+variable = @{ "$" ~ identifier | "$" ~ "{" ~ identifier ~ "}" }
+
+member_suffix = _{
+      dot_member
+    | static_member
+    | index_access
+    | method_invocation
+}
+dot_member         = { "." ~ expression }
+//dot_member 		= _{ "." ~ ( subexpr | identifier ~ ( "(" ~ (expression ~ ("," ~ expression)*)? ~ ")" )? ) }
+static_member      = { "::" ~ identifier }
+index_access       = { "[" ~ expression ~ "]" }
+method_invocation  = { "(" ~ argument_list? ~ ")" }
+
+argument_list      = { expression ~ ("," ~ expression)* }
+command_ident = @{ ASCII_ALPHANUMERIC ~ (ASCII_ALPHANUMERIC | "-")* }
+identifier            = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+qualified_ident = { identifier ~ ("." ~ identifier)* }
+
+type_name = @{ ASCII_ALPHA+ }
+simple_name = @{ ASCII_ALPHANUMERIC+ }
