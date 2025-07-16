@@ -1,8 +1,13 @@
 [package]
 name = "ps-parser"
+description = "The Powershell Parser"
 version = "0.1.0-pre"
 authors = ["radkum <radoslaw.kumorekit@gmail.com>"]
 edition = "2024"
+keywords = ["powershell","obfuscation", "parser", "pest"]
+categories = ["parsing"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
 build = "build.rs"
 
 [lib]
