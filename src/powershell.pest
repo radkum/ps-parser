@@ -7,7 +7,7 @@ terminator = _{ ";" | WHITESPACE }
 
 program = { SOI ~ statements ~ EOI }
 
-statements = _{ statement ~ (terminator? ~ statement)* ~ terminator? }
+statements = _{ statement ~ (( ";" | WHITESPACE )? ~ statement)* ~ terminator? }
 
 statement = _{ 
 	if_statement 
@@ -69,7 +69,10 @@ mod = {"%"}
 postfix_expr  = { atomic ~ ( member_suffix )* }
 
 assignment_exp = { variable ~ assignement_op ~ expression }
-assignement_op = _{"=" | "!=" | "+=" | "*=" | "/=" | "%=" | "-="}
+//assignement_op = {"=" | "!=" | "+=" | "*=" | "/=" | "%=" | "-="}
+prefix_assign_op = { (additive_op | multiplicative_op) }
+assign_op = { "=" }
+assignement_op = {prefix_assign_op? ~ assign_op }
 
 if_statement = {
     "if" ~ BREAK* ~ "(" ~ expression ~ ")" ~ WHITESPACE* ~ statement_block ~
