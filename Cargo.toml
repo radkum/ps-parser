@@ -1,11 +1,12 @@
 [package]
 name = "ps-parser"
-version = "0.1.0"
+version = "0.1.0-pre"
+authors = ["radkum <radoslaw.kumorekit@gmail.com>"]
 edition = "2024"
 build = "build.rs"
 
-#[lib]
-#path = "src/lib.rs"
+[lib]
+path = "src/lib.rs"
 
 [dependencies]
 log = "0.4.27"
