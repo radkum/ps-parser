@@ -135,7 +135,7 @@ impl Val {
         })
     }
 
-    fn ttype(&self) -> ValType {
+    pub fn ttype(&self) -> ValType {
         match self {
             Val::Null => ValType::Null,
             Val::Bool(_) => ValType::Bool,

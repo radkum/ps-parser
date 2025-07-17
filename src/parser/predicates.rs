@@ -10,6 +10,7 @@ use super::Val;
 pub(crate) use arithmetic::ArithmeticPred;
 pub(crate) use comparison::ComparisonPred;
 pub(crate) use replace::ReplacePred;
+pub(crate) use type_check::TypeCheckPred;
 
 pub(crate) enum PredType {
     ArithmeticPred,

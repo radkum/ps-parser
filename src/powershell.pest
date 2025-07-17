@@ -23,6 +23,7 @@ expression = {
     assignment_exp 
     | replace_operator_exp
     | cmp_operator_exp
+    | typecheck_operator_exp
     | increment_decrement_exp
     | array_exp
 	| additive_exp
@@ -55,6 +56,7 @@ pre_dec_exp = { atomic ~ "--"}
 post_dec_exp = { "--" ~ atomic}
 
 cmp_operator_exp = ${ additive_exp ~ WHITESPACE+ ~ cmp_op ~ WHITESPACE+ ~ additive_exp }
+typecheck_operator_exp = ${ additive_exp ~ WHITESPACE+ ~ type_check_op ~ WHITESPACE+ ~ "[" ~ type_name  ~ "]" }
 replace_operator_exp = ${ additive_exp ~ WHITESPACE+ ~ replace_op ~ WHITESPACE+ ~ additive_exp ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ additive_exp)? }
 
 additive_exp = { multiplicative_exp ~ (WHITESPACE* ~ additive_op ~ WHITESPACE* ~ multiplicative_exp)* }
@@ -136,7 +138,7 @@ cmp_op = {
     | "-like"| "-clike" | "-ilike" | "-notlike" | "-inotlike" | "-cnotlike" }
 contain_op = { "-in" | "-isin" |"-notin" | "-contains" | "-ccontains" | "-icontains" | "-notcontains" | "-inotcontains" | "-cnotcontains"}
 join_op = { "-join" }
-type_check_op = { "-is" | "isnot"}
+type_check_op = { "-isnot" | "-is" }
 
 simple_operator = _{ "-" | "+" | "*" | "/" | "%" }
 
@@ -154,7 +156,7 @@ string_escaped
 number = { float | hex | binary | int }
 int = @{ ASCII_DIGIT+ }
 float = @{
-    ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ |
+    ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* |
     "." ~ ASCII_DIGIT+
 }
 hex = @{ "0x" ~ ASCII_HEX_DIGIT+ }

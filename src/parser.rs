@@ -7,6 +7,7 @@ use command::PsCommand;
 use predicates::ReplacePred;
 use predicates::ComparisonPred;
 use predicates::ArithmeticPred;
+use predicates::TypeCheckPred;
 use pest::Parser;
 use pest_derive::Parser;
 pub use value::{Val, ValType};
@@ -18,7 +19,7 @@ type Pair<'i> = ::pest::iterators::Pair<'i, Rule>;
 
 use value::ValError;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum ParserError {
     #[error("PestError: {0}")]
     PestError(PestError),
@@ -334,9 +335,13 @@ impl<'a> PowerShellParser {
         check_rule!(second_operand, Rule::additive_exp);
         let from = self.eval_additive(second_operand)?;
 
-        let third_operand = pairs.next().unwrap();
-        check_rule!(third_operand, Rule::additive_exp);
-        let to = self.eval_additive(third_operand)?;
+        let to = if let Some(third_operand) = pairs.next() {
+            check_rule!(third_operand, Rule::additive_exp);
+            self.eval_additive(third_operand)?
+        } else 
+        {
+            Val::Null
+        };
 
         let Some(replace_fn) = ReplacePred::get(operator_token.as_str()) else {
             panic!();
@@ -367,6 +372,27 @@ impl<'a> PowerShellParser {
         Ok(Val::Bool(cmp_fn(v1, v2)))
     }
 
+    fn eval_typecheck_operator_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::typecheck_operator_exp);
+
+        let mut pairs = token.into_inner();
+        let first_operand = pairs.next().unwrap();
+        check_rule!(first_operand, Rule::additive_exp);
+        let var = self.eval_additive(first_operand)?;
+
+        let operator_token = pairs.next().unwrap();
+        check_rule!(operator_token, Rule::type_check_op);
+
+        let second_operand = pairs.next().unwrap();
+        check_rule!(second_operand, Rule::type_name);
+        let ttype = ValType::cast(second_operand.as_str())?;
+        
+        let Some(typecast_fn) = TypeCheckPred::get(operator_token.as_str()) else {
+            panic!();
+        };
+        Ok(Val::Bool(typecast_fn(var, ttype)))
+    }
+
     fn eval_expression(&mut self, token_exp: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token_exp, Rule::expression);
 
@@ -385,6 +411,9 @@ impl<'a> PowerShellParser {
                 }
                 Rule::cmp_operator_exp => {
                     res.add(self.eval_cmp_operator_exp(token)?)?;
+                }
+                Rule::typecheck_operator_exp => {
+                    res.add(self.eval_typecheck_operator_exp(token)?)?;
                 }
                 Rule::command_call => {
                     res.add(self.eval_command_call(token)?)?;
@@ -410,9 +439,9 @@ impl<'a> PowerShellParser {
                 Rule::string_text => {
                     res.add(Val::String(token.as_str().to_string()))?;
                 }
-                // Rule::expression => {
-                //     res.add(self.eval_expression(token)?)?;
-                // }
+                Rule::expression => {
+                    res.add(self.eval_expression(token)?)?;
+                }
                 Rule::variable => {
                     res.add(self.variables.get(token.as_str()))?;
                 }

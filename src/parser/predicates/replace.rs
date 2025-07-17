@@ -40,7 +40,7 @@ mod tests {
     use crate::PowerShellParser;
 
     #[test]
-    fn test_eq() {
+    fn test_replace() {
         let mut p = PowerShellParser::new();
         assert_eq!(p.evaluate_last_exp(r#""Hello World" -replace "World", "PowerShell""#).unwrap(), "Hello PowerShell".to_string());
         assert_eq!(p.evaluate_last_exp(r#" "abc123" -replace "\d+", "456" "#).unwrap(), "abc456".to_string());
