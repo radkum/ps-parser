@@ -14,6 +14,7 @@ build = "build.rs"
 #path = "src/lib.rs"
 
 [dependencies]
+icu = { version = "1.4", features = ["compiled_data"] }
 log = "0.4.27"
 pest = "2.7.8"
 pest_derive = "2.7"

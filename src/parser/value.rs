@@ -1,4 +1,17 @@
 use std::num::ParseFloatError;
+use icu::collator::{Collator, CollatorOptions};
+use icu::locid::locale;
+use std::sync::LazyLock;
+
+
+// very strange. En-us culture has different ordering than default. A (ascii 65) is greater than a(ascii 97
+// need to Collator object to perform string comparison
+const COLLATOR: LazyLock<Collator> =
+        LazyLock::new(|| Collator::try_new(
+        &locale!("en-US").into(),
+        CollatorOptions::new()
+    ).unwrap()
+);
 
 use thiserror_no_std::Error;
 #[derive(Error, Debug, PartialEq)]
@@ -82,6 +95,42 @@ impl Val {
                     s == &s2
                 }
                 
+            },
+        })
+    }
+
+    pub fn gt(&self, val: Val, case_insensitive: bool) -> ValResult<bool> {
+        Ok(match self {
+            Val::Null => false,
+            Val::Bool(b) => *b > val.cast_to_bool()?,
+            Val::Char(c) => *c > val.cast_to_char()?,
+            Val::Int(i) => *i > val.cast_to_int()?,
+            Val::Float(f) => *f > val.cast_to_float()?,
+            Val::String(s) => {
+                let s2 = val.cast_to_string();
+                if case_insensitive {
+                    s.to_ascii_lowercase() > s2.to_ascii_lowercase()
+                } else {
+                    COLLATOR.compare(s, &s2) == std::cmp::Ordering::Greater
+                }
+            },
+        })
+    }
+
+    pub fn lt(&self, val: Val, case_insensitive: bool) -> ValResult<bool> {
+        Ok(match self {
+            Val::Null => false,
+            Val::Bool(b) => *b < val.cast_to_bool()?,
+            Val::Char(c) => *c < val.cast_to_char()?,
+            Val::Int(i) => *i < val.cast_to_int()?,
+            Val::Float(f) => *f < val.cast_to_float()?,
+            Val::String(s) => {
+                let s2 = val.cast_to_string();
+                if case_insensitive {
+                    s.to_ascii_lowercase() < s2.to_ascii_lowercase()
+                } else {
+                    COLLATOR.compare(s, &s2) == std::cmp::Ordering::Less
+                }
             },
         })
     }

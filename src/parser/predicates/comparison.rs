@@ -12,35 +12,35 @@ impl ComparisonPred {
     const COMP_PRED_MAP: LazyLock<HashMap<&'static str, CompPredType>> =
         LazyLock::new(|| HashMap::from([
             ("-eq", ieq as _),
-            ("-ceq", ceq as _),
             ("-ieq", ieq as _),
+            ("-ceq", ceq as _),
             ("-ne", ine as _),
-            ("-cne", cne as _),
             ("-ine", ine as _),
-            // ("-cge", cge as _),
-            // ("-ige", ige as _),
-            // ("-cgt", cgt as _),
-            // ("-igt", igt as _),
-            // ("-cle", cle as _),
-            // ("-ile", ile as _),
-            // ("-contains", icontains as _),
-            // ("-icontains", icontains as _),
-            // ("-ccontains", ccontains as _),
-            // ("-notcontains", inotcontains as _),
-            // ("-inotcontains", inotcontains as _),
-            // ("-cnotcontains", cnotcontains as _),
-            // ("-match", imatch as _),
-            // ("-imatch", imatch as _),
-            // ("-cmatch", cmatch as _),
-            // ("-notmatch", inotmatch as _),
-            // ("-inotmatch", inotmatch as _),
-            // ("-cnotmatch", cnotmatch as _),
-            // ("-like", ilike as _),
-            // ("-ilike", ilike as _),
-            // ("-clike", clike as _),
-            // ("-notlike", inotlike as _),
-            // ("-inotlike", inotlike as _),
-            // ("-cnotlike", cnotlike as _),
+            ("-cne", cne as _),
+            ("-gt", igt as _),
+            ("-igt", igt as _),
+            ("-cgt", cgt as _),
+            ("-ge", ige as _),
+            ("-ige", ige as _),
+            ("-cge", cge as _),
+            ("-lt", ilt as _),
+            ("-ilt", ilt as _),
+            ("-clt", clt as _),
+            ("-le", ile as _),
+            ("-ile", ile as _),
+            ("-cle", cle as _),
+            ("-match", imatch as _),
+            ("-imatch", imatch as _),
+            ("-cmatch", cmatch as _),
+            ("-notmatch", inotmatch as _),
+            ("-inotmatch", inotmatch as _),
+            ("-cnotmatch", cnotmatch as _),
+            ("-like", ilike as _),
+            ("-ilike", ilike as _),
+            ("-clike", clike as _),
+            ("-notlike", inotlike as _),
+            ("-inotlike", inotlike as _),
+            ("-cnotlike", cnotlike as _),
     ]));
 
     pub(crate) fn get(name: &str) -> Option<CompPredType> {
@@ -79,93 +79,112 @@ fn ine(a: Val, b: Val) -> bool {
     !ieq(a, b)
 }
 
-
-/// Case-sensitive greater than or equal
-fn cge(a: &str, b: &str) -> bool {
-    a >= b
+fn gt_imp(a: Val, b: Val, case_insensitive: bool) -> bool {
+    match a.gt(b, case_insensitive) {
+        Ok(b) => b,
+        Err(err) => {
+            log::warn!("{err}");
+            false
+        }
+    }
 }
 
-/// Case-insensitive greater than or equal
-fn ige(a: &str, b: &str) -> bool {
-    a.to_lowercase() >= b.to_lowercase()
-}
-
-/// Case-sensitive greater than
-fn cgt(a: &str, b: &str) -> bool {
-    a > b
+fn lt_imp(a: Val, b: Val, case_insensitive: bool) -> bool {
+    match a.lt(b, case_insensitive) {
+        Ok(b) => b,
+        Err(err) => {
+            log::warn!("{err}");
+            false
+        }
+    }
 }
 
 /// Case-insensitive greater than
-fn igt(a: &str, b: &str) -> bool {
-    a.to_lowercase() > b.to_lowercase()
+fn igt(a: Val, b: Val) -> bool {
+    gt_imp(a, b, true)
 }
 
-/// Case-sensitive less than or equal
-fn cle(a: &str, b: &str) -> bool {
-    a <= b
+/// Case-sensitive greater than
+fn cgt(a: Val, b: Val) -> bool {
+    gt_imp(a, b, false)
 }
 
-/// Case-insensitive less than or equal
-fn ile(a: &str, b: &str) -> bool {
-    a.to_lowercase() <= b.to_lowercase()
+/// Case-insensitive greater than or equal
+fn ige(a: Val, b: Val) -> bool {
+    !lt_imp(a, b, true)
 }
 
-/// Case-sensitive less than
-fn clt(a: &str, b: &str) -> bool {
-    a < b
+/// Case-sensitive greater than or equal
+fn cge(a: Val, b: Val) -> bool {
+    !lt_imp(a, b, false)
 }
 
 /// Case-insensitive less than
-fn ilt(a: &str, b: &str) -> bool {
-    a.to_lowercase() < b.to_lowercase()
+fn ilt(a: Val, b: Val) -> bool {
+    lt_imp(a, b, true)
+}
+
+/// Case-sensitive less than
+fn clt(a: Val, b: Val) -> bool {
+    lt_imp(a, b, false)
+}
+
+/// Case-insensitive less than or equal
+fn ile(a: Val, b: Val) -> bool {
+    !gt_imp(a, b, true)
+}
+
+/// Case-sensitive less than or equal
+fn cle(a: Val, b: Val) -> bool {
+    !gt_imp(a, b, false)
 }
 
 /// Case-sensitive match (regex)
-fn cmatch(a: &str, pattern: &str) -> bool {
-    Regex::new(pattern).map(|re| re.is_match(a)).unwrap_or(false)
+fn cmatch(input: Val, pattern: Val) -> bool {
+    Regex::new(&pattern.cast_to_string()).map(|re| re.is_match(&input.cast_to_string())).unwrap_or(false)
 }
 
 /// Case-insensitive match (regex)
-fn imatch(a: &str, pattern: &str) -> bool {
-    Regex::new(&format!("(?i){}", pattern))
-        .map(|re| re.is_match(a))
+fn imatch(input: Val, pattern: Val) -> bool {
+    Regex::new(&format!("(?i){}", pattern.cast_to_string()))
+        .map(|re| re.is_match(&input.cast_to_string()))
         .unwrap_or(false)
 }
 
 /// Case-sensitive not match
-fn cnotmatch(a: &str, pattern: &str) -> bool {
-    !cmatch(a, pattern)
+fn cnotmatch(input: Val, pattern: Val) -> bool {
+    !cmatch(input, pattern)
 }
 
 /// Case-insensitive not match
-fn inotmatch(a: &str, pattern: &str) -> bool {
-    !imatch(a, pattern)
+fn inotmatch(input: Val, pattern: Val) -> bool {
+    !imatch(input, pattern)
 }
 
 /// Case-sensitive like (simple wildcard: * and ?)
-fn clike(a: &str, pattern: &str) -> bool {
-    let regex_pattern = wildcard_to_regex(pattern, false);
+fn clike(input: Val, pattern: Val) -> bool {
+    let regex_pattern = wildcard_to_regex(&pattern.cast_to_string(), false);
     Regex::new(&regex_pattern)
-        .map(|re| re.is_match(a))
+        .map(|re| re.is_match(&input.cast_to_string()))
         .unwrap_or(false)
 }
 
 /// Case-insensitive like
-fn ilike(a: &str, pattern: &str) -> bool {
-    let regex_pattern = wildcard_to_regex(pattern, true);
+fn ilike(input: Val, pattern: Val) -> bool {
+    let regex_pattern = wildcard_to_regex(&pattern.cast_to_string(), true);
     Regex::new(&regex_pattern)
-        .map(|re| re.is_match(a))
+        .map(|re| re.is_match(&input.cast_to_string()))
         .unwrap_or(false)
 }
 
 /// Case-sensitive not like
-fn cnotlike(a: &str, pattern: &str) -> bool {
-    !clike(a, pattern)
+fn cnotlike(input: Val, pattern: Val) -> bool {
+    !clike(input, pattern)
 }
 
 /// Case-insensitive not like
-fn inotlike(a: &str, pattern: &str) -> bool {
-    !ilike(a, pattern)
+fn inotlike(input: Val, pattern: Val) -> bool {
+    !ilike(input, pattern)
 }
 
 /// Helper: convert wildcard pattern (*, ?) to regex pattern.
@@ -206,5 +225,61 @@ mod tests {
         assert_eq!(p.evaluate_last_exp("\"A\" -ne \"a\"").unwrap(), "False".to_string());
         assert_eq!(p.evaluate_last_exp("\"A\" -ine \"a\"").unwrap(), "False".to_string());
         assert_eq!(p.evaluate_last_exp("\"A\" -cne \"a\"").unwrap(), "True".to_string());
+    }
+
+    #[test]
+    fn test_gt() {
+        let mut p = PowerShellParser::new();
+        assert_eq!(p.evaluate_last_exp(r#"2 -gt 1"#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#"[char]1 -le "b""#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "c" -ge [char]99 "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "b" -ge [char]99 "#).unwrap(), "False".to_string());
+
+        assert_eq!(p.evaluate_last_exp(r#" "a" -gt "A" "#).unwrap(), "False".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "a" -igt "A" "#).unwrap(), "False".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "A" -cgt "A" "#).unwrap(), "False".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "A" -cgt "a" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "a" -lt "A" "#).unwrap(), "False".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "A" -ilt "a" "#).unwrap(), "False".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "a" -clt "A" "#).unwrap(), "True".to_string());
+
+        assert_eq!(p.evaluate_last_exp(r#" "a" -ge "A" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "a" -ige "A" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "a" -cge "A" "#).unwrap(), "False".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "A" -cge "A" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "A" -le "a" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "A" -ile "a" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "A" -cle "a" "#).unwrap(), "False".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "A" -cle "A" "#).unwrap(), "True".to_string());
+    }
+
+    #[test]
+    fn test_match() {
+        let mut p = PowerShellParser::new();
+        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -match "hello" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -imatch "hello" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -cmatch "hello" "#).unwrap(), "False".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -cnotmatch "hello" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "abc123xyz" -cmatch "\d{3}" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "abc123xyz" -cmatch 123 "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "anything" -cmatch "" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "user@example.com" -cmatch "\w+@\w+\.\w+" "#).unwrap(), "True".to_string());
+    }
+
+    #[test]
+    fn test_like() {
+        let mut p = PowerShellParser::new();
+        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -like "hello*" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -ilike "hello*" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -clike "hello*" "#).unwrap(), "False".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -clike "Hello*" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -cnotlike "hello*" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -clike "*llo*" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -cnotlike "*lllo*" "#).unwrap(), "True".to_string());
+
+        assert_eq!(p.evaluate_last_exp(r#" "cat" -clike "c?t" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "cut" -clike "c?t" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "coat" -notlike "c?t" "#).unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp(r#" "CUt" -cnotlike "c?t" "#).unwrap(), "True".to_string());
     }
 }
