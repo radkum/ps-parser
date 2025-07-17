@@ -9,8 +9,8 @@ pub(crate) type CompPredType = fn(Val, b: Val) -> bool;
 pub(crate) struct ComparisonPred;
 
 impl ComparisonPred {
-    const COMP_PRED_MAP: LazyLock<HashMap<&'static str, CompPredType>> =
-        LazyLock::new(|| HashMap::from([
+    const COMP_PRED_MAP: LazyLock<HashMap<&'static str, CompPredType>> = LazyLock::new(|| {
+        HashMap::from([
             ("-eq", ieq as _),
             ("-ieq", ieq as _),
             ("-ceq", ceq as _),
@@ -41,13 +41,13 @@ impl ComparisonPred {
             ("-notlike", inotlike as _),
             ("-inotlike", inotlike as _),
             ("-cnotlike", cnotlike as _),
-    ]));
+        ])
+    });
 
     pub(crate) fn get(name: &str) -> Option<CompPredType> {
         Self::COMP_PRED_MAP.get(name).map(|elem| *elem)
     }
 }
-
 
 fn eq_imp(a: Val, b: Val, case_insensitive: bool) -> bool {
     match a.eq(b, case_insensitive) {
@@ -141,7 +141,9 @@ fn cle(a: Val, b: Val) -> bool {
 
 /// Case-sensitive match (regex)
 fn cmatch(input: Val, pattern: Val) -> bool {
-    Regex::new(&pattern.cast_to_string()).map(|re| re.is_match(&input.cast_to_string())).unwrap_or(false)
+    Regex::new(&pattern.cast_to_string())
+        .map(|re| re.is_match(&input.cast_to_string()))
+        .unwrap_or(false)
 }
 
 /// Case-insensitive match (regex)
@@ -219,67 +221,212 @@ mod tests {
         let mut p = PowerShellParser::new();
         assert_eq!(p.evaluate_last_exp("1 -eq 1").unwrap(), "True".to_string());
         assert_eq!(p.evaluate_last_exp("1 -eq 2").unwrap(), "False".to_string());
-        assert_eq!(p.evaluate_last_exp("\"1\" -ieq 1").unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp("\"A\" -ieq \"a\"").unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp("\"A\" -ceq \"a\"").unwrap(), "False".to_string());
-        assert_eq!(p.evaluate_last_exp("\"A\" -ne \"a\"").unwrap(), "False".to_string());
-        assert_eq!(p.evaluate_last_exp("\"A\" -ine \"a\"").unwrap(), "False".to_string());
-        assert_eq!(p.evaluate_last_exp("\"A\" -cne \"a\"").unwrap(), "True".to_string());
+        assert_eq!(
+            p.evaluate_last_exp("\"1\" -ieq 1").unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp("\"A\" -ieq \"a\"").unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp("\"A\" -ceq \"a\"").unwrap(),
+            "False".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp("\"A\" -ne \"a\"").unwrap(),
+            "False".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp("\"A\" -ine \"a\"").unwrap(),
+            "False".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp("\"A\" -cne \"a\"").unwrap(),
+            "True".to_string()
+        );
     }
 
     #[test]
     fn test_gt() {
         let mut p = PowerShellParser::new();
-        assert_eq!(p.evaluate_last_exp(r#"2 -gt 1"#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#"[char]1 -le "b""#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "c" -ge [char]99 "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "b" -ge [char]99 "#).unwrap(), "False".to_string());
+        assert_eq!(
+            p.evaluate_last_exp(r#"2 -gt 1"#).unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#"[char]1 -le "b""#).unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "c" -ge [char]99 "#).unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "b" -ge [char]99 "#).unwrap(),
+            "False".to_string()
+        );
 
-        assert_eq!(p.evaluate_last_exp(r#" "a" -gt "A" "#).unwrap(), "False".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "a" -igt "A" "#).unwrap(), "False".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "A" -cgt "A" "#).unwrap(), "False".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "A" -cgt "a" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "a" -lt "A" "#).unwrap(), "False".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "A" -ilt "a" "#).unwrap(), "False".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "a" -clt "A" "#).unwrap(), "True".to_string());
+        assert_eq!(
+            p.evaluate_last_exp(r#" "a" -gt "A" "#).unwrap(),
+            "False".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "a" -igt "A" "#).unwrap(),
+            "False".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "A" -cgt "A" "#).unwrap(),
+            "False".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "A" -cgt "a" "#).unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "a" -lt "A" "#).unwrap(),
+            "False".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "A" -ilt "a" "#).unwrap(),
+            "False".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "a" -clt "A" "#).unwrap(),
+            "True".to_string()
+        );
 
-        assert_eq!(p.evaluate_last_exp(r#" "a" -ge "A" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "a" -ige "A" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "a" -cge "A" "#).unwrap(), "False".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "A" -cge "A" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "A" -le "a" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "A" -ile "a" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "A" -cle "a" "#).unwrap(), "False".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "A" -cle "A" "#).unwrap(), "True".to_string());
+        assert_eq!(
+            p.evaluate_last_exp(r#" "a" -ge "A" "#).unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "a" -ige "A" "#).unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "a" -cge "A" "#).unwrap(),
+            "False".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "A" -cge "A" "#).unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "A" -le "a" "#).unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "A" -ile "a" "#).unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "A" -cle "a" "#).unwrap(),
+            "False".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "A" -cle "A" "#).unwrap(),
+            "True".to_string()
+        );
     }
 
     #[test]
     fn test_match() {
         let mut p = PowerShellParser::new();
-        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -match "hello" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -imatch "hello" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -cmatch "hello" "#).unwrap(), "False".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -cnotmatch "hello" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "abc123xyz" -cmatch "\d{3}" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "abc123xyz" -cmatch 123 "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "anything" -cmatch "" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "user@example.com" -cmatch "\w+@\w+\.\w+" "#).unwrap(), "True".to_string());
+        assert_eq!(
+            p.evaluate_last_exp(r#" "Hello World" -match "hello" "#)
+                .unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "Hello World" -imatch "hello" "#)
+                .unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "Hello World" -cmatch "hello" "#)
+                .unwrap(),
+            "False".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "Hello World" -cnotmatch "hello" "#)
+                .unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "abc123xyz" -cmatch "\d{3}" "#)
+                .unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "abc123xyz" -cmatch 123 "#).unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "anything" -cmatch "" "#).unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "user@example.com" -cmatch "\w+@\w+\.\w+" "#)
+                .unwrap(),
+            "True".to_string()
+        );
     }
 
     #[test]
     fn test_like() {
         let mut p = PowerShellParser::new();
-        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -like "hello*" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -ilike "hello*" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -clike "hello*" "#).unwrap(), "False".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -clike "Hello*" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -cnotlike "hello*" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -clike "*llo*" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "Hello World" -cnotlike "*lllo*" "#).unwrap(), "True".to_string());
+        assert_eq!(
+            p.evaluate_last_exp(r#" "Hello World" -like "hello*" "#)
+                .unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "Hello World" -ilike "hello*" "#)
+                .unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "Hello World" -clike "hello*" "#)
+                .unwrap(),
+            "False".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "Hello World" -clike "Hello*" "#)
+                .unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "Hello World" -cnotlike "hello*" "#)
+                .unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "Hello World" -clike "*llo*" "#)
+                .unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "Hello World" -cnotlike "*lllo*" "#)
+                .unwrap(),
+            "True".to_string()
+        );
 
-        assert_eq!(p.evaluate_last_exp(r#" "cat" -clike "c?t" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "cut" -clike "c?t" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "coat" -notlike "c?t" "#).unwrap(), "True".to_string());
-        assert_eq!(p.evaluate_last_exp(r#" "CUt" -cnotlike "c?t" "#).unwrap(), "True".to_string());
+        assert_eq!(
+            p.evaluate_last_exp(r#" "cat" -clike "c?t" "#).unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "cut" -clike "c?t" "#).unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "coat" -notlike "c?t" "#).unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            p.evaluate_last_exp(r#" "CUt" -cnotlike "c?t" "#).unwrap(),
+            "True".to_string()
+        );
     }
 }

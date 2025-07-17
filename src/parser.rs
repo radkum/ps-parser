@@ -4,15 +4,12 @@ mod value;
 mod variables;
 
 use command::PsCommand;
-use predicates::ReplacePred;
-use predicates::ComparisonPred;
-use predicates::ArithmeticPred;
-use predicates::TypeCheckPred;
 use pest::Parser;
 use pest_derive::Parser;
+use predicates::{ArithmeticPred, ComparisonPred, ReplacePred, TypeCheckPred};
+use thiserror_no_std::Error;
 pub use value::{Val, ValType};
 use variables::Variables;
-use thiserror_no_std::Error;
 
 type PestError = pest::error::Error<Rule>;
 type Pair<'i> = ::pest::iterators::Pair<'i, Rule>;
@@ -28,13 +25,13 @@ pub enum ParserError {
     ValError(ValError),
 }
 
-impl From<PestError> for ParserError{
+impl From<PestError> for ParserError {
     fn from(value: PestError) -> Self {
         Self::PestError(value)
     }
 }
 
-impl From<ValError> for ParserError{
+impl From<ValError> for ParserError {
     fn from(value: ValError) -> Self {
         Self::ValError(value)
     }
@@ -292,7 +289,7 @@ impl<'a> PowerShellParser {
             let Some(fun) = ArithmeticPred::get(op.as_str()) else {
                 panic!()
             };
-            
+
             let postfix = pairs.next().unwrap();
             let right_op = self.eval_postfix(postfix)?;
             println!("{} {:?} {:?}", op.as_str(), res, right_op);
@@ -338,8 +335,7 @@ impl<'a> PowerShellParser {
         let to = if let Some(third_operand) = pairs.next() {
             check_rule!(third_operand, Rule::additive_exp);
             self.eval_additive(third_operand)?
-        } else 
-        {
+        } else {
             Val::Null
         };
 
@@ -365,7 +361,7 @@ impl<'a> PowerShellParser {
         let v2 = self.eval_additive(second_operand)?;
 
         //let token = operator_token.into_inner().next().unwrap();
-        
+
         let Some(cmp_fn) = ComparisonPred::get(operator_token.as_str()) else {
             panic!();
         };
@@ -386,7 +382,7 @@ impl<'a> PowerShellParser {
         let second_operand = pairs.next().unwrap();
         check_rule!(second_operand, Rule::type_name);
         let ttype = ValType::cast(second_operand.as_str())?;
-        
+
         let Some(typecast_fn) = TypeCheckPred::get(operator_token.as_str()) else {
             panic!();
         };

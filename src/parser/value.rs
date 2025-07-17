@@ -1,17 +1,15 @@
-use std::num::ParseFloatError;
-use icu::collator::{Collator, CollatorOptions};
-use icu::locid::locale;
-use std::sync::LazyLock;
+use std::{num::ParseFloatError, sync::LazyLock};
 
+use icu::{
+    collator::{Collator, CollatorOptions},
+    locid::locale,
+};
 
-// very strange. En-us culture has different ordering than default. A (ascii 65) is greater than a(ascii 97
-// need to Collator object to perform string comparison
+// very strange. En-us culture has different ordering than default. A (ascii 65)
+// is greater than a(ascii 97 need to Collator object to perform string
+// comparison
 const COLLATOR: LazyLock<Collator> =
-        LazyLock::new(|| Collator::try_new(
-        &locale!("en-US").into(),
-        CollatorOptions::new()
-    ).unwrap()
-);
+    LazyLock::new(|| Collator::try_new(&locale!("en-US").into(), CollatorOptions::new()).unwrap());
 
 use thiserror_no_std::Error;
 #[derive(Error, Debug, PartialEq)]
@@ -94,8 +92,7 @@ impl Val {
                 } else {
                     s == &s2
                 }
-                
-            },
+            }
         })
     }
 
@@ -113,7 +110,7 @@ impl Val {
                 } else {
                     COLLATOR.compare(s, &s2) == std::cmp::Ordering::Greater
                 }
-            },
+            }
         })
     }
 
@@ -131,7 +128,7 @@ impl Val {
                 } else {
                     COLLATOR.compare(s, &s2) == std::cmp::Ordering::Less
                 }
-            },
+            }
         })
     }
 
@@ -156,7 +153,9 @@ impl Val {
                     Val::Int(self.cast_to_int()? + val.cast_to_int()?)
                 };
             }
-            Val::Char(_) | Val::String(_) => *self = Val::String(self.cast_to_string() + val.cast_to_string().as_str()),
+            Val::Char(_) | Val::String(_) => {
+                *self = Val::String(self.cast_to_string() + val.cast_to_string().as_str())
+            }
         };
         Ok(res)
     }
@@ -167,23 +166,33 @@ impl Val {
         } else {
             *self = Val::Int(self.cast_to_int()? - val.cast_to_int()?);
         }
-        
+
         Ok(())
     }
 
     pub fn mul(&mut self, val: Val) -> ValResult<()> {
         *self = match self {
             Val::Null => self.clone(),
-            Val::Bool(_) => Err(ValError::OperationNotDefined("*".to_string(), "Bool".to_string(), val.ttype().to_string()))?,
-             | Val::Int(_) | Val::Float(_) => {
+            Val::Bool(_) => Err(ValError::OperationNotDefined(
+                "*".to_string(),
+                "Bool".to_string(),
+                val.ttype().to_string(),
+            ))?,
+            Val::Int(_) | Val::Float(_) => {
                 if self.ttype() == ValType::Float || val.ttype() == ValType::Float {
                     Val::Float(self.cast_to_float()? * val.cast_to_float()?)
                 } else {
                     Val::Int(self.cast_to_int()? * val.cast_to_int()?)
                 }
             }
-            Val::Char(_) => Err(ValError::OperationNotDefined("*".to_string(), "Char".to_string(), val.ttype().to_string()))?,
-            Val::String(_) => Val::String(self.cast_to_string().repeat(val.cast_to_int()? as usize)),
+            Val::Char(_) => Err(ValError::OperationNotDefined(
+                "*".to_string(),
+                "Char".to_string(),
+                val.ttype().to_string(),
+            ))?,
+            Val::String(_) => {
+                Val::String(self.cast_to_string().repeat(val.cast_to_int()? as usize))
+            }
         };
         Ok(())
     }
@@ -196,15 +205,15 @@ impl Val {
             }
         }
 
-
         *self = match self {
             Val::Null => Val::Int(0),
-            Val::Bool(_) | Val::Int(_) | Val::Char(_) | Val::String(_)=> {
-                //if second operand isn't float and can be divided without rest, we can cast it to Int
-                if val.ttype() != ValType::Float && (self.cast_to_int()? % val.cast_to_int()? == 0) {
-                    Val::Int(self.cast_to_int()? / val.cast_to_int()?)
-                } else
+            Val::Bool(_) | Val::Int(_) | Val::Char(_) | Val::String(_) => {
+                //if second operand isn't float and can be divided without rest, we can cast it
+                // to Int
+                if val.ttype() != ValType::Float && (self.cast_to_int()? % val.cast_to_int()? == 0)
                 {
+                    Val::Int(self.cast_to_int()? / val.cast_to_int()?)
+                } else {
                     Val::Float(self.cast_to_float()? / val.cast_to_float()?)
                 }
             }
@@ -223,12 +232,12 @@ impl Val {
 
         *self = match self {
             Val::Null => Val::Int(0),
-            Val::Bool(_) | Val::Int(_) | Val::Char(_) | Val::String(_)=> {
-                //if second operand isn't float and can be divided without rest, we can cast it to Int
+            Val::Bool(_) | Val::Int(_) | Val::Char(_) | Val::String(_) => {
+                //if second operand isn't float and can be divided without rest, we can cast it
+                // to Int
                 if val.ttype() != ValType::Float {
                     Val::Int(self.cast_to_int()? % val.cast_to_int()?)
-                } else
-                {
+                } else {
                     Val::Float(self.cast_to_float()? % val.cast_to_float()?)
                 }
             }
@@ -261,13 +270,22 @@ impl Val {
     fn cast_to_char(&self) -> ValResult<u32> {
         let res = match self {
             Val::Null | Val::Int(_) | Val::Char(_) => self.cast_to_int()? as u32,
-            Val::Bool(_) => Err(ValError::InvalidCast("Bool".to_string(), "Char".to_string()))?,
-            Val::Float(_) => Err(ValError::InvalidCast("Float".to_string(), "Char".to_string()))?,
+            Val::Bool(_) => Err(ValError::InvalidCast(
+                "Bool".to_string(),
+                "Char".to_string(),
+            ))?,
+            Val::Float(_) => Err(ValError::InvalidCast(
+                "Float".to_string(),
+                "Char".to_string(),
+            ))?,
             Val::String(s) => {
-                if s.len() == 1 { 
+                if s.len() == 1 {
                     s.chars().next().unwrap_or_default() as u32
                 } else {
-                    Err(ValError::InvalidCast("String with len() more than 1".to_string(), "Char".to_string()))?
+                    Err(ValError::InvalidCast(
+                        "String with len() more than 1".to_string(),
+                        "Char".to_string(),
+                    ))?
                 }
             }
         };
@@ -292,7 +310,7 @@ impl Val {
     pub(super) fn cast_to_string(&self) -> String {
         match self {
             Val::Null => String::new(),
-            Val::Bool(b) => String::from(if *b { "True"} else {"False"}),
+            Val::Bool(b) => String::from(if *b { "True" } else { "False" }),
             Val::Int(i) => i.to_string(),
             Val::Float(f) => f.to_string(),
             Val::Char(c) => char::from_u32(*c).unwrap_or_default().to_string(),
@@ -413,22 +431,45 @@ mod tests {
         assert_eq!(Val::Char(0).cast_to_bool().unwrap(), false);
         assert_eq!(Val::Char(97).cast_to_bool().unwrap(), true);
         assert_eq!(Val::String("a".to_string()).cast_to_bool().unwrap(), true);
-        assert_eq!(Val::String("  888  a".to_string()).cast_to_bool().unwrap(), true);
+        assert_eq!(
+            Val::String("  888  a".to_string()).cast_to_bool().unwrap(),
+            true
+        );
         assert_eq!(Val::String("".to_string()).cast_to_bool().unwrap(), false);
     }
 
     #[test]
     fn test_cast_to_char() {
         assert_eq!(Val::Null.cast_to_char().unwrap(), 0);
-        assert_eq!(Val::Bool(true).cast_to_char().unwrap_err(), ValError::InvalidCast("Bool".to_string(), "Char".to_string()));
-        assert_eq!(Val::Bool(false).cast_to_char().unwrap_err(), ValError::InvalidCast("Bool".to_string(), "Char".to_string()));
+        assert_eq!(
+            Val::Bool(true).cast_to_char().unwrap_err(),
+            ValError::InvalidCast("Bool".to_string(), "Char".to_string())
+        );
+        assert_eq!(
+            Val::Bool(false).cast_to_char().unwrap_err(),
+            ValError::InvalidCast("Bool".to_string(), "Char".to_string())
+        );
         assert_eq!(Val::Int(123456).cast_to_char().unwrap(), 123456);
         assert_eq!(Val::Int(-123456).cast_to_char().unwrap(), 4294843840);
-        assert_eq!(Val::Float(0.09874).cast_to_char().unwrap_err(), ValError::InvalidCast("Float".to_string(), "Char".to_string()));
-        assert_eq!(Val::Float(-0.09874).cast_to_char().unwrap_err(), ValError::InvalidCast("Float".to_string(), "Char".to_string()));
+        assert_eq!(
+            Val::Float(0.09874).cast_to_char().unwrap_err(),
+            ValError::InvalidCast("Float".to_string(), "Char".to_string())
+        );
+        assert_eq!(
+            Val::Float(-0.09874).cast_to_char().unwrap_err(),
+            ValError::InvalidCast("Float".to_string(), "Char".to_string())
+        );
         assert_eq!(Val::Char(97).cast_to_char().unwrap(), 97);
         assert_eq!(Val::String("a".to_string()).cast_to_char().unwrap(), 97);
-        assert_eq!(Val::String("  888  a".to_string()).cast_to_char().unwrap_err(), ValError::InvalidCast("String with len() more than 1".to_string(), "Char".to_string()));
+        assert_eq!(
+            Val::String("  888  a".to_string())
+                .cast_to_char()
+                .unwrap_err(),
+            ValError::InvalidCast(
+                "String with len() more than 1".to_string(),
+                "Char".to_string()
+            )
+        );
     }
 
     #[test]
@@ -442,8 +483,16 @@ mod tests {
         assert_eq!(Val::Float(-0.09874).cast_to_int().unwrap(), 0);
         assert_eq!(Val::Char(97).cast_to_int().unwrap(), 97);
         assert_eq!(Val::String("00001".to_string()).cast_to_int().unwrap(), 1);
-        assert_eq!(Val::String("  888  ".to_string()).cast_to_int().unwrap(), 888);
-        assert_eq!(Val::String("  888  a".to_string()).cast_to_int().unwrap_err(), ValError::InvalidCast("String".to_string(), "Int".to_string()));
+        assert_eq!(
+            Val::String("  888  ".to_string()).cast_to_int().unwrap(),
+            888
+        );
+        assert_eq!(
+            Val::String("  888  a".to_string())
+                .cast_to_int()
+                .unwrap_err(),
+            ValError::InvalidCast("String".to_string(), "Int".to_string())
+        );
     }
 
     #[test]
@@ -456,10 +505,26 @@ mod tests {
         assert_eq!(Val::Float(0.09874).cast_to_float().unwrap(), 0.09874);
         assert_eq!(Val::Float(-0.09874).cast_to_float().unwrap(), -0.09874);
         assert_eq!(Val::Char(97).cast_to_float().unwrap(), 97.);
-        assert_eq!(Val::String("00001.".to_string()).cast_to_float().unwrap(), 1.);
-        assert_eq!(Val::String("00001.12".to_string()).cast_to_float().unwrap(), 1.12);
-        assert_eq!(Val::String("  888.123  ".to_string()).cast_to_float().unwrap(), 888.123);
-        assert_eq!(Val::String("  888  a".to_string()).cast_to_float().unwrap_err(), ValError::InvalidCast("String".to_string(), "Int".to_string()));
+        assert_eq!(
+            Val::String("00001.".to_string()).cast_to_float().unwrap(),
+            1.
+        );
+        assert_eq!(
+            Val::String("00001.12".to_string()).cast_to_float().unwrap(),
+            1.12
+        );
+        assert_eq!(
+            Val::String("  888.123  ".to_string())
+                .cast_to_float()
+                .unwrap(),
+            888.123
+        );
+        assert_eq!(
+            Val::String("  888  a".to_string())
+                .cast_to_float()
+                .unwrap_err(),
+            ValError::InvalidCast("String".to_string(), "Int".to_string())
+        );
     }
 
     #[test]
@@ -471,7 +536,10 @@ mod tests {
         assert_eq!(Val::Int(-123456).cast_to_string(), "-123456".to_string());
         assert_eq!(Val::Float(1.).cast_to_string(), "1".to_string());
         assert_eq!(Val::Float(0.09874).cast_to_string(), "0.09874".to_string());
-        assert_eq!(Val::Float(-0.09874).cast_to_string(), "-0.09874".to_string());
+        assert_eq!(
+            Val::Float(-0.09874).cast_to_string(),
+            "-0.09874".to_string()
+        );
         assert_eq!(Val::Char(97).cast_to_string(), "a".to_string());
         assert_eq!(Val::Char(9997).cast_to_string(), "\u{270D}".to_string());
     }

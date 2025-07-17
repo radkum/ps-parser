@@ -6,11 +6,12 @@ mod replace;
 mod split;
 mod type_check;
 
-use super::Val;
 pub(crate) use arithmetic::ArithmeticPred;
 pub(crate) use comparison::ComparisonPred;
 pub(crate) use replace::ReplacePred;
 pub(crate) use type_check::TypeCheckPred;
+
+use super::Val;
 
 pub(crate) enum PredType {
     ArithmeticPred,
@@ -24,6 +25,4 @@ pub(crate) enum PredType {
 
 struct Predicate;
 
-impl Predicate {
-
-}
+impl Predicate {}
