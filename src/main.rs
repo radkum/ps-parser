@@ -9,7 +9,9 @@ $ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([b
 "#;
 
     let mut parser = PowerShellParser::new();
-    parser.evaluate(input)?;
+    if let Err(err) = parser.evaluate(input) {
+        println!("Parsing fail {err}");
+    }
 
     Ok(())
 }

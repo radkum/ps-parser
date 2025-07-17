@@ -10,14 +10,16 @@ license = "MIT OR Apache-2.0"
 readme = "README.md"
 build = "build.rs"
 
-[lib]
-path = "src/lib.rs"
+#[lib]
+#path = "src/lib.rs"
 
 [dependencies]
 log = "0.4.27"
 pest = "2.7.8"
 pest_derive = "2.7"
+regex = "1.11.1"
 smart-default = "0.7.1"
+thiserror-no-std = "2.0.2"
 unicode-normalization = "0.1"
 
 [build-dependencies]

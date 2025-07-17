@@ -2,14 +2,22 @@ use std::{collections::HashMap, sync::LazyLock};
 
 use super::Val;
 
-fn add(mut arg1: Val, arg2: Val) -> Val {
-    arg1.add(arg2);
-    arg1
+fn add(mut a: Val, b: Val) -> Val {
+    if let Err(err) = a.add(b) {
+        log::warn!("{err}");
+        Val::Null
+    } else {
+        a
+    }
 }
 
-fn sub(mut arg1: Val, arg2: Val) -> Val {
-    arg1.sub(arg2);
-    arg1
+fn sub(mut a: Val, b: Val) -> Val {
+    if let Err(err) = a.sub(b) {
+        log::warn!("{err}");
+        Val::Null
+    } else {
+        a
+    }
 }
 
 fn mul(arg1: Val, arg2: Val) -> Val {

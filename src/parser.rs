@@ -11,10 +11,35 @@ use pest_derive::Parser;
 use predicates::Predicates;
 pub use value::{Val, ValType};
 use variables::Variables;
+use thiserror_no_std::Error;
 
 type PestError = pest::error::Error<Rule>;
-type PestResult<T> = core::result::Result<T, PestError>;
 type Pair<'i> = ::pest::iterators::Pair<'i, Rule>;
+
+use value::ValError;
+
+#[derive(Error, Debug)]
+pub enum ParserError {
+    #[error("PestError: {0}")]
+    PestError(PestError),
+
+    #[error("ValError: {0}")]
+    ValError(ValError),
+}
+
+impl From<PestError> for ParserError{
+    fn from(value: PestError) -> Self {
+        Self::PestError(value)
+    }
+}
+
+impl From<ValError> for ParserError{
+    fn from(value: ValError) -> Self {
+        Self::ValError(value)
+    }
+}
+
+type ParserResult<T> = core::result::Result<T, ParserError>;
 
 macro_rules! check_rule {
     ($pair:expr, $rule:pat) => {
@@ -38,7 +63,7 @@ impl<'a> PowerShellParser {
         }
     }
 
-    pub fn evaluate(&mut self, input: &str) -> PestResult<String> {
+    pub fn evaluate(&mut self, input: &str) -> ParserResult<String> {
         let mut pairs = PowerShellParser::parse(Rule::program, input)?;
         let program_token = pairs.next().expect("");
 
@@ -64,7 +89,7 @@ impl<'a> PowerShellParser {
         Ok(String::new())
     }
 
-    fn eval_num(&mut self, token: Pair<'a>) -> PestResult<Val> {
+    fn eval_num(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         let mut pairs = token.into_inner();
         let token = pairs.next().unwrap();
         let v = match token.as_rule() {
@@ -84,26 +109,26 @@ impl<'a> PowerShellParser {
         Ok(Val::Int(v))
     }
 
-    fn eval_cast_exp(&mut self, token: Pair<'a>) -> PestResult<Val> {
+    fn eval_cast_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::cast_expression);
         let mut tokens = token.into_inner();
 
         let type_name_token = tokens.next().expect("Failed to get token");
         check_rule!(type_name_token, Rule::type_name);
 
-        let mut val_type = ValType::cast(type_name_token.as_str());
+        let val_type = ValType::cast(type_name_token.as_str())?;
 
         let expression = tokens.next().expect("Failed to get token");
-        let val = match expression.as_rule() {
-            Rule::expression => val_type.init(self.eval_expression(expression)?),
-            Rule::number => val_type.init(self.eval_num(expression)?),
-            Rule::postfix_expr => val_type.init(self.eval_postfix(expression)?),
+        let mut val = match expression.as_rule() {
+            Rule::expression => self.eval_expression(expression)?,
+            Rule::number => self.eval_num(expression)?,
+            Rule::postfix_expr => self.eval_postfix(expression)?,
             _ => {
                 println!("token_rule: {:?}", expression.as_rule());
                 todo!()
             }
         };
-        Ok(val)
+        Ok(val.cast(val_type)?)
     }
 
     fn eval_args(&mut self, token: Pair<'a>) -> Option<Vec<Val>> {
@@ -137,7 +162,7 @@ impl<'a> PowerShellParser {
         self.eval_expression(token).ok()
     }
 
-    fn eval_atomic(&mut self, token: Pair<'a>) -> PestResult<Val> {
+    fn eval_atomic(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         //check_rule!(token, Rule::atomic);
         let res = match token.as_rule() {
             Rule::cast_expression => self.eval_cast_exp(token)?,
@@ -174,7 +199,7 @@ impl<'a> PowerShellParser {
         Ok(res)
     }
 
-    fn eval_command_call(&mut self, token: Pair<'a>) -> PestResult<Val> {
+    fn eval_command_call(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::command_call);
         let mut pairs = token.into_inner();
         let ident = pairs.next().unwrap();
@@ -193,7 +218,7 @@ impl<'a> PowerShellParser {
         Ok(res)
     }
 
-    fn eval_postfix(&mut self, token: Pair<'a>) -> PestResult<Val> {
+    fn eval_postfix(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::postfix_expr);
 
         let mut pairs = token.into_inner();
@@ -227,7 +252,7 @@ impl<'a> PowerShellParser {
         Ok(res)
     }
 
-    fn eval_mult(&mut self, token: Pair<'a>) -> PestResult<Val> {
+    fn eval_mult(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::multiplicative_exp);
         let mut pairs = token.into_inner();
         let mut res = self.eval_atomic(pairs.next().unwrap())?;
@@ -244,7 +269,7 @@ impl<'a> PowerShellParser {
         Ok(res)
     }
 
-    fn eval_additive(&mut self, token: Pair<'a>) -> PestResult<Val> {
+    fn eval_additive(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::additive_exp);
 
         let mut pairs = token.into_inner();
@@ -262,7 +287,7 @@ impl<'a> PowerShellParser {
         Ok(res)
     }
 
-    fn eval_comparison_exp(&mut self, token: Pair<'a>) -> PestResult<Val> {
+    fn eval_comparison_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::comparison_exp);
 
         let mut pairs = token.into_inner();
@@ -277,14 +302,25 @@ impl<'a> PowerShellParser {
         check_rule!(second_operand, Rule::additive_exp);
         let v2 = self.eval_additive(second_operand)?;
 
-        let Some(comp_fun) = Comparison::get(operator_token.as_str()) else {
-            panic!();
-        };
-
-        Ok(comp_fun(v1, vec![v2]))
+        let token = operator_token.into_inner().next().unwrap();
+        Ok(match token.as_rule() {
+            Rule::replace_op => {
+                let Some(replace_fn) = Comparison::replace_op(token.as_str()) else {
+                    panic!();
+                };
+                replace_fn(v1, vec![v2])
+            }
+            Rule::cmp_op => {
+                let Some(cmp_fn) = Comparison::cmp_op(token.as_str()) else {
+                    panic!();
+                };
+                Val::Bool(cmp_fn(v1, v2))
+            }
+            _ => todo!()
+        })
     }
 
-    fn eval_expression(&mut self, token_exp: Pair<'a>) -> PestResult<Val> {
+    fn eval_expression(&mut self, token_exp: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token_exp, Rule::expression);
 
         let mut res = Val::default();
@@ -292,16 +328,16 @@ impl<'a> PowerShellParser {
         for token in pairs {
             match token.as_rule() {
                 Rule::additive_exp => {
-                    res.add(self.eval_additive(token)?);
+                    res.add(self.eval_additive(token)?)?;
                 }
                 Rule::multiplicative_exp => {
-                    res.add(self.eval_mult(token)?);
+                    res.add(self.eval_mult(token)?)?;
                 }
                 Rule::comparison_exp => {
-                    res.add(self.eval_comparison_exp(token)?);
+                    res.add(self.eval_comparison_exp(token)?)?;
                 }
                 Rule::command_call => {
-                    res.add(self.eval_command_call(token)?);
+                    res.add(self.eval_command_call(token)?)?;
                 }
                 Rule::assignment_exp => {
                     self.eval_assigment_exp(token)?;
@@ -315,17 +351,17 @@ impl<'a> PowerShellParser {
         Ok(res)
     }
 
-    fn expand_string(&mut self, token: Pair<'a>) -> PestResult<Val> {
+    fn expand_string(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::expandable_string_content);
         let mut res = Val::default();
         let pairs = token.into_inner();
         for token in pairs {
             match token.as_rule() {
                 Rule::string_text => {
-                    res.add(Val::String(token.as_str().to_string()));
+                    res.add(Val::String(token.as_str().to_string()))?;
                 }
                 Rule::expression => {
-                    res.add(self.eval_expression(token)?);
+                    res.add(self.eval_expression(token)?)?;
                 }
                 _ => {
                     println!("expand_string not implemented: {:?}", token.as_rule());
@@ -336,7 +372,7 @@ impl<'a> PowerShellParser {
         Ok(res)
     }
 
-    // fn expand_strings(input: &str) -> PestResult<String> {
+    // fn expand_strings(input: &str) -> ParserResult<String> {
     //     let mut pairs = PowerShellParser::parse(Rule::program, input)?;
     //     let program_token = pairs.next().expect("");
 
@@ -382,7 +418,7 @@ impl<'a> PowerShellParser {
     //     todo!()
     // }
 
-    fn eval_assigment_exp(&mut self, token: Pair<'a>) -> PestResult<()> {
+    fn eval_assigment_exp(&mut self, token: Pair<'a>) -> ParserResult<()> {
         check_rule!(token, Rule::assignment_exp);
 
         let mut pairs = token.into_inner();
@@ -551,7 +587,7 @@ $literal = 'Hello, $name'
         let _ = PowerShellParser::parse(Rule::program, input).unwrap();
     }
 
-    //#[test]
+    #[test]
     fn floats() {
         let input = r#"
     $pi = 3.1415
