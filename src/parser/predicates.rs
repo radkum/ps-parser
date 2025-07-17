@@ -1,67 +1,28 @@
-use std::{collections::HashMap, sync::LazyLock};
+mod arithmetic;
+mod comparison;
+mod contain;
+mod join;
+mod replace;
+mod split;
+mod type_check;
 
 use super::Val;
+pub(crate) use arithmetic::ArithmeticPred;
+pub(crate) use comparison::ComparisonPred;
+pub(crate) use replace::ReplacePred;
 
-fn add(mut a: Val, b: Val) -> Val {
-    if let Err(err) = a.add(b) {
-        log::warn!("{err}");
-        Val::Null
-    } else {
-        a
-    }
+pub(crate) enum PredType {
+    ArithmeticPred,
+    ComparisonPred,
+    ContainPred,
+    JoinPred,
+    ReplacePred,
+    SplitPred,
+    TypeCheckPred,
 }
 
-fn sub(mut a: Val, b: Val) -> Val {
-    if let Err(err) = a.sub(b) {
-        log::warn!("{err}");
-        Val::Null
-    } else {
-        a
-    }
-}
+struct Predicate;
 
-fn mul(arg1: Val, arg2: Val) -> Val {
-    match (arg1, arg2) {
-        (Val::Int(i1), Val::Int(i2)) => Val::Int(i1 * i2),
-        _ => panic!(),
-    }
-}
+impl Predicate {
 
-fn div(arg1: Val, arg2: Val) -> Val {
-    match (arg1, arg2) {
-        (Val::Int(i1), Val::Int(i2)) => Val::Int(i1 / i2),
-        _ => panic!(),
-    }
-}
-
-fn modulo(arg1: Val, arg2: Val) -> Val {
-    match (arg1, arg2) {
-        (Val::Int(i1), Val::Int(i2)) => Val::Int(i1 % i2),
-        _ => panic!(),
-    }
-}
-
-fn assign(_arg1: Val, arg2: Val) -> Val {
-    arg2
-}
-
-pub(crate) type PredType = fn(Val, Val) -> Val;
-
-pub(crate) struct Predicates;
-
-impl Predicates {
-    const ARYTHMETIC_PRED_MAP: LazyLock<HashMap<&'static str, PredType>> = LazyLock::new(|| {
-        HashMap::from([
-            ("+", add as _),
-            ("-", sub as _),
-            ("*", mul as _),
-            ("/", div as _),
-            ("%", modulo as _),
-            ("=", assign as _),
-        ])
-    });
-
-    pub(crate) fn get(name: &str) -> Option<PredType> {
-        Self::ARYTHMETIC_PRED_MAP.get(name).map(|elem| *elem)
-    }
 }

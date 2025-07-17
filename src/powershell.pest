@@ -14,14 +14,15 @@ statement = _{
     | foreach_statement 
     | while_statement 
     | for_statement 
-    | function_statement
-    | pipeline_statement 
+    | function_statement 
+    //| pipeline_statement 
     | expression
 }
 
 expression = {
     assignment_exp 
-    | comparison_exp
+    | replace_operator_exp
+    | cmp_operator_exp
     | increment_decrement_exp
     | array_exp
 	| additive_exp
@@ -53,7 +54,8 @@ post_inc_exp = { "++" ~ atomic}
 pre_dec_exp = { atomic ~ "--"}
 post_dec_exp = { "--" ~ atomic}
 
-comparison_exp = ${ additive_exp ~ WHITESPACE+ ~ comparison_op ~ WHITESPACE+ ~ additive_exp }
+cmp_operator_exp = ${ additive_exp ~ WHITESPACE+ ~ cmp_op ~ WHITESPACE+ ~ additive_exp }
+replace_operator_exp = ${ additive_exp ~ WHITESPACE+ ~ replace_op ~ WHITESPACE+ ~ additive_exp ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ additive_exp)? }
 
 additive_exp = { multiplicative_exp ~ (WHITESPACE* ~ additive_op ~ WHITESPACE* ~ multiplicative_exp)* }
 additive_op = _{ plus | minus }
@@ -124,7 +126,7 @@ expression_list = { atomic ~ (WHITESPACE* ~ "," ~ WHITESPACE* ~ expression)* }
 
 range = { number ~ ".." ~ number }
 
-comparison_op = { replace_op | split_op | cmp_op | contain_op | join_op | type_check_op }
+string_op = { replace_op | split_op | cmp_op | contain_op | join_op | type_check_op }
 replace_op = { "-replace" | "-ireplace" | "-creplace" }
 split_op = { "-split" | "-isplit" | "-csplit" }
 cmp_op = { 
@@ -142,7 +144,7 @@ value = _{ expandable_string_literal | string_literal | number }
 
 string_literal = @{ "'" ~ (("\\'" | !"'" ~ ANY))* ~ "'" }
 
-expandable_string_literal = _{ "\"" ~ expandable_string_content ~ "\"" }
+expandable_string_literal = ${ "\"" ~ expandable_string_content ~ "\"" }
 expandable_string_content = { expandable_string_elem* }
 expandable_string_elem = _{ string_escaped | string_text | variable | subexpression }
 string_text           = { (!( "$" | "`" | "\"" ) ~ ANY)+ }

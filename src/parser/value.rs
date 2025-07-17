@@ -1,18 +1,30 @@
-use thiserror_no_std::Error;
+use std::num::ParseFloatError;
 
-#[derive(Error, Debug)]
+use thiserror_no_std::Error;
+#[derive(Error, Debug, PartialEq)]
 pub enum ValError {
     #[error("Cannot convert value \"{0}\" to type \"{1}\"")]
     InvalidCast(String, String),
 
     #[error("Unknown type \"{0}\"")]
     UnknownType(String),
+
+    #[error("Operation \"{0}\" is not defined for types \"{1}\" op \"{2}\"")]
+    OperationNotDefined(String, String, String),
+
+    #[error("Can't divide by zero")]
+    DividingByZero,
 }
 
+impl From<ParseFloatError> for ValError {
+    fn from(_value: ParseFloatError) -> Self {
+        Self::InvalidCast("String".to_string(), "Int".to_string())
+    }
+}
 use smart_default::SmartDefault;
 type ValResult<T> = core::result::Result<T, ValError>;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum ValType {
     Null,
     Bool,
@@ -20,6 +32,12 @@ pub enum ValType {
     Float,
     Char,
     String,
+}
+
+impl std::fmt::Display for ValType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 impl ValType {
@@ -37,7 +55,7 @@ impl ValType {
     }
 }
 
-#[derive(Clone, Debug, SmartDefault)]
+#[derive(Clone, Debug, SmartDefault, PartialEq)]
 pub enum Val {
     #[default]
     Null,
@@ -49,7 +67,7 @@ pub enum Val {
 }
 
 impl Val {
-    pub fn eq(&self, val: Val, case_sensitive: bool) -> ValResult<bool> {
+    pub fn eq(&self, val: Val, case_insensitive: bool) -> ValResult<bool> {
         Ok(match self {
             Val::Null => val.ttype() == ValType::Null,
             Val::Bool(b) => *b == val.cast_to_bool()?,
@@ -57,8 +75,8 @@ impl Val {
             Val::Int(i) => *i == val.cast_to_int()?,
             Val::Float(f) => *f == val.cast_to_float()?,
             Val::String(s) => {
-                let s2 = val.cast_to_string()?;
-                if case_sensitive {
+                let s2 = val.cast_to_string();
+                if case_insensitive {
                     s.eq_ignore_ascii_case(s2.as_str())
                 } else {
                     s == &s2
@@ -78,6 +96,7 @@ impl Val {
             Val::String(_) => ValType::String,
         }
     }
+
     pub fn add(&mut self, val: Val) -> ValResult<()> {
         let res = match self {
             Val::Null => *self = val,
@@ -88,7 +107,7 @@ impl Val {
                     Val::Int(self.cast_to_int()? + val.cast_to_int()?)
                 };
             }
-            Val::Char(_) | Val::String(_) => *self = Val::String(self.cast_to_string()? + val.cast_to_string()?.as_str()),
+            Val::Char(_) | Val::String(_) => *self = Val::String(self.cast_to_string() + val.cast_to_string().as_str()),
         };
         Ok(res)
     }
@@ -103,6 +122,72 @@ impl Val {
         Ok(())
     }
 
+    pub fn mul(&mut self, val: Val) -> ValResult<()> {
+        *self = match self {
+            Val::Null => self.clone(),
+            Val::Bool(_) => Err(ValError::OperationNotDefined("*".to_string(), "Bool".to_string(), val.ttype().to_string()))?,
+             | Val::Int(_) | Val::Float(_) => {
+                if self.ttype() == ValType::Float || val.ttype() == ValType::Float {
+                    Val::Float(self.cast_to_float()? * val.cast_to_float()?)
+                } else {
+                    Val::Int(self.cast_to_int()? * val.cast_to_int()?)
+                }
+            }
+            Val::Char(_) => Err(ValError::OperationNotDefined("*".to_string(), "Char".to_string(), val.ttype().to_string()))?,
+            Val::String(_) => Val::String(self.cast_to_string().repeat(val.cast_to_int()? as usize)),
+        };
+        Ok(())
+    }
+
+    pub fn div(&mut self, val: Val) -> ValResult<()> {
+        // check dividing by zero
+        if let Ok(v) = val.cast_to_float() {
+            if v == 0. {
+                Err(ValError::DividingByZero)?
+            }
+        }
+
+
+        *self = match self {
+            Val::Null => Val::Int(0),
+            Val::Bool(_) | Val::Int(_) | Val::Char(_) | Val::String(_)=> {
+                //if second operand isn't float and can be divided without rest, we can cast it to Int
+                if val.ttype() != ValType::Float && (self.cast_to_int()? % val.cast_to_int()? == 0) {
+                    Val::Int(self.cast_to_int()? / val.cast_to_int()?)
+                } else
+                {
+                    Val::Float(self.cast_to_float()? / val.cast_to_float()?)
+                }
+            }
+            Val::Float(_) => Val::Float(self.cast_to_float()? / self.cast_to_float()?),
+        };
+        Ok(())
+    }
+
+    pub fn modulo(&mut self, val: Val) -> ValResult<()> {
+        // check dividing by zero
+        if let Ok(v) = val.cast_to_float() {
+            if v == 0. {
+                Err(ValError::DividingByZero)?
+            }
+        }
+
+        *self = match self {
+            Val::Null => Val::Int(0),
+            Val::Bool(_) | Val::Int(_) | Val::Char(_) | Val::String(_)=> {
+                //if second operand isn't float and can be divided without rest, we can cast it to Int
+                if val.ttype() != ValType::Float {
+                    Val::Int(self.cast_to_int()? % val.cast_to_int()?)
+                } else
+                {
+                    Val::Float(self.cast_to_float()? % val.cast_to_float()?)
+                }
+            }
+            Val::Float(_) => Val::Float(self.cast_to_float()? % self.cast_to_float()?),
+        };
+        Ok(())
+    }
+
     pub(crate) fn cast(&mut self, ttype: ValType) -> ValResult<Self> {
         Ok(match ttype {
             ValType::Null => Err(ValError::UnknownType("Null".to_string()))?,
@@ -110,7 +195,7 @@ impl Val {
             ValType::Int => Val::Int(self.cast_to_int()?),
             ValType::Float => Val::Float(self.cast_to_float()?),
             ValType::Char => Val::Char(self.cast_to_char()?),
-            ValType::String => Val::String(self.cast_to_string()?),
+            ValType::String => Val::String(self.cast_to_string()),
         })
     }
 
@@ -118,7 +203,7 @@ impl Val {
         let res = match self {
             Val::Null => false,
             Val::Bool(b) => *b,
-            Val::Int(_) | Val::Float(_) | Val::Char(_) => self.cast_to_int()? != 0,
+            Val::Int(_) | Val::Float(_) | Val::Char(_) => self.cast_to_float()? != 0.,
             Val::String(s) => !s.is_empty(),
         };
         Ok(res)
@@ -127,13 +212,13 @@ impl Val {
     fn cast_to_char(&self) -> ValResult<u32> {
         let res = match self {
             Val::Null | Val::Int(_) | Val::Char(_) => self.cast_to_int()? as u32,
-            Val::Bool(_) => Err(ValError::InvalidCast("bool".to_string(), "char".to_string()))?,
-            Val::Float(_) => Err(ValError::InvalidCast("Float".to_string(), "char".to_string()))?,
+            Val::Bool(_) => Err(ValError::InvalidCast("Bool".to_string(), "Char".to_string()))?,
+            Val::Float(_) => Err(ValError::InvalidCast("Float".to_string(), "Char".to_string()))?,
             Val::String(s) => {
                 if s.len() == 1 { 
                     s.chars().next().unwrap_or_default() as u32
                 } else {
-                    Err(ValError::InvalidCast("String with len() more than 1".to_string(), "char".to_string()))?
+                    Err(ValError::InvalidCast("String with len() more than 1".to_string(), "Char".to_string()))?
                 }
             }
         };
@@ -141,34 +226,204 @@ impl Val {
     }
 
     fn cast_to_int(&self) -> ValResult<i64> {
-        let res = match self {
-            Val::Null => 0,
-            Val::Bool(b) => *b as i64,
-            Val::Int(i) => *i,
-            Val::Float(f) => *f as i64,
-            Val::Char(c) => *c as i64,
-            Val::String(s) => Err(ValError::InvalidCast(s.clone(), "Int".to_string()))?,
-        };
-        Ok(res)
+        Ok(self.cast_to_float()? as i64)
     }
 
     fn cast_to_float(&self) -> ValResult<f64> {
-        Ok(if let Val::Float(f) = self {
-            *f
-        } else {
-            self.cast_to_int()? as f64
+        Ok(match self {
+            Val::Null => 0.,
+            Val::Bool(b) => *b as i64 as f64,
+            Val::Int(i) => *i as f64,
+            Val::Float(f) => *f as f64,
+            Val::Char(c) => *c as f64,
+            Val::String(s) => s.trim().parse::<f64>()?,
         })
     }
 
-    fn cast_to_string(&self) -> ValResult<String> {
-        let res = match self {
+    pub(super) fn cast_to_string(&self) -> String {
+        match self {
             Val::Null => String::new(),
             Val::Bool(b) => String::from(if *b { "True"} else {"False"}),
             Val::Int(i) => i.to_string(),
             Val::Float(f) => f.to_string(),
             Val::Char(c) => char::from_u32(*c).unwrap_or_default().to_string(),
             Val::String(s) => s.clone(),
-        };
-        Ok(res)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_add() {
+        let mut val = Val::Int(4);
+        val.add(Val::Float(0.1)).unwrap();
+        assert_eq!(val, Val::Float(4.1));
+
+        let mut val = Val::String(" 123".to_string());
+        val.add(Val::Float(0.1)).unwrap();
+        assert_eq!(val, Val::String(" 1230.1".to_string()));
+
+        let mut val = Val::Char(97);
+        val.add(Val::Float(0.1)).unwrap();
+        assert_eq!(val, Val::String("a0.1".to_string()));
+
+        let mut val = Val::Int(4);
+        val.add(Val::Int(1)).unwrap();
+        assert_eq!(val, Val::Int(5));
+
+        let mut val = Val::String(" 123".to_string());
+        val.add(Val::Int(1)).unwrap();
+        assert_eq!(val, Val::String(" 1231".to_string()));
+
+        let mut val = Val::Char(97);
+        val.add(Val::Int(1)).unwrap();
+        assert_eq!(val, Val::String("a1".to_string()));
+
+        let mut val = Val::Char(97);
+        val.add(Val::Int(1)).unwrap();
+        assert_eq!(val, Val::String("a1".to_string()));
+
+        let mut val = Val::String(" 123".to_string());
+        val.add(Val::Int(1)).unwrap();
+        assert_eq!(val, Val::String(" 1231".to_string()));
+
+        let mut val = Val::Char(97);
+        val.add(Val::String("bsef".to_string())).unwrap();
+        assert_eq!(val, Val::String("absef".to_string()));
+    }
+
+    #[test]
+    fn test_sub() {
+        let mut val = Val::Int(4);
+        val.sub(Val::Float(0.1)).unwrap();
+        assert_eq!(val, Val::Float(3.9));
+
+        let mut val = Val::String(" 123".to_string());
+        val.sub(Val::Float(0.1)).unwrap();
+        assert_eq!(val, Val::Float(122.9));
+
+        let mut val = Val::Char(123);
+        val.sub(Val::Float(0.1)).unwrap();
+        assert_eq!(val, Val::Float(122.9));
+
+        let mut val = Val::Int(4);
+        val.sub(Val::Int(1)).unwrap();
+        assert_eq!(val, Val::Int(3));
+
+        let mut val = Val::String(" 123".to_string());
+        val.sub(Val::Int(1)).unwrap();
+        assert_eq!(val, Val::Int(122));
+
+        let mut val = Val::Char(123);
+        val.sub(Val::Int(1)).unwrap();
+        assert_eq!(val, Val::Int(122));
+    }
+
+    #[test]
+    fn test_mul() {
+        let mut val = Val::Int(4);
+        val.mul(Val::Float(0.1)).unwrap();
+        assert_eq!(val, Val::Float(0.4));
+
+        let mut val = Val::String(" 123".to_string());
+        val.mul(Val::Float(0.1)).unwrap();
+        assert_eq!(val, Val::String("".to_string()));
+
+        let mut val = Val::String(" 123".to_string());
+        val.mul(Val::Float(2.1)).unwrap();
+        assert_eq!(val, Val::String(" 123 123".to_string()));
+
+        // ERROR
+        // let mut val = Val::Char(123);
+        // val.mul(Val::Float(0.1)).unwrap();
+        // assert_eq!(val, Val::Float(122.9));
+
+        let mut val = Val::Int(4);
+        val.mul(Val::Int(1)).unwrap();
+        assert_eq!(val, Val::Int(4));
+
+        let mut val = Val::String(" 123".to_string());
+        val.mul(Val::Int(1)).unwrap();
+        assert_eq!(val, Val::String(" 123".to_string()));
+    }
+
+    #[test]
+    fn test_cast_to_bool() {
+        assert_eq!(Val::Null.cast_to_bool().unwrap(), false);
+        assert_eq!(Val::Bool(true).cast_to_bool().unwrap(), true);
+        assert_eq!(Val::Bool(false).cast_to_bool().unwrap(), false);
+        assert_eq!(Val::Int(-4).cast_to_bool().unwrap(), true);
+        assert_eq!(Val::Int(0).cast_to_bool().unwrap(), false);
+        assert_eq!(Val::Int(123456).cast_to_bool().unwrap(), true);
+        assert_eq!(Val::Float(0.).cast_to_bool().unwrap(), false);
+        assert_eq!(Val::Float(0.09874).cast_to_bool().unwrap(), true);
+        assert_eq!(Val::Float(-0.09874).cast_to_bool().unwrap(), true);
+        assert_eq!(Val::Char(0).cast_to_bool().unwrap(), false);
+        assert_eq!(Val::Char(97).cast_to_bool().unwrap(), true);
+        assert_eq!(Val::String("a".to_string()).cast_to_bool().unwrap(), true);
+        assert_eq!(Val::String("  888  a".to_string()).cast_to_bool().unwrap(), true);
+        assert_eq!(Val::String("".to_string()).cast_to_bool().unwrap(), false);
+    }
+
+    #[test]
+    fn test_cast_to_char() {
+        assert_eq!(Val::Null.cast_to_char().unwrap(), 0);
+        assert_eq!(Val::Bool(true).cast_to_char().unwrap_err(), ValError::InvalidCast("Bool".to_string(), "Char".to_string()));
+        assert_eq!(Val::Bool(false).cast_to_char().unwrap_err(), ValError::InvalidCast("Bool".to_string(), "Char".to_string()));
+        assert_eq!(Val::Int(123456).cast_to_char().unwrap(), 123456);
+        assert_eq!(Val::Int(-123456).cast_to_char().unwrap(), 4294843840);
+        assert_eq!(Val::Float(0.09874).cast_to_char().unwrap_err(), ValError::InvalidCast("Float".to_string(), "Char".to_string()));
+        assert_eq!(Val::Float(-0.09874).cast_to_char().unwrap_err(), ValError::InvalidCast("Float".to_string(), "Char".to_string()));
+        assert_eq!(Val::Char(97).cast_to_char().unwrap(), 97);
+        assert_eq!(Val::String("a".to_string()).cast_to_char().unwrap(), 97);
+        assert_eq!(Val::String("  888  a".to_string()).cast_to_char().unwrap_err(), ValError::InvalidCast("String with len() more than 1".to_string(), "Char".to_string()));
+    }
+
+    #[test]
+    fn test_cast_to_int() {
+        assert_eq!(Val::Null.cast_to_int().unwrap(), 0);
+        assert_eq!(Val::Bool(true).cast_to_int().unwrap(), 1);
+        assert_eq!(Val::Bool(false).cast_to_int().unwrap(), 0);
+        assert_eq!(Val::Int(123456).cast_to_int().unwrap(), 123456);
+        assert_eq!(Val::Int(-123456).cast_to_int().unwrap(), -123456);
+        assert_eq!(Val::Float(0.09874).cast_to_int().unwrap(), 0);
+        assert_eq!(Val::Float(-0.09874).cast_to_int().unwrap(), 0);
+        assert_eq!(Val::Char(97).cast_to_int().unwrap(), 97);
+        assert_eq!(Val::String("00001".to_string()).cast_to_int().unwrap(), 1);
+        assert_eq!(Val::String("  888  ".to_string()).cast_to_int().unwrap(), 888);
+        assert_eq!(Val::String("  888  a".to_string()).cast_to_int().unwrap_err(), ValError::InvalidCast("String".to_string(), "Int".to_string()));
+    }
+
+    #[test]
+    fn test_cast_to_float() {
+        assert_eq!(Val::Null.cast_to_float().unwrap(), 0.);
+        assert_eq!(Val::Bool(true).cast_to_float().unwrap(), 1.);
+        assert_eq!(Val::Bool(false).cast_to_float().unwrap(), 0.);
+        assert_eq!(Val::Int(123456).cast_to_float().unwrap(), 123456.);
+        assert_eq!(Val::Int(-123456).cast_to_float().unwrap(), -123456.);
+        assert_eq!(Val::Float(0.09874).cast_to_float().unwrap(), 0.09874);
+        assert_eq!(Val::Float(-0.09874).cast_to_float().unwrap(), -0.09874);
+        assert_eq!(Val::Char(97).cast_to_float().unwrap(), 97.);
+        assert_eq!(Val::String("00001.".to_string()).cast_to_float().unwrap(), 1.);
+        assert_eq!(Val::String("00001.12".to_string()).cast_to_float().unwrap(), 1.12);
+        assert_eq!(Val::String("  888.123  ".to_string()).cast_to_float().unwrap(), 888.123);
+        assert_eq!(Val::String("  888  a".to_string()).cast_to_float().unwrap_err(), ValError::InvalidCast("String".to_string(), "Int".to_string()));
+    }
+
+    #[test]
+    fn test_cast_to_string() {
+        assert_eq!(Val::Null.cast_to_string(), "".to_string());
+        assert_eq!(Val::Bool(true).cast_to_string(), "True".to_string());
+        assert_eq!(Val::Bool(false).cast_to_string(), "False".to_string());
+        assert_eq!(Val::Int(123456).cast_to_string(), "123456".to_string());
+        assert_eq!(Val::Int(-123456).cast_to_string(), "-123456".to_string());
+        assert_eq!(Val::Float(1.).cast_to_string(), "1".to_string());
+        assert_eq!(Val::Float(0.09874).cast_to_string(), "0.09874".to_string());
+        assert_eq!(Val::Float(-0.09874).cast_to_string(), "-0.09874".to_string());
+        assert_eq!(Val::Char(97).cast_to_string(), "a".to_string());
+        assert_eq!(Val::Char(9997).cast_to_string(), "\u{270D}".to_string());
     }
 }

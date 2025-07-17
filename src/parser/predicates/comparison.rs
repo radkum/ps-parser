@@ -1,12 +1,52 @@
-use regex::Regex;
 use std::{collections::HashMap, sync::LazyLock};
+
+use regex::Regex;
 
 use super::Val;
 
-pub(crate) type ReplacePredType = fn(Val, Vec<Val>) -> Val;
-pub(crate) type EqPredType = fn(Val, b: Val) -> bool;
+pub(crate) type CompPredType = fn(Val, b: Val) -> bool;
 
-pub(crate) struct Comparison;
+pub(crate) struct ComparisonPred;
+
+impl ComparisonPred {
+    const COMP_PRED_MAP: LazyLock<HashMap<&'static str, CompPredType>> =
+        LazyLock::new(|| HashMap::from([
+            ("-eq", ieq as _),
+            ("-ceq", ceq as _),
+            ("-ieq", ieq as _),
+            ("-ne", ine as _),
+            ("-cne", cne as _),
+            ("-ine", ine as _),
+            // ("-cge", cge as _),
+            // ("-ige", ige as _),
+            // ("-cgt", cgt as _),
+            // ("-igt", igt as _),
+            // ("-cle", cle as _),
+            // ("-ile", ile as _),
+            // ("-contains", icontains as _),
+            // ("-icontains", icontains as _),
+            // ("-ccontains", ccontains as _),
+            // ("-notcontains", inotcontains as _),
+            // ("-inotcontains", inotcontains as _),
+            // ("-cnotcontains", cnotcontains as _),
+            // ("-match", imatch as _),
+            // ("-imatch", imatch as _),
+            // ("-cmatch", cmatch as _),
+            // ("-notmatch", inotmatch as _),
+            // ("-inotmatch", inotmatch as _),
+            // ("-cnotmatch", cnotmatch as _),
+            // ("-like", ilike as _),
+            // ("-ilike", ilike as _),
+            // ("-clike", clike as _),
+            // ("-notlike", inotlike as _),
+            // ("-inotlike", inotlike as _),
+            // ("-cnotlike", cnotlike as _),
+    ]));
+
+    pub(crate) fn get(name: &str) -> Option<CompPredType> {
+        Self::COMP_PRED_MAP.get(name).map(|elem| *elem)
+    }
+}
 
 
 fn eq_imp(a: Val, b: Val, case_insensitive: bool) -> bool {
@@ -21,12 +61,12 @@ fn eq_imp(a: Val, b: Val, case_insensitive: bool) -> bool {
 
 /// Case-sensitive equality
 fn ceq(a: Val, b: Val) -> bool {
-    eq_imp(a, b, true)
+    eq_imp(a, b, false)
 }
 
 /// Case-insensitive equality
 fn ieq(a: Val, b: Val) -> bool {
-    eq_imp(a, b, false)
+    eq_imp(a, b, true)
 }
 
 /// Case-sensitive not equal
@@ -39,25 +79,6 @@ fn ine(a: Val, b: Val) -> bool {
     !ieq(a, b)
 }
 
-/// Case-sensitive contains
-fn ccontains(a: &str, b: &str) -> bool {
-    a.contains(b)
-}
-
-/// Case-insensitive contains
-fn icontains(a: &str, b: &str) -> bool {
-    a.to_lowercase().contains(&b.to_lowercase())
-}
-
-/// Case-insensitive not contains
-pub fn inotcontains(a: &str, b: &str) -> bool {
-    !icontains(a, b)
-}
-
-/// Case-sensitive not contains
-pub fn cnotcontains(a: &str, b: &str) -> bool {
-    !ccontains(a, b)
-}
 
 /// Case-sensitive greater than or equal
 fn cge(a: &str, b: &str) -> bool {
@@ -170,60 +191,20 @@ fn wildcard_to_regex(pattern: &str, case_insensitive: bool) -> String {
     regex
 }
 
-fn replace(mut s: Val, args: Vec<Val>) -> Val {
-    if args.len() == 2 {
-        if let (Val::String(s), Val::String(original), Val::String(new)) =
-            (&mut s, args[0].clone(), args[1].clone())
-        {
-            *s = s.replace(original.as_str(), new.as_str());
-        }
-    }
-    s
-}
+#[cfg(test)]
+mod tests {
+    use crate::PowerShellParser;
 
-impl Comparison {
-    const REPLACE_PRED_MAP: LazyLock<HashMap<&'static str, ReplacePredType>> =
-        LazyLock::new(|| HashMap::from([("-replace", replace as _)]));
-
-    const EQ_PRED_MAP: LazyLock<HashMap<&'static str, EqPredType>> =
-        LazyLock::new(|| HashMap::from([
-            ("-eq", ieq as _),
-            ("-ceq", ceq as _),
-            ("-ieq", ieq as _),
-            ("-cne", ine as _),
-            ("-cne", cne as _),
-            ("-ine", ine as _),
-            // ("-contains", icontains as _),
-            // ("-icontains", icontains as _),
-            // ("-ccontains", ccontains as _),
-            // ("-notcontains", inotcontains as _),
-            // ("-inotcontains", inotcontains as _),
-            // ("-cnotcontains", cnotcontains as _),
-            // ("-cge", cge as _),
-            // ("-ige", ige as _),
-            // ("-cgt", cgt as _),
-            // ("-igt", igt as _),
-            // ("-cle", cle as _),
-            // ("-ile", ile as _),
-            // ("-match", imatch as _),
-            // ("-imatch", imatch as _),
-            // ("-cmatch", cmatch as _),
-            // ("-notmatch", inotmatch as _),
-            // ("-inotmatch", inotmatch as _),
-            // ("-cnotmatch", cnotmatch as _),
-            // ("-like", ilike as _),
-            // ("-ilike", ilike as _),
-            // ("-clike", clike as _),
-            // ("-notlike", inotlike as _),
-            // ("-inotlike", inotlike as _),
-            // ("-cnotlike", cnotlike as _),
-    ]));
-
-    pub(crate) fn replace_op(name: &str) -> Option<ReplacePredType> {
-        Self::REPLACE_PRED_MAP.get(name).map(|elem| *elem)
-    }
-
-    pub(crate) fn cmp_op(name: &str) -> Option<EqPredType> {
-        Self::EQ_PRED_MAP.get(name).map(|elem| *elem)
+    #[test]
+    fn test_eq() {
+        let mut p = PowerShellParser::new();
+        assert_eq!(p.evaluate_last_exp("1 -eq 1").unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp("1 -eq 2").unwrap(), "False".to_string());
+        assert_eq!(p.evaluate_last_exp("\"1\" -ieq 1").unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp("\"A\" -ieq \"a\"").unwrap(), "True".to_string());
+        assert_eq!(p.evaluate_last_exp("\"A\" -ceq \"a\"").unwrap(), "False".to_string());
+        assert_eq!(p.evaluate_last_exp("\"A\" -ne \"a\"").unwrap(), "False".to_string());
+        assert_eq!(p.evaluate_last_exp("\"A\" -ine \"a\"").unwrap(), "False".to_string());
+        assert_eq!(p.evaluate_last_exp("\"A\" -cne \"a\"").unwrap(), "True".to_string());
     }
 }

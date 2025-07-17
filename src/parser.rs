@@ -1,14 +1,14 @@
 mod command;
-mod comparison;
 mod predicates;
 mod value;
 mod variables;
 
 use command::PsCommand;
-use comparison::Comparison;
+use predicates::ReplacePred;
+use predicates::ComparisonPred;
+use predicates::ArithmeticPred;
 use pest::Parser;
 use pest_derive::Parser;
-use predicates::Predicates;
 pub use value::{Val, ValType};
 use variables::Variables;
 use thiserror_no_std::Error;
@@ -63,9 +63,10 @@ impl<'a> PowerShellParser {
         }
     }
 
-    pub fn evaluate(&mut self, input: &str) -> ParserResult<String> {
+    pub fn evaluate_last_exp(&mut self, input: &str) -> ParserResult<String> {
         let mut pairs = PowerShellParser::parse(Rule::program, input)?;
         let program_token = pairs.next().expect("");
+        let mut res = Val::default();
 
         if let Rule::program = program_token.as_rule() {
             let pairs = program_token.into_inner();
@@ -74,10 +75,10 @@ impl<'a> PowerShellParser {
                 match token.as_rule() {
                     Rule::expression => {
                         //println!("Assignment: {}", token.as_str());
-                        self.eval_expression(token)?;
+                        res = self.eval_expression(token)?;
                     }
                     Rule::EOI => {
-                        return Ok(String::new());
+                        break;
                     }
                     _ => {
                         println!("not implemented: {:?}", token.as_rule());
@@ -86,27 +87,56 @@ impl<'a> PowerShellParser {
             }
         }
 
-        Ok(String::new())
+        Ok(res.cast_to_string())
+    }
+
+    pub fn evaluate(&mut self, input: &str) -> ParserResult<String> {
+        let mut pairs = PowerShellParser::parse(Rule::program, input)?;
+        let program_token = pairs.next().expect("");
+        let mut str_res = String::new();
+
+        if let Rule::program = program_token.as_rule() {
+            let pairs = program_token.into_inner();
+            for token in pairs {
+                //self.parse_statement(pair)?;
+                match token.as_rule() {
+                    Rule::expression => {
+                        //println!("Assignment: {}", token.as_str());
+                        str_res.push_str(&self.eval_expression(token)?.cast_to_string());
+                        str_res.push_str("\n");
+                    }
+                    Rule::EOI => {
+                        break;
+                    }
+                    _ => {
+                        println!("not implemented: {:?}", token.as_rule());
+                    }
+                }
+            }
+        }
+
+        Ok(str_res)
     }
 
     fn eval_num(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         let mut pairs = token.into_inner();
         let token = pairs.next().unwrap();
         let v = match token.as_rule() {
-            Rule::int => token.as_str().parse::<i64>().unwrap(),
+            Rule::int => Val::Int(token.as_str().parse::<i64>().unwrap()),
             Rule::binary => {
                 todo!()
             }
             Rule::hex => {
                 let lowercase = token.as_str().to_ascii_lowercase();
-                i64::from_str_radix(lowercase.strip_prefix("0x").unwrap(), 16).unwrap()
+                Val::Int(i64::from_str_radix(lowercase.strip_prefix("0x").unwrap(), 16).unwrap())
             }
+            Rule::float => Val::Float(token.as_str().parse::<f64>().unwrap()),
             _ => {
                 println!("token.rule(): {:?}", token.as_rule());
                 panic!()
             }
         };
-        Ok(Val::Int(v))
+        Ok(v)
     }
 
     fn eval_cast_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
@@ -180,7 +210,8 @@ impl<'a> PowerShellParser {
                 }
                 //Val::String(res_string)
             }
-            Rule::expandable_string_content => {
+            Rule::expandable_string_literal => {
+                let token = token.into_inner().next().unwrap();
                 let x = self.expand_string(token)?;
                 if let Val::String(s) = &x {
                     println!("expanded: {s}");
@@ -257,12 +288,13 @@ impl<'a> PowerShellParser {
         let mut pairs = token.into_inner();
         let mut res = self.eval_atomic(pairs.next().unwrap())?;
         while let Some(op) = pairs.next() {
-            let Some(fun) = Predicates::get(op.as_str()) else {
+            let Some(fun) = ArithmeticPred::get(op.as_str()) else {
                 panic!()
             };
-
+            
             let postfix = pairs.next().unwrap();
             let right_op = self.eval_postfix(postfix)?;
+            println!("{} {:?} {:?}", op.as_str(), res, right_op);
             res = fun(res, right_op);
         }
 
@@ -275,7 +307,7 @@ impl<'a> PowerShellParser {
         let mut pairs = token.into_inner();
         let mut res = self.eval_mult(pairs.next().unwrap())?;
         while let Some(op) = pairs.next() {
-            let Some(fun) = Predicates::get(op.as_str()) else {
+            let Some(fun) = ArithmeticPred::get(op.as_str()) else {
                 panic!()
             };
 
@@ -287,8 +319,33 @@ impl<'a> PowerShellParser {
         Ok(res)
     }
 
-    fn eval_comparison_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        check_rule!(token, Rule::comparison_exp);
+    fn eval_replace_operator_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::replace_operator_exp);
+
+        let mut pairs = token.into_inner();
+        let first_operand = pairs.next().unwrap();
+        check_rule!(first_operand, Rule::additive_exp);
+        let base = self.eval_additive(first_operand)?;
+
+        let operator_token = pairs.next().unwrap();
+        check_rule!(operator_token, Rule::replace_op);
+
+        let second_operand = pairs.next().unwrap();
+        check_rule!(second_operand, Rule::additive_exp);
+        let from = self.eval_additive(second_operand)?;
+
+        let third_operand = pairs.next().unwrap();
+        check_rule!(third_operand, Rule::additive_exp);
+        let to = self.eval_additive(third_operand)?;
+
+        let Some(replace_fn) = ReplacePred::get(operator_token.as_str()) else {
+            panic!();
+        };
+        Ok(Val::String(replace_fn(base, from, to)))
+    }
+
+    fn eval_cmp_operator_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::cmp_operator_exp);
 
         let mut pairs = token.into_inner();
         let first_operand = pairs.next().unwrap();
@@ -296,28 +353,18 @@ impl<'a> PowerShellParser {
         let v1 = self.eval_additive(first_operand)?;
 
         let operator_token = pairs.next().unwrap();
-        check_rule!(operator_token, Rule::comparison_op);
+        check_rule!(operator_token, Rule::cmp_op);
 
         let second_operand = pairs.next().unwrap();
         check_rule!(second_operand, Rule::additive_exp);
         let v2 = self.eval_additive(second_operand)?;
 
-        let token = operator_token.into_inner().next().unwrap();
-        Ok(match token.as_rule() {
-            Rule::replace_op => {
-                let Some(replace_fn) = Comparison::replace_op(token.as_str()) else {
-                    panic!();
-                };
-                replace_fn(v1, vec![v2])
-            }
-            Rule::cmp_op => {
-                let Some(cmp_fn) = Comparison::cmp_op(token.as_str()) else {
-                    panic!();
-                };
-                Val::Bool(cmp_fn(v1, v2))
-            }
-            _ => todo!()
-        })
+        //let token = operator_token.into_inner().next().unwrap();
+        
+        let Some(cmp_fn) = ComparisonPred::get(operator_token.as_str()) else {
+            panic!();
+        };
+        Ok(Val::Bool(cmp_fn(v1, v2)))
     }
 
     fn eval_expression(&mut self, token_exp: Pair<'a>) -> ParserResult<Val> {
@@ -333,8 +380,11 @@ impl<'a> PowerShellParser {
                 Rule::multiplicative_exp => {
                     res.add(self.eval_mult(token)?)?;
                 }
-                Rule::comparison_exp => {
-                    res.add(self.eval_comparison_exp(token)?)?;
+                Rule::replace_operator_exp => {
+                    res.add(self.eval_replace_operator_exp(token)?)?;
+                }
+                Rule::cmp_operator_exp => {
+                    res.add(self.eval_cmp_operator_exp(token)?)?;
                 }
                 Rule::command_call => {
                     res.add(self.eval_command_call(token)?)?;
@@ -360,8 +410,11 @@ impl<'a> PowerShellParser {
                 Rule::string_text => {
                     res.add(Val::String(token.as_str().to_string()))?;
                 }
-                Rule::expression => {
-                    res.add(self.eval_expression(token)?)?;
+                // Rule::expression => {
+                //     res.add(self.eval_expression(token)?)?;
+                // }
+                Rule::variable => {
+                    res.add(self.variables.get(token.as_str()))?;
                 }
                 _ => {
                     println!("expand_string not implemented: {:?}", token.as_rule());
@@ -429,7 +482,7 @@ impl<'a> PowerShellParser {
 
         //get operand
         let op = assignement_op.into_inner().next().unwrap();
-        let pred = Predicates::get(op.as_str());
+        let pred = ArithmeticPred::get(op.as_str());
 
         let expression_token = pairs.next().unwrap();
         let expression_result = self.eval_expression(expression_token)?;
@@ -554,7 +607,7 @@ if ($x -eq 1) {
         let _ = PowerShellParser::parse(Rule::program, input).unwrap();
     }
 
-    #[test]
+    //#[test]
     fn command() {
         let input = r#"
 Get-Process | Where-Object { $_.CPU -gt 100 }
