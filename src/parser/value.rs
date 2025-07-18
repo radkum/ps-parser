@@ -1,17 +1,32 @@
 use std::{num::ParseFloatError, sync::LazyLock};
-
-use icu::{
-    collator::{Collator, CollatorOptions},
-    locid::locale,
-};
+use std::cmp::Ordering;
+use thiserror_no_std::Error;
 
 // very strange. En-us culture has different ordering than default. A (ascii 65)
 // is greater than a(ascii 97 need to Collator object to perform string
 // comparison
-const COLLATOR: LazyLock<Collator> =
-    LazyLock::new(|| Collator::try_new(&locale!("en-US").into(), CollatorOptions::new()).unwrap());
+#[cfg(feature = "en-us")]
+const COLLATOR: LazyLock<icu::collator::Collator> = LazyLock::new(|| {
+    icu::collator::Collator::try_new(
+        &icu::locid::locale!("en-US").into(),
+        icu::collator::CollatorOptions::new(),
+    )
+    .unwrap()
+});
 
-use thiserror_no_std::Error;
+fn str_cmp(s1: &str, s2: &str, case_insensitive: bool) -> Ordering {
+    if case_insensitive {
+        s1.to_ascii_lowercase().cmp(&s2.to_ascii_lowercase())
+    } else {
+        if cfg!(feature = "en-us") {
+            COLLATOR.compare(s1, s2)
+        } else {
+            s1.cmp(s2)
+        }
+    }
+}
+
+
 #[derive(Error, Debug, PartialEq)]
 pub enum ValError {
     #[error("Cannot convert value \"{0}\" to type \"{1}\"")]
@@ -85,13 +100,9 @@ impl Val {
             Val::Char(c) => *c == val.cast_to_char()?,
             Val::Int(i) => *i == val.cast_to_int()?,
             Val::Float(f) => *f == val.cast_to_float()?,
-            Val::String(s) => {
+            Val::String(s1) => {
                 let s2 = val.cast_to_string();
-                if case_insensitive {
-                    s.eq_ignore_ascii_case(s2.as_str())
-                } else {
-                    s == &s2
-                }
+                str_cmp(s1, &s2, case_insensitive) == std::cmp::Ordering::Equal
             }
         })
     }
@@ -103,13 +114,9 @@ impl Val {
             Val::Char(c) => *c > val.cast_to_char()?,
             Val::Int(i) => *i > val.cast_to_int()?,
             Val::Float(f) => *f > val.cast_to_float()?,
-            Val::String(s) => {
+            Val::String(s1) => {
                 let s2 = val.cast_to_string();
-                if case_insensitive {
-                    s.to_ascii_lowercase() > s2.to_ascii_lowercase()
-                } else {
-                    COLLATOR.compare(s, &s2) == std::cmp::Ordering::Greater
-                }
+                str_cmp(s1, &s2, case_insensitive) == std::cmp::Ordering::Greater
             }
         })
     }
@@ -121,13 +128,9 @@ impl Val {
             Val::Char(c) => *c < val.cast_to_char()?,
             Val::Int(i) => *i < val.cast_to_int()?,
             Val::Float(f) => *f < val.cast_to_float()?,
-            Val::String(s) => {
+            Val::String(s1) => {
                 let s2 = val.cast_to_string();
-                if case_insensitive {
-                    s.to_ascii_lowercase() < s2.to_ascii_lowercase()
-                } else {
-                    COLLATOR.compare(s, &s2) == std::cmp::Ordering::Less
-                }
+                str_cmp(s1, &s2, case_insensitive) == std::cmp::Ordering::Less
             }
         })
     }
