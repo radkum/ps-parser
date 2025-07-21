@@ -61,8 +61,7 @@ mod tests {
             "Hello PowerShell".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" "abc123" -replace "\d+", "456" "#)
-                .unwrap(),
+            p.safe_eval(r#" "abc123" -replace "\d+", "456" "#).unwrap(),
             "abc456".to_string()
         );
         assert_eq!(
@@ -96,8 +95,7 @@ mod tests {
             "paint paint".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" "1+1=2" -replace "\+", " plus " "#)
-                .unwrap(),
+            p.safe_eval(r#" "1+1=2" -replace "\+", " plus " "#).unwrap(),
             "1 plus 1=2".to_string()
         );
         assert_eq!(

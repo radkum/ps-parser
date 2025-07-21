@@ -221,39 +221,24 @@ mod tests {
         let mut p = PowerShellParser::new();
         assert_eq!(p.safe_eval("1 -eq 1").unwrap(), "True".to_string());
         assert_eq!(p.safe_eval("1 -eq 2").unwrap(), "False".to_string());
-        assert_eq!(
-            p.safe_eval("\"1\" -ieq 1").unwrap(),
-            "True".to_string()
-        );
-        assert_eq!(
-            p.safe_eval("\"A\" -ieq \"a\"").unwrap(),
-            "True".to_string()
-        );
+        assert_eq!(p.safe_eval("\"1\" -ieq 1").unwrap(), "True".to_string());
+        assert_eq!(p.safe_eval("\"A\" -ieq \"a\"").unwrap(), "True".to_string());
         assert_eq!(
             p.safe_eval("\"A\" -ceq \"a\"").unwrap(),
             "False".to_string()
         );
-        assert_eq!(
-            p.safe_eval("\"A\" -ne \"a\"").unwrap(),
-            "False".to_string()
-        );
+        assert_eq!(p.safe_eval("\"A\" -ne \"a\"").unwrap(), "False".to_string());
         assert_eq!(
             p.safe_eval("\"A\" -ine \"a\"").unwrap(),
             "False".to_string()
         );
-        assert_eq!(
-            p.safe_eval("\"A\" -cne \"a\"").unwrap(),
-            "True".to_string()
-        );
+        assert_eq!(p.safe_eval("\"A\" -cne \"a\"").unwrap(), "True".to_string());
     }
 
     #[test]
     fn test_gt() {
         let mut p = PowerShellParser::new();
-        assert_eq!(
-            p.safe_eval(r#"2 -gt 1"#).unwrap(),
-            "True".to_string()
-        );
+        assert_eq!(p.safe_eval(r#"2 -gt 1"#).unwrap(), "True".to_string());
         assert_eq!(
             p.safe_eval(r#"[char]1 -le "b""#).unwrap(),
             "True".to_string()
@@ -296,10 +281,7 @@ mod tests {
             "True".to_string()
         );
 
-        assert_eq!(
-            p.safe_eval(r#" "a" -ge "A" "#).unwrap(),
-            "True".to_string()
-        );
+        assert_eq!(p.safe_eval(r#" "a" -ge "A" "#).unwrap(), "True".to_string());
         assert_eq!(
             p.safe_eval(r#" "a" -ige "A" "#).unwrap(),
             "True".to_string()
@@ -312,10 +294,7 @@ mod tests {
             p.safe_eval(r#" "A" -cge "A" "#).unwrap(),
             "True".to_string()
         );
-        assert_eq!(
-            p.safe_eval(r#" "A" -le "a" "#).unwrap(),
-            "True".to_string()
-        );
+        assert_eq!(p.safe_eval(r#" "A" -le "a" "#).unwrap(), "True".to_string());
         assert_eq!(
             p.safe_eval(r#" "A" -ile "a" "#).unwrap(),
             "True".to_string()
@@ -334,18 +313,15 @@ mod tests {
     fn test_match() {
         let mut p = PowerShellParser::new();
         assert_eq!(
-            p.safe_eval(r#" "Hello World" -match "hello" "#)
-                .unwrap(),
+            p.safe_eval(r#" "Hello World" -match "hello" "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" "Hello World" -imatch "hello" "#)
-                .unwrap(),
+            p.safe_eval(r#" "Hello World" -imatch "hello" "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" "Hello World" -cmatch "hello" "#)
-                .unwrap(),
+            p.safe_eval(r#" "Hello World" -cmatch "hello" "#).unwrap(),
             "False".to_string()
         );
         assert_eq!(
@@ -354,8 +330,7 @@ mod tests {
             "True".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" "abc123xyz" -cmatch "\d{3}" "#)
-                .unwrap(),
+            p.safe_eval(r#" "abc123xyz" -cmatch "\d{3}" "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(
@@ -377,23 +352,19 @@ mod tests {
     fn test_like() {
         let mut p = PowerShellParser::new();
         assert_eq!(
-            p.safe_eval(r#" "Hello World" -like "hello*" "#)
-                .unwrap(),
+            p.safe_eval(r#" "Hello World" -like "hello*" "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" "Hello World" -ilike "hello*" "#)
-                .unwrap(),
+            p.safe_eval(r#" "Hello World" -ilike "hello*" "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" "Hello World" -clike "hello*" "#)
-                .unwrap(),
+            p.safe_eval(r#" "Hello World" -clike "hello*" "#).unwrap(),
             "False".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" "Hello World" -clike "Hello*" "#)
-                .unwrap(),
+            p.safe_eval(r#" "Hello World" -clike "Hello*" "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(
@@ -402,8 +373,7 @@ mod tests {
             "True".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" "Hello World" -clike "*llo*" "#)
-                .unwrap(),
+            p.safe_eval(r#" "Hello World" -clike "*llo*" "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(

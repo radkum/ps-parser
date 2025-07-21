@@ -5,12 +5,12 @@ mod join;
 mod replace;
 mod split;
 mod type_check;
-use thiserror_no_std::Error;
 use std::{collections::HashMap, sync::LazyLock};
 
 pub(crate) use arithmetic::ArithmeticPred;
 pub(crate) use comparison::ComparisonPred;
 pub(crate) use replace::ReplacePred;
+use thiserror_no_std::Error;
 pub(crate) use type_check::TypeCheckPred;
 
 use super::Val;
@@ -29,34 +29,30 @@ pub(crate) struct StringPred;
 impl StringPred {
     pub(crate) fn get(name: &str) -> Option<StringPredType> {
         if let Some(compare) = ComparisonPred::get(name) {
-            return Some(
-                Box::new(move |v1, v2| Ok(Val::Bool(compare(v1, v2))))
-            );
+            return Some(Box::new(move |v1, v2| Ok(Val::Bool(compare(v1, v2)))));
         }
 
         if let Some(replace) = ReplacePred::get(name) {
-            return Some(
-                Box::new(move |v1, v2| {
-                    let (from, to) = if let Val::Array(arr) = v2 {
-                        if arr.len() == 1 {
-                            (arr[0].clone(), Val::Null)
-                        } else if arr.len() == 2 {
-                            (arr[0].clone(), arr[1].clone())
-                        } else {
-                            Err(OpError::ReplaceInvalidArgsNumber(arr.len()))?
-                        }
+            return Some(Box::new(move |v1, v2| {
+                let (from, to) = if let Val::Array(arr) = v2 {
+                    if arr.len() == 1 {
+                        (arr[0].clone(), Val::Null)
+                    } else if arr.len() == 2 {
+                        (arr[0].clone(), arr[1].clone())
                     } else {
-                        (v2, Val::Null)
-                    };
-                    Ok(Val::String(replace(v1, from, to)))
-                })
-            );
+                        Err(OpError::ReplaceInvalidArgsNumber(arr.len()))?
+                    }
+                } else {
+                    (v2, Val::Null)
+                };
+                Ok(Val::String(replace(v1, from, to)))
+            }));
         }
 
         if let Some(type_check) = TypeCheckPred::get(name) {
-            return Some(
-                Box::new(move |v1, v2| Ok(Val::Bool(type_check(v1, v2.ttype()))))
-            );
+            return Some(Box::new(move |v1, v2| {
+                Ok(Val::Bool(type_check(v1, v2.ttype())))
+            }));
         }
 
         None
@@ -73,8 +69,18 @@ mod tests {
 
         assert_eq!(p.safe_eval(r#" [CHAR](70+44-44)+[chaR](81+30)+[ChAR]([byTE]0x72)+[CHar]([byTE]0x6d)+[CHAR](68) "#).unwrap().as_str(), "FormD");
         assert_eq!(p.safe_eval(r#" [Char]([BYte]0x5c)+[ChAr](112)+[chAR]([bYTE]0x7b)+[ChAr]([BYtE]0x4d)+[Char](110)+[CHar]([bYte]0x7d) "#).unwrap().as_str(), "\\p{Mn}");
-        assert_eq!(p.safe_eval(r#" $(('WrìtêÍnt32').NoRMaLIZE("FormD") -replace "\p{Mn}") "#).unwrap().as_str(), "WriteInt32");
-        assert_eq!(p.safe_eval(r#" ("$(('WrìtêÍnt32').NoRMaLIZE("FormD") -replace "\p{Mn}")") "#).unwrap().as_str(), "WriteInt32");
+        assert_eq!(
+            p.safe_eval(r#" $(('WrìtêÍnt32').NoRMaLIZE("FormD") -replace "\p{Mn}") "#)
+                .unwrap()
+                .as_str(),
+            "WriteInt32"
+        );
+        assert_eq!(
+            p.safe_eval(r#" ("$(('WrìtêÍnt32').NoRMaLIZE("FormD") -replace "\p{Mn}")") "#)
+                .unwrap()
+                .as_str(),
+            "WriteInt32"
+        );
         assert_eq!(p.safe_eval(r#" ("$(('Wrì'+'têÍ'+'nt3'+'2').NoRMaLIZE([CHAR](70+44-44)+[chaR](81+30)+[ChAR]([byTE]0x72)+[CHar]([byTE]0x6d)+[CHAR](68)) -replace [Char]([BYte]0x5c)+[ChAr](112)+[chAR]([bYTE]0x7b)+[ChAr]([BYtE]0x4d)+[Char](110)+[CHar]([bYte]0x7d))") "#).unwrap().as_str(), "WriteInt32");
         assert_eq!(p.safe_eval(r#" $(('àmsìCónté'+'xt').normaliZE([Char]([byTe]0x46)+[cHAR]([BYTe]0x6f)+[cHaR](11+103)+[chAr](109*21/21)+[Char](68)) -replace [CHaR](92+6-6)+[CHAR](112*58/58)+[cHar]([bYte]0x7b)+[cHar](77*36/36)+[cHAR](110)+[char](125)) "#).unwrap().as_str(), "amsiContext");
         assert_eq!(p.safe_eval(r#" $ykHjp2N3fNRJs="System.$([CHAr]([BYTe]0x4d)+[char](97*89/89)+[chAr](110*12/12)+[Char]([byTe]0x61)+[CHAR]([bYtE]0x67)+[ChAr]([BYTe]0x65)+[CHAr](109+54-54)+[cHAR]([ByTE]0x65)+[ChAR]([BYtE]0x6e)+[CHaR](45+71)).$([ChaR]([ByTE]0x41)+[cHAR](12+105)+[cHar]([ByTe]0x74)+[CHar]([byTE]0x6f)+[CHaR](109)+[ChAR]([byTe]0x61)+[cHaR]([byTE]0x74)+[cHAR](105*19/19)+[CHaR](111+20-20)+[cHAR]([BYTE]0x6e)).$(('ÂmsìÛ'+'tíls').NOrmaLiZE([ChAR]([byTE]0x46)+[cHaR](111+19-19)+[cHaR](114+36-36)+[char](109)+[chAr]([BytE]0x44)) -replace [CHar](92+37-37)+[ChAR](112)+[cHAR](123+45-45)+[cHAR](77*55/55)+[chAR]([BYtE]0x6e)+[CHar]([bYTe]0x7d))"; $ykHjp2N3fNRJs "#).unwrap().as_str(), "System.Management.Automation.AmsiUtils");

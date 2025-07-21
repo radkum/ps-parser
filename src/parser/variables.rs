@@ -12,7 +12,6 @@ impl Variables {
         ]))
     }
 
-    
     pub(crate) fn get(&self, name: &str, _scope: Option<String>) -> Val {
         //handle special variables and scopes
         self.0

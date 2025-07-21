@@ -1,5 +1,5 @@
-use std::{num::ParseFloatError, sync::LazyLock};
-use std::cmp::Ordering;
+use std::{cmp::Ordering, num::ParseFloatError, sync::LazyLock};
+
 use thiserror_no_std::Error;
 
 // very strange. En-us culture has different ordering than default. A (ascii 65)
@@ -25,7 +25,6 @@ fn str_cmp(s1: &str, s2: &str, case_insensitive: bool) -> Ordering {
         }
     }
 }
-
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ValError {
@@ -174,8 +173,8 @@ impl Val {
         let ret = self.clone();
         match self {
             Val::Null => *self = Val::Int(1),
-            Val::Int(i) => *self = Val::Int(*i+1),
-            Val::Float(f) => *self = Val::Float(*f+1.),
+            Val::Int(i) => *self = Val::Int(*i + 1),
+            Val::Float(f) => *self = Val::Float(*f + 1.),
             Val::Bool(_) | Val::Char(_) | Val::String(_) | Val::Array(_) => {
                 //error
                 Err(ValError::OperationNotDefined(
@@ -188,21 +187,29 @@ impl Val {
         Ok(ret)
     }
 
-    pub fn pre_inc(&mut self) -> ValResult<()> {
+    fn pre_operation(&mut self, amount: i64, op: String) -> ValResult<()> {
         match self {
-            Val::Null => *self = Val::Int(1),
-            Val::Int(i) => *self = Val::Int(*i+1),
-            Val::Float(f) => *self = Val::Float(*f+1.),
+            Val::Null => *self = Val::Int(amount),
+            Val::Int(i) => *self = Val::Int(*i + amount),
+            Val::Float(f) => *self = Val::Float(*f + amount as f64),
             Val::Bool(_) | Val::Char(_) | Val::String(_) | Val::Array(_) => {
                 //error
                 Err(ValError::OperationNotDefined(
-                    "++".to_string(),
+                    op,
                     self.ttype().to_string(),
                     self.ttype().to_string(),
                 ))?
             }
         }
         Ok(())
+    }
+
+    pub fn pre_inc(&mut self) -> ValResult<()> {
+        self.pre_operation(1, "++".to_string())
+    }
+
+    pub fn pre_dec(&mut self) -> ValResult<()> {
+        self.pre_operation(-1, "--".to_string())
     }
 
     pub fn sub(&mut self, val: Val) -> ValResult<()> {

@@ -129,27 +129,19 @@ mod tests {
     #[test]
     fn test_mul() {
         assert_eq!(
-            PowerShellParser::new()
-                .safe_eval(r#" 8*8 "#)
-                .unwrap(),
+            PowerShellParser::new().safe_eval(r#" 8*8 "#).unwrap(),
             "64".to_string()
         );
         assert_eq!(
-            PowerShellParser::new()
-                .safe_eval(r#" 8*" 7 " "#)
-                .unwrap(),
+            PowerShellParser::new().safe_eval(r#" 8*" 7 " "#).unwrap(),
             "56".to_string()
         );
         assert_eq!(
-            PowerShellParser::new()
-                .safe_eval(r#" " 8 "* 2 "#)
-                .unwrap(),
+            PowerShellParser::new().safe_eval(r#" " 8 "* 2 "#).unwrap(),
             " 8  8 ".to_string()
         );
         assert_eq!(
-            PowerShellParser::new()
-                .safe_eval(r#" " 8a "* 2 "#)
-                .unwrap(),
+            PowerShellParser::new().safe_eval(r#" " 8a "* 2 "#).unwrap(),
             " 8a  8a ".to_string()
         );
         assert_eq!(
@@ -175,27 +167,19 @@ mod tests {
     #[test]
     fn test_div() {
         assert_eq!(
-            PowerShellParser::new()
-                .safe_eval(r#" 8/8 "#)
-                .unwrap(),
+            PowerShellParser::new().safe_eval(r#" 8/8 "#).unwrap(),
             "1".to_string()
         );
         assert_eq!(
-            PowerShellParser::new()
-                .safe_eval(r#" 8/" 16 " "#)
-                .unwrap(),
+            PowerShellParser::new().safe_eval(r#" 8/" 16 " "#).unwrap(),
             "0.5".to_string()
         );
         assert_eq!(
-            PowerShellParser::new()
-                .safe_eval(r#" " 8 "/ 2 "#)
-                .unwrap(),
+            PowerShellParser::new().safe_eval(r#" " 8 "/ 2 "#).unwrap(),
             "4".to_string()
         );
         assert_eq!(
-            PowerShellParser::new()
-                .safe_eval(r#" " 8a "/ 2 "#)
-                .unwrap(),
+            PowerShellParser::new().safe_eval(r#" " 8a "/ 2 "#).unwrap(),
             "".to_string()
         );
         assert_eq!(
@@ -221,21 +205,15 @@ mod tests {
     #[test]
     fn test_mod() {
         assert_eq!(
-            PowerShellParser::new()
-                .safe_eval(r#" 8%8 "#)
-                .unwrap(),
+            PowerShellParser::new().safe_eval(r#" 8%8 "#).unwrap(),
             "0".to_string()
         );
         assert_eq!(
-            PowerShellParser::new()
-                .safe_eval(r#" 8%7 "#)
-                .unwrap(),
+            PowerShellParser::new().safe_eval(r#" 8%7 "#).unwrap(),
             "1".to_string()
         );
         assert_eq!(
-            PowerShellParser::new()
-                .safe_eval(r#" 8%" 16 " "#)
-                .unwrap(),
+            PowerShellParser::new().safe_eval(r#" 8%" 16 " "#).unwrap(),
             "8".to_string()
         );
         //assert_eq!(PowerShellParser::new().safe_eval(r#" " 8 "% 0.3
@@ -275,29 +253,17 @@ mod tests {
     #[test]
     fn test_cast() {
         let mut p = PowerShellParser::new();
-        assert_eq!(
-            p.safe_eval("[lonG](97 + 3)").unwrap(),
-            "100".to_string()
-        );
+        assert_eq!(p.safe_eval("[lonG](97 + 3)").unwrap(), "100".to_string());
         assert_eq!(
             p.safe_eval("[doUble](97 + 3.1)").unwrap(),
             "100.1".to_string()
         );
-        assert_eq!(
-            p.safe_eval("[char](97 + 1)").unwrap(),
-            "b".to_string()
-        );
+        assert_eq!(p.safe_eval("[char](97 + 1)").unwrap(), "b".to_string());
         assert_eq!(
             p.safe_eval("[bYte][char](97 + 1)").unwrap(),
             "b".to_string()
         );
-        assert_eq!(
-            p.safe_eval("[bool]0.09874").unwrap(),
-            "True".to_string()
-        );
-        assert_eq!(
-            p.safe_eval(r#" [BOOl]"" "#).unwrap(),
-            "False".to_string()
-        );
+        assert_eq!(p.safe_eval("[bool]0.09874").unwrap(), "True".to_string());
+        assert_eq!(p.safe_eval(r#" [BOOl]"" "#).unwrap(), "False".to_string());
     }
 }
