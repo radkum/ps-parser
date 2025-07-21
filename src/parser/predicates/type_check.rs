@@ -34,40 +34,40 @@ mod tests {
     fn test_typecheck() {
         let mut p = PowerShellParser::new();
         assert_eq!(
-            p.evaluate_last_exp(r#" 42 -isnot [string] "#).unwrap(),
+            p.safe_eval(r#" 42 -isnot [string] "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" 42 -isnot [asdfas] "#).unwrap_err(),
+            p.safe_eval(r#" 42 -isnot [asdfas] "#).unwrap_err(),
             ValError(UnknownType("asdfas".to_string()))
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" 42 -is [int] "#).unwrap(),
+            p.safe_eval(r#" 42 -is [int] "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" 42 -is [inT] "#).unwrap(),
+            p.safe_eval(r#" 42 -is [inT] "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" [chAr]42 -is [ChaR] "#).unwrap(),
+            p.safe_eval(r#" [chAr]42 -is [ChaR] "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" [chAr]42 -is [string] "#).unwrap(),
+            p.safe_eval(r#" [chAr]42 -is [string] "#).unwrap(),
             "False".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" ([chAr]42+[char]33) -is [string] "#)
+            p.safe_eval(r#" ([chAr]42+[char]33) -is [string] "#)
                 .unwrap(),
             "True".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" 55. -is [float] "#).unwrap(),
+            p.safe_eval(r#" 55. -is [float] "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" 42 -is [float] "#).unwrap(),
+            p.safe_eval(r#" 42 -is [float] "#).unwrap(),
             "False".to_string()
         );
     }

@@ -20,18 +20,14 @@ fn normalize(input: &str, form: &str) -> Option<Val> {
 }
 
 impl PsCommand {
-    pub fn call(field_name: Val, method_name: Val, args: Vec<Val>) -> Option<Val> {
+    pub fn call(field_name: Val, method_name: &str, args: Vec<Val>) -> Option<Val> {
         log::trace!(
             "PsCommand::call( {:?}, {:?}, {:?})",
             field_name,
             method_name,
             args
         );
-        let Val::String(method) = method_name else {
-            return None;
-        };
-
-        let method = method.to_ascii_lowercase();
+        let method = method_name.to_ascii_lowercase();
 
         match method.as_str() {
             "normalize" => {

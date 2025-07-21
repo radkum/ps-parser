@@ -58,6 +58,7 @@ pub enum ValType {
     Float,
     Char,
     String,
+    Array,
 }
 
 impl std::fmt::Display for ValType {
@@ -90,6 +91,7 @@ pub enum Val {
     Float(f64),
     Char(u32),
     String(String),
+    Array(Box<Vec<Val>>),
 }
 
 impl Val {
@@ -104,6 +106,7 @@ impl Val {
                 let s2 = val.cast_to_string();
                 str_cmp(s1, &s2, case_insensitive) == std::cmp::Ordering::Equal
             }
+            Val::Array(_) => todo!(),
         })
     }
 
@@ -118,6 +121,7 @@ impl Val {
                 let s2 = val.cast_to_string();
                 str_cmp(s1, &s2, case_insensitive) == std::cmp::Ordering::Greater
             }
+            Val::Array(_) => todo!(),
         })
     }
 
@@ -132,6 +136,7 @@ impl Val {
                 let s2 = val.cast_to_string();
                 str_cmp(s1, &s2, case_insensitive) == std::cmp::Ordering::Less
             }
+            Val::Array(_) => todo!(),
         })
     }
 
@@ -143,6 +148,7 @@ impl Val {
             Val::Float(_) => ValType::Float,
             Val::Char(_) => ValType::Char,
             Val::String(_) => ValType::String,
+            Val::Array(_) => ValType::Array,
         }
     }
 
@@ -159,8 +165,44 @@ impl Val {
             Val::Char(_) | Val::String(_) => {
                 *self = Val::String(self.cast_to_string() + val.cast_to_string().as_str())
             }
+            Val::Array(_) => todo!(),
         };
         Ok(res)
+    }
+
+    pub fn post_inc(&mut self) -> ValResult<Val> {
+        let ret = self.clone();
+        match self {
+            Val::Null => *self = Val::Int(1),
+            Val::Int(i) => *self = Val::Int(*i+1),
+            Val::Float(f) => *self = Val::Float(*f+1.),
+            Val::Bool(_) | Val::Char(_) | Val::String(_) | Val::Array(_) => {
+                //error
+                Err(ValError::OperationNotDefined(
+                    "++".to_string(),
+                    self.ttype().to_string(),
+                    self.ttype().to_string(),
+                ))?
+            }
+        }
+        Ok(ret)
+    }
+
+    pub fn pre_inc(&mut self) -> ValResult<()> {
+        match self {
+            Val::Null => *self = Val::Int(1),
+            Val::Int(i) => *self = Val::Int(*i+1),
+            Val::Float(f) => *self = Val::Float(*f+1.),
+            Val::Bool(_) | Val::Char(_) | Val::String(_) | Val::Array(_) => {
+                //error
+                Err(ValError::OperationNotDefined(
+                    "++".to_string(),
+                    self.ttype().to_string(),
+                    self.ttype().to_string(),
+                ))?
+            }
+        }
+        Ok(())
     }
 
     pub fn sub(&mut self, val: Val) -> ValResult<()> {
@@ -196,6 +238,7 @@ impl Val {
             Val::String(_) => {
                 Val::String(self.cast_to_string().repeat(val.cast_to_int()? as usize))
             }
+            Val::Array(_) => todo!(),
         };
         Ok(())
     }
@@ -221,6 +264,7 @@ impl Val {
                 }
             }
             Val::Float(_) => Val::Float(self.cast_to_float()? / self.cast_to_float()?),
+            Val::Array(_) => todo!(),
         };
         Ok(())
     }
@@ -245,6 +289,7 @@ impl Val {
                 }
             }
             Val::Float(_) => Val::Float(self.cast_to_float()? % self.cast_to_float()?),
+            Val::Array(_) => todo!(),
         };
         Ok(())
     }
@@ -257,6 +302,19 @@ impl Val {
             ValType::Float => Val::Float(self.cast_to_float()?),
             ValType::Char => Val::Char(self.cast_to_char()?),
             ValType::String => Val::String(self.cast_to_string()),
+            ValType::Array => todo!(),
+        })
+    }
+
+    pub(crate) fn init(ttype: ValType) -> ValResult<Self> {
+        Ok(match ttype {
+            ValType::Null => Err(ValError::UnknownType("Null".to_string()))?,
+            ValType::Bool => Val::Bool(false),
+            ValType::Int => Val::Int(0),
+            ValType::Float => Val::Float(0.),
+            ValType::Char => Val::Char(0),
+            ValType::String => Val::String(String::new()),
+            ValType::Array => todo!(),
         })
     }
 
@@ -266,6 +324,7 @@ impl Val {
             Val::Bool(b) => *b,
             Val::Int(_) | Val::Float(_) | Val::Char(_) => self.cast_to_float()? != 0.,
             Val::String(s) => !s.is_empty(),
+            Val::Array(_) => todo!(),
         };
         Ok(res)
     }
@@ -291,6 +350,7 @@ impl Val {
                     ))?
                 }
             }
+            Val::Array(_) => todo!(),
         };
         Ok(res)
     }
@@ -307,6 +367,7 @@ impl Val {
             Val::Float(f) => *f as f64,
             Val::Char(c) => *c as f64,
             Val::String(s) => s.trim().parse::<f64>()?,
+            Val::Array(_) => todo!(),
         })
     }
 
@@ -318,6 +379,7 @@ impl Val {
             Val::Float(f) => f.to_string(),
             Val::Char(c) => char::from_u32(*c).unwrap_or_default().to_string(),
             Val::String(s) => s.clone(),
+            Val::Array(_) => todo!(),
         }
     }
 }

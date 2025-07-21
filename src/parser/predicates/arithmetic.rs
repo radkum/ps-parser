@@ -80,19 +80,19 @@ mod tests {
     fn test_add() {
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" " 0123  $true " + 0.1 "#)
+                .safe_eval(r#" " 0123  $true " + 0.1 "#)
                 .unwrap(),
             " 0123  True 0.1".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" 1 + " 1" + "4  " + $asdf "#)
+                .safe_eval(r#" 1 + " 1" + "4  " + $asdf "#)
                 .unwrap(),
             "6".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#"$asdf += 1 + " 1" + "4  " + $asdf; $asdf"#)
+                .safe_eval(r#"$asdf += 1 + " 1" + "4  " + $asdf; $asdf"#)
                 .unwrap(),
             "6".to_string()
         );
@@ -102,25 +102,25 @@ mod tests {
     fn test_sub() {
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" " 0123 " - 0.1 "#)
+                .safe_eval(r#" " 0123 " - 0.1 "#)
                 .unwrap(),
             "122.9".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" " 0123  $true " - 0.1 "#)
+                .safe_eval(r#" " 0123  $true " - 0.1 "#)
                 .unwrap(),
             "".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" 1 - " 1" + "4  " - $asdf "#)
+                .safe_eval(r#" 1 - " 1" + "4  " - $asdf "#)
                 .unwrap(),
             "4".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#"$asdf -= 1 + " 1" - "4  " + $asdf; $asdf"#)
+                .safe_eval(r#"$asdf -= 1 + " 1" - "4  " + $asdf; $asdf"#)
                 .unwrap(),
             "2".to_string()
         );
@@ -130,43 +130,43 @@ mod tests {
     fn test_mul() {
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" 8*8 "#)
+                .safe_eval(r#" 8*8 "#)
                 .unwrap(),
             "64".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" 8*" 7 " "#)
+                .safe_eval(r#" 8*" 7 " "#)
                 .unwrap(),
             "56".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" " 8 "* 2 "#)
+                .safe_eval(r#" " 8 "* 2 "#)
                 .unwrap(),
             " 8  8 ".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" " 8a "* 2 "#)
+                .safe_eval(r#" " 8a "* 2 "#)
                 .unwrap(),
             " 8a  8a ".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" " 8a "* " 2" "#)
+                .safe_eval(r#" " 8a "* " 2" "#)
                 .unwrap(),
             " 8a  8a ".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" " 8a "* " 2a" "#)
+                .safe_eval(r#" " 8a "* " 2a" "#)
                 .unwrap(),
             "".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#"$asdf = 1 + " 1" - "4  " + $asdf; $asdf*5"#)
+                .safe_eval(r#"$asdf = 1 + " 1" - "4  " + $asdf; $asdf*5"#)
                 .unwrap(),
             "-10".to_string()
         );
@@ -176,43 +176,43 @@ mod tests {
     fn test_div() {
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" 8/8 "#)
+                .safe_eval(r#" 8/8 "#)
                 .unwrap(),
             "1".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" 8/" 16 " "#)
+                .safe_eval(r#" 8/" 16 " "#)
                 .unwrap(),
             "0.5".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" " 8 "/ 2 "#)
+                .safe_eval(r#" " 8 "/ 2 "#)
                 .unwrap(),
             "4".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" " 8a "/ 2 "#)
+                .safe_eval(r#" " 8a "/ 2 "#)
                 .unwrap(),
             "".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" " 8a "/ " 2" "#)
+                .safe_eval(r#" " 8a "/ " 2" "#)
                 .unwrap(),
             "".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" " 8 "/ " 2a" "#)
+                .safe_eval(r#" " 8 "/ " 2a" "#)
                 .unwrap(),
             "".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#"$asdf = 1 + " 1" - "4  " + $asdf; $asdf/=5;$asdf"#)
+                .safe_eval(r#"$asdf = 1 + " 1" - "4  " + $asdf; $asdf/=5;$asdf"#)
                 .unwrap(),
             "-0.4".to_string()
         );
@@ -222,51 +222,51 @@ mod tests {
     fn test_mod() {
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" 8%8 "#)
+                .safe_eval(r#" 8%8 "#)
                 .unwrap(),
             "0".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" 8%7 "#)
+                .safe_eval(r#" 8%7 "#)
                 .unwrap(),
             "1".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" 8%" 16 " "#)
+                .safe_eval(r#" 8%" 16 " "#)
                 .unwrap(),
             "8".to_string()
         );
-        //assert_eq!(PowerShellParser::new().evaluate_last_exp(r#" " 8 "% 0.3
+        //assert_eq!(PowerShellParser::new().safe_eval(r#" " 8 "% 0.3
         // "#).unwrap(), "0.2".to_string());
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" " 8 "% 0.3 "#)
+                .safe_eval(r#" " 8 "% 0.3 "#)
                 .unwrap(),
             "0.2000000000000003".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" " 8a "% 0.2 "#)
+                .safe_eval(r#" " 8a "% 0.2 "#)
                 .unwrap(),
             "".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" " 8a "% " 2" "#)
+                .safe_eval(r#" " 8a "% " 2" "#)
                 .unwrap(),
             "".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#" " 8 "% " 2a" "#)
+                .safe_eval(r#" " 8 "% " 2a" "#)
                 .unwrap(),
             "".to_string()
         );
         assert_eq!(
             PowerShellParser::new()
-                .evaluate_last_exp(r#"$asdf = 1 + " 1" % "4  " + $asdf; $asdf%=5;$asdf"#)
+                .safe_eval(r#"$asdf = 1 + " 1" % "4  " + $asdf; $asdf%=5;$asdf"#)
                 .unwrap(),
             "2".to_string()
         );
@@ -276,27 +276,27 @@ mod tests {
     fn test_cast() {
         let mut p = PowerShellParser::new();
         assert_eq!(
-            p.evaluate_last_exp("[lonG](97 + 3)").unwrap(),
+            p.safe_eval("[lonG](97 + 3)").unwrap(),
             "100".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp("[doUble](97 + 3.1)").unwrap(),
+            p.safe_eval("[doUble](97 + 3.1)").unwrap(),
             "100.1".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp("[char](97 + 1)").unwrap(),
+            p.safe_eval("[char](97 + 1)").unwrap(),
             "b".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp("[bYte][char](97 + 1)").unwrap(),
+            p.safe_eval("[bYte][char](97 + 1)").unwrap(),
             "b".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp("[bool]0.09874").unwrap(),
+            p.safe_eval("[bool]0.09874").unwrap(),
             "True".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" [BOOl]"" "#).unwrap(),
+            p.safe_eval(r#" [BOOl]"" "#).unwrap(),
             "False".to_string()
         );
     }

@@ -56,57 +56,57 @@ mod tests {
     fn test_replace() {
         let mut p = PowerShellParser::new();
         assert_eq!(
-            p.evaluate_last_exp(r#""Hello World" -replace "World", "PowerShell""#)
+            p.safe_eval(r#""Hello World" -replace "World", "PowerShell""#)
                 .unwrap(),
             "Hello PowerShell".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" "abc123" -replace "\d+", "456" "#)
+            p.safe_eval(r#" "abc123" -replace "\d+", "456" "#)
                 .unwrap(),
             "abc456".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" "one two One two" -replace "one", "1" "#)
+            p.safe_eval(r#" "one two One two" -replace "one", "1" "#)
                 .unwrap(),
             "1 two 1 two".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" "one two One two" -ireplace "one", "1" "#)
+            p.safe_eval(r#" "one two One two" -ireplace "one", "1" "#)
                 .unwrap(),
             "1 two 1 two".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" "one two One two" -creplace "one", "1" "#)
+            p.safe_eval(r#" "one two One two" -creplace "one", "1" "#)
                 .unwrap(),
             "1 two One two".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" "Color colour" -replace "(?i)colou?r", "paint" "#)
+            p.safe_eval(r#" "Color colour" -replace "(?i)colou?r", "paint" "#)
                 .unwrap(),
             "paint paint".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" "Color colour" -ireplace "(?i)colou?r", "paint" "#)
+            p.safe_eval(r#" "Color colour" -ireplace "(?i)colou?r", "paint" "#)
                 .unwrap(),
             "paint paint".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" "Color colour" -creplace "(?i)colou?r", "paint" "#)
+            p.safe_eval(r#" "Color colour" -creplace "(?i)colou?r", "paint" "#)
                 .unwrap(),
             "paint paint".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" "1+1=2" -replace "\+", " plus " "#)
+            p.safe_eval(r#" "1+1=2" -replace "\+", " plus " "#)
                 .unwrap(),
             "1 plus 1=2".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" "Power  Shell" -replace "\s+", "_" "#)
+            p.safe_eval(r#" "Power  Shell" -replace "\s+", "_" "#)
                 .unwrap(),
             "Power_Shell".to_string()
         );
         assert_eq!(
-            p.evaluate_last_exp(r#" "abc123def456" -replace "\d", "" "#)
+            p.safe_eval(r#" "abc123def456" -replace "\d", "" "#)
                 .unwrap(),
             "abcdef".to_string()
         );

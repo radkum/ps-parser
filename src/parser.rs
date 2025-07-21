@@ -10,10 +10,11 @@ use predicates::{ArithmeticPred, ComparisonPred, ReplacePred, TypeCheckPred};
 use thiserror_no_std::Error;
 pub use value::{Val, ValType};
 use variables::Variables;
+use predicates::StringPred;
 
 type PestError = pest::error::Error<Rule>;
 type Pair<'i> = ::pest::iterators::Pair<'i, Rule>;
-
+use predicates::OpError;
 use value::ValError;
 
 #[derive(Error, Debug, PartialEq)]
@@ -23,6 +24,9 @@ pub enum ParserError {
 
     #[error("ValError: {0}")]
     ValError(ValError),
+
+    #[error("OperatorError: {0}")]
+    OpError(OpError),
 }
 
 impl From<PestError> for ParserError {
@@ -34,6 +38,12 @@ impl From<PestError> for ParserError {
 impl From<ValError> for ParserError {
     fn from(value: ValError) -> Self {
         Self::ValError(value)
+    }
+}
+
+impl From<OpError> for ParserError {
+    fn from(value: OpError) -> Self {
+        Self::OpError(value)
     }
 }
 
@@ -61,7 +71,7 @@ impl<'a> PowerShellParser {
         }
     }
 
-    pub fn evaluate_last_exp(&mut self, input: &str) -> ParserResult<String> {
+    pub fn safe_eval(&mut self, input: &str) -> ParserResult<String> {
         let mut pairs = PowerShellParser::parse(Rule::program, input)?;
         let program_token = pairs.next().expect("");
         let mut res = Val::default();
@@ -71,9 +81,9 @@ impl<'a> PowerShellParser {
             for token in pairs {
                 //self.parse_statement(pair)?;
                 match token.as_rule() {
-                    Rule::expression => {
+                    Rule::pipeline_statement => {
                         //println!("Assignment: {}", token.as_str());
-                        res = self.eval_expression(token)?;
+                        res = self.eval_pipeline_statement(token)?;
                     }
                     Rule::EOI => {
                         break;
@@ -98,9 +108,9 @@ impl<'a> PowerShellParser {
             for token in pairs {
                 //self.parse_statement(pair)?;
                 match token.as_rule() {
-                    Rule::expression => {
+                    Rule::pipeline_statement => {
                         //println!("Assignment: {}", token.as_str());
-                        str_res.push_str(&self.eval_expression(token)?.cast_to_string());
+                        str_res.push_str(&self.eval_pipeline_statement(token)?.cast_to_string());
                         str_res.push_str("\n");
                     }
                     Rule::EOI => {
@@ -108,6 +118,7 @@ impl<'a> PowerShellParser {
                     }
                     _ => {
                         println!("not implemented: {:?}", token.as_rule());
+                        panic!()
                     }
                 }
             }
@@ -116,48 +127,47 @@ impl<'a> PowerShellParser {
         Ok(str_res)
     }
 
-    fn eval_num(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+    pub fn eval_statements(&mut self, token: Pair<'a>) -> ParserResult<String> {
         let mut pairs = token.into_inner();
-        let token = pairs.next().unwrap();
-        let v = match token.as_rule() {
-            Rule::int => Val::Int(token.as_str().parse::<i64>().unwrap()),
-            Rule::binary => {
-                todo!()
+        let mut str_res = String::new();
+
+        for token in pairs {
+            //self.parse_statement(pair)?;
+            match token.as_rule() {
+                Rule::pipeline_statement => {
+                    //println!("Assignment: {}", token.as_str());
+                    str_res.push_str(&self.eval_pipeline_statement(token)?.cast_to_string());
+                }
+                _ => {
+                    println!("not implemented: {:?}", token.as_rule());
+                    panic!()
+                }
             }
-            Rule::hex => {
-                let lowercase = token.as_str().to_ascii_lowercase();
-                Val::Int(i64::from_str_radix(lowercase.strip_prefix("0x").unwrap(), 16).unwrap())
-            }
-            Rule::float => Val::Float(token.as_str().parse::<f64>().unwrap()),
-            _ => {
-                println!("token.rule(): {:?}", token.as_rule());
-                panic!()
-            }
-        };
-        Ok(v)
+        }
+        Ok(str_res)
     }
 
-    fn eval_cast_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        check_rule!(token, Rule::cast_expression);
-        let mut tokens = token.into_inner();
+    // fn eval_cast_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+    //     check_rule!(token, Rule::cast_expression);
+    //     let mut tokens = token.into_inner();
 
-        let type_name_token = tokens.next().expect("Failed to get token");
-        check_rule!(type_name_token, Rule::type_name);
+    //     let type_name_token = tokens.next().expect("Failed to get token");
+    //     check_rule!(type_name_token, Rule::type_name);
 
-        let val_type = ValType::cast(type_name_token.as_str())?;
+    //     let val_type = ValType::cast(type_name_token.as_str())?;
 
-        let expression = tokens.next().expect("Failed to get token");
-        let mut val = match expression.as_rule() {
-            Rule::expression => self.eval_expression(expression)?,
-            Rule::number => self.eval_num(expression)?,
-            Rule::postfix_expr => self.eval_postfix(expression)?,
-            _ => {
-                println!("token_rule: {:?}", expression.as_rule());
-                todo!()
-            }
-        };
-        Ok(val.cast(val_type)?)
-    }
+    //     let expression = tokens.next().expect("Failed to get token");
+    //     let mut val = match expression.as_rule() {
+    //         Rule::expression => self.eval_expression(expression)?,
+    //         Rule::number => self.eval_num(expression)?,
+    //         Rule::postfix_expr => self.eval_postfix(expression)?,
+    //         _ => {
+    //             println!("token_rule: {:?}", expression.as_rule());
+    //             todo!()
+    //         }
+    //     };
+    //     Ok(val.cast(val_type)?)
+    // }
 
     fn eval_args(&mut self, token: Pair<'a>) -> Option<Vec<Val>> {
         check_rule!(token, Rule::method_invocation);
@@ -190,35 +200,92 @@ impl<'a> PowerShellParser {
         self.eval_expression(token).ok()
     }
 
-    fn eval_atomic(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        //check_rule!(token, Rule::atomic);
+    fn eval_string_literal(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::string_literal);
+        let mut pair = token.into_inner();
+        let token= pair.next().unwrap();
+
         let res = match token.as_rule() {
-            Rule::cast_expression => self.eval_cast_exp(token)?,
-            Rule::number => self.eval_num(token)?,
-            Rule::string_literal => {
-                //let mut res_string = String::new();
+            Rule::expandable_string_literal => {
+                let mut res_str = String::new();
+                let mut pairs = token.into_inner();
+                while let Some(token) = pairs.next() {
+                    let s = match token.as_rule() {
+                        Rule::variable => self.get_variable(token)?.cast_to_string(),
+                        Rule::sub_expression => self.eval_statements(token)?,
+                        _ => token.as_str().to_string(),
+                    };
+                    res_str.push_str(s.as_str());
+                }
+                res_str
+            },
+            //Rule::expandable_multiline_string_literal => self.eval_expression(token)?,
+            Rule::singlequated_string_literal => {
                 if let Some(stripped_prefix) = token.as_str().to_string().strip_prefix("'") {
                     if let Some(stripped_suffix) = stripped_prefix.to_string().strip_suffix("'") {
-                        Val::String(stripped_suffix.to_string())
+                        stripped_suffix.to_string()
                     } else {
                         panic!("no suffix")
                     }
                 } else {
                     panic!("no prefix")
                 }
-                //Val::String(res_string)
+            },
+            //Rule::singlequated_multiline_string_literal => self.eval_expression(token)?,
+            _ => {
+                println!("token.rule(): {:?}", token.as_rule());
+                panic!()
             }
-            Rule::expandable_string_literal => {
+        };
+        Ok(Val::String(res))
+    }
+
+     fn get_variable(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::variable);
+        let (var_name, scope) = self.parse_variable(token)?;
+        Ok(self.variables.get(&var_name, scope))
+     }
+
+    fn parse_variable(&mut self, token: Pair<'a>) -> ParserResult<(String, Option<String>)> {
+        check_rule!(token, Rule::variable);
+        let mut pair = token.into_inner();
+        let mut token= pair.next().unwrap();
+
+        Ok(if token.as_rule() == Rule::special_variable {
+            (token.as_str().to_ascii_lowercase(), None)
+        } else {
+            //check if scope is present
+            let scope = if token.as_rule() == Rule::scope_keyword {
+                let scope = token.as_str().to_ascii_lowercase();
+                token = pair.next().unwrap();
+                Some(scope)
+            } else {
+                None
+            };
+            check_rule!(token, Rule::var_name);
+            (token.as_str().to_ascii_lowercase(), scope)
+        })
+    }
+
+    fn eval_expression_with_unary_operator(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::expression_with_unary_operator  );
+        let mut pair = token.into_inner();
+        let token= pair.next().unwrap();
+
+        let res = match token.as_rule() {
+            Rule::pre_inc_expression => {
                 let token = token.into_inner().next().unwrap();
-                let x = self.expand_string(token)?;
-                if let Val::String(s) = &x {
-                    println!("expanded: {s}");
-                }
-                x
+                let mut primary = self.eval_primary_expression(token)?;
+                primary.pre_inc()?;
+                primary
             }
-            Rule::expression => self.eval_expression(token)?,
-            Rule::postfix_expr => self.eval_postfix(token)?,
-            Rule::variable => self.variables.get(token.as_str()),
+            Rule::pre_dec_expression => {
+                let token = token.into_inner().next().unwrap();
+                let primary = self.eval_primary_expression(token)?;
+                todo!();//primary.pre_dec()?;
+                primary
+            }
+            Rule::cast_expression => self.eval_cast_expression(token)?,
             _ => {
                 println!("token.rule(): {:?}", token.as_rule());
                 panic!()
@@ -226,6 +293,174 @@ impl<'a> PowerShellParser {
         };
 
         Ok(res)
+    }
+
+    fn eval_argument_list(&mut self, token: Pair<'a>) -> ParserResult<Vec<Val>> {
+        check_rule!(token, Rule::argument_list);
+        let mut pairs = token.into_inner();
+
+        let mut args = Vec::new();
+        while let Some(token) = pairs.next() {
+            args.push(self.eval_expression(token)?);
+        }
+
+        Ok(args)
+    }
+
+    fn eval_member_access(&mut self, token: Pair<'a>) -> ParserResult<String> {
+        check_rule!(token, Rule::member_access);
+        let member_name_token = token.into_inner().next().unwrap();
+        let member_name = member_name_token.as_str().to_ascii_lowercase();
+        
+        Ok(member_name)
+    }
+
+    fn eval_method_invokation(&mut self, token: Pair<'a>) -> ParserResult<(String, Vec<Val>)> {
+        check_rule!(token, Rule::method_invocation);
+        let mut pairs = token.into_inner();
+
+        let member_access= pairs.next().unwrap();
+        check_rule!(member_access, Rule::member_access);
+        let method_name = self.eval_member_access(member_access)?;
+
+        let args = if let Some(token) = pairs.next() {
+            check_rule!(token, Rule::argument_list);
+            self.eval_argument_list(token)?
+        } else {
+            Vec::new()
+        };
+
+        Ok((method_name, args))
+    }
+
+    fn eval_access(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::access );
+        let mut pairs = token.into_inner();
+        let token= pairs.next().unwrap();
+
+        let mut value = self.eval_value(token)?; 
+
+        while let Some(token) = pairs.next() {
+            match token.as_rule() {
+                Rule::method_invocation =>  {
+                    let (method_name, args) = self.eval_method_invokation(token)?;
+                    if let Some(result) = PsCommand::call(value.clone(), method_name.as_str(), args) {
+                        value = result;
+                    }
+                }
+                //Rule::member_access => res.invoke(self.eval_method_invokation(token))?,
+                //Rule::element_access => res.invoke(self.eval_method_invokation(token))?,
+                _ => {
+                    println!("token.rule(): {:?}", token.as_rule());
+                    panic!()
+                }
+            }
+        }
+
+        Ok(value)
+    }
+
+    fn eval_primary_expression(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::primary_expression );
+        let mut pair = token.into_inner();
+        let token= pair.next().unwrap();
+
+        let res = match token.as_rule() {
+            //Rule::post_inc_expression => self.eval_expression(token)?,
+            //Rule::post_dec_expression => self.eval_expression(token)?,
+            Rule::access => self.eval_access(token)?,
+            Rule::value => self.eval_value(token)?,
+            _ => {
+                println!("token.rule(): {:?}", token.as_rule());
+                println!("token.rule(): {:?}", token.as_str());
+                panic!()
+            }
+        };
+
+        Ok(res)
+    }
+
+    fn eval_type_literal(&mut self, token: Pair<'a>) -> ParserResult<ValType> {
+        check_rule!(token, Rule::type_literal );
+
+        let token = token.into_inner().next().unwrap();
+        check_rule!(token, Rule::type_spec );
+        let res = ValType::cast(token.as_str())?;
+        Ok(res)
+    }
+
+    fn eval_value(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::value);
+        let mut pair = token.into_inner();
+        let token= pair.next().unwrap();
+
+        let res = match token.as_rule() {
+            Rule::parenthesized_expression => {
+                let token = token.into_inner().next().unwrap();
+                self.eval_pipeline(token)?
+            }
+            //Rule::array_expression => self.eval_expression(token)?,
+            //Rule::script_block_expression => self.eval_expression(token)?,
+            //Rule::hash_literal_expression => self.eval_expression(token)?,
+            Rule::string_literal => self.eval_string_literal(token)?,
+            Rule::number_literal => self.eval_number_literal(token)?,
+            Rule::type_literal => Val::init(self.eval_type_literal(token)?)?,
+            Rule::variable => self.get_variable(token)?,
+            Rule::sub_expression => Val::String(self.eval_statements(token)?),
+            _ => {
+                println!("token.rule(): {:?}", token.as_rule());
+                panic!()
+            }
+        };
+
+        Ok(res)
+    }
+
+    fn eval_number_literal(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::number_literal);
+        let mut pairs = token.into_inner();
+        let token = pairs.next().unwrap();
+        let mut val = self.eval_number(token)?;
+        if let Some(unit) = pairs.next() {
+            let unit = unit.as_str().to_ascii_lowercase();
+            let unit_int = match unit.as_str(){
+                "k" => 1024,
+                "m" => 1024*1024,
+                "g" => 1024*1024*1024,
+                "t" => 1024*1024*1024*1024,
+                "p" => 1024*1024*1024*1024*1024,
+                _ => 1,
+            };
+            val.mul(Val::Int(unit_int))?;
+        }
+        Ok(val)
+    }
+
+    fn eval_number(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::number);
+        let mut pairs = token.into_inner();
+        let token = pairs.next().unwrap();
+        let v = match token.as_rule() {
+            Rule::decimal_integer => {
+                let int_val = token.into_inner().next().unwrap();
+                println!("int_val: \'{}\'", int_val.as_str());
+                Val::Int(int_val.as_str().parse::<i64>().unwrap())
+            }
+            Rule::hex_integer => {
+                let int_val = token.into_inner().next().unwrap();
+                Val::Int(i64::from_str_radix(int_val.as_str(), 16).unwrap())
+            }
+            //todo: parse float in proper way
+            Rule::float => {
+                println!("float: \'{}\'", token.as_str());
+                Val::Float(token.as_str().trim().parse::<f64>().unwrap())
+            }
+            _ => {
+                println!("token.rule(): {:?}", token.as_rule());
+                panic!()
+            }
+        };
+        Ok(v)
     }
 
     fn eval_command_call(&mut self, token: Pair<'a>) -> ParserResult<Val> {
@@ -247,36 +482,68 @@ impl<'a> PowerShellParser {
         Ok(res)
     }
 
-    fn eval_postfix(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        check_rule!(token, Rule::postfix_expr);
+    fn eval_unary_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::unary_exp);
+        let mut token = token.into_inner().next().unwrap();
+        match token.as_rule() {
+            Rule::expression_with_unary_operator => self.eval_expression_with_unary_operator(token),
+            Rule::primary_expression => self.eval_primary_expression(token),
+            _ => {
+                println!("eval_command_call token.rule(): {:?}", token.as_rule());
+                panic!()
+            }
+        }
+    }
 
+    fn eval_array_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::array_exp);
+        let mut arr = Vec::new();
         let mut pairs = token.into_inner();
-        let mut res = self.eval_atomic(pairs.next().unwrap())?;
-        let mut command = None;
-        let mut args = None;
-
-        //eval member_suffix. To fix. It's quite prymitive right now
-        while let Some(op) = pairs.next() {
-            match op.as_rule() {
-                Rule::dot_member => {
-                    command = self.eval_command(op);
-                    //println!("command {:?}", command);
-                }
-                Rule::method_invocation => {
-                    args = self.eval_args(op);
-                }
-                _ => {
-                    println!("token.rule(): {:?}", op.as_rule());
-                    panic!()
-                }
-            }
+        arr.push(self.eval_unary_exp(pairs.next().unwrap())?);
+        while let Some(token) = pairs.next() {
+            arr.push(self.eval_unary_exp(token)?);
+        
         }
 
-        if let (Some(method), Some(args)) = (command, args) {
-            if let Some(r) = PsCommand::call(res.clone(), method, args) {
-                res = r;
-            }
-        }
+        Ok(if arr.len() == 1 {
+            arr[0].clone()
+        } else {
+            Val::Array(Box::new(arr))
+        })
+    }
+
+    fn eval_range_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::range_exp);
+        let mut pairs = token.into_inner();
+        let mut res = self.eval_array_exp(pairs.next().unwrap())?;
+        // while let Some(op) = pairs.next() {
+        //     let Some(fun) = ArithmeticPred::get(op.as_str()) else {
+        //         panic!()
+        //     };
+
+        //     let postfix = pairs.next().unwrap();
+        //     let right_op = self.eval_format_exp(postfix)?;
+        //     println!("{} {:?} {:?}", op.as_str(), res, right_op);
+        //     res = fun(res, right_op);
+        // }
+
+        Ok(res)
+    }
+
+    fn eval_format_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::format_exp);
+        let mut pairs = token.into_inner();
+        let mut res = self.eval_range_exp(pairs.next().unwrap())?;
+        // while let Some(op) = pairs.next() {
+        //     let Some(fun) = ArithmeticPred::get(op.as_str()) else {
+        //         panic!()
+        //     };
+
+        //     let postfix = pairs.next().unwrap();
+        //     let right_op = self.eval_format_exp(postfix)?;
+        //     println!("{} {:?} {:?}", op.as_str(), res, right_op);
+        //     res = fun(res, right_op);
+        // }
 
         Ok(res)
     }
@@ -284,14 +551,14 @@ impl<'a> PowerShellParser {
     fn eval_mult(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::multiplicative_exp);
         let mut pairs = token.into_inner();
-        let mut res = self.eval_atomic(pairs.next().unwrap())?;
+        let mut res = self.eval_format_exp(pairs.next().unwrap())?;
         while let Some(op) = pairs.next() {
             let Some(fun) = ArithmeticPred::get(op.as_str()) else {
                 panic!()
             };
 
             let postfix = pairs.next().unwrap();
-            let right_op = self.eval_postfix(postfix)?;
+            let right_op = self.eval_format_exp(postfix)?;
             println!("{} {:?} {:?}", op.as_str(), res, right_op);
             res = fun(res, right_op);
         }
@@ -317,137 +584,179 @@ impl<'a> PowerShellParser {
         Ok(res)
     }
 
-    fn eval_replace_operator_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        check_rule!(token, Rule::replace_operator_exp);
+    fn eval_comparison_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::comparison_exp);
 
         let mut pairs = token.into_inner();
-        let first_operand = pairs.next().unwrap();
-        check_rule!(first_operand, Rule::additive_exp);
-        let base = self.eval_additive(first_operand)?;
+        let mut res = self.eval_additive(pairs.next().unwrap())?;
+        while let Some(op) = pairs.next() {
+            let Some(fun) = StringPred::get(op.as_str()) else {
+                panic!()
+            };
 
-        let operator_token = pairs.next().unwrap();
-        check_rule!(operator_token, Rule::replace_op);
-
-        let second_operand = pairs.next().unwrap();
-        check_rule!(second_operand, Rule::additive_exp);
-        let from = self.eval_additive(second_operand)?;
-
-        let to = if let Some(third_operand) = pairs.next() {
-            check_rule!(third_operand, Rule::additive_exp);
-            self.eval_additive(third_operand)?
-        } else {
-            Val::Null
-        };
-
-        let Some(replace_fn) = ReplacePred::get(operator_token.as_str()) else {
-            panic!();
-        };
-        Ok(Val::String(replace_fn(base, from, to)))
-    }
-
-    fn eval_cmp_operator_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        check_rule!(token, Rule::cmp_operator_exp);
-
-        let mut pairs = token.into_inner();
-        let first_operand = pairs.next().unwrap();
-        check_rule!(first_operand, Rule::additive_exp);
-        let v1 = self.eval_additive(first_operand)?;
-
-        let operator_token = pairs.next().unwrap();
-        check_rule!(operator_token, Rule::cmp_op);
-
-        let second_operand = pairs.next().unwrap();
-        check_rule!(second_operand, Rule::additive_exp);
-        let v2 = self.eval_additive(second_operand)?;
-
-        //let token = operator_token.into_inner().next().unwrap();
-
-        let Some(cmp_fn) = ComparisonPred::get(operator_token.as_str()) else {
-            panic!();
-        };
-        Ok(Val::Bool(cmp_fn(v1, v2)))
-    }
-
-    fn eval_typecheck_operator_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        check_rule!(token, Rule::typecheck_operator_exp);
-
-        let mut pairs = token.into_inner();
-        let first_operand = pairs.next().unwrap();
-        check_rule!(first_operand, Rule::additive_exp);
-        let var = self.eval_additive(first_operand)?;
-
-        let operator_token = pairs.next().unwrap();
-        check_rule!(operator_token, Rule::type_check_op);
-
-        let second_operand = pairs.next().unwrap();
-        check_rule!(second_operand, Rule::type_name);
-        let ttype = ValType::cast(second_operand.as_str())?;
-
-        let Some(typecast_fn) = TypeCheckPred::get(operator_token.as_str()) else {
-            panic!();
-        };
-        Ok(Val::Bool(typecast_fn(var, ttype)))
-    }
-
-    fn eval_expression(&mut self, token_exp: Pair<'a>) -> ParserResult<Val> {
-        check_rule!(token_exp, Rule::expression);
-
-        let mut res = Val::default();
-        let pairs = token_exp.clone().into_inner();
-        for token in pairs {
-            match token.as_rule() {
-                Rule::additive_exp => {
-                    res.add(self.eval_additive(token)?)?;
-                }
-                Rule::multiplicative_exp => {
-                    res.add(self.eval_mult(token)?)?;
-                }
-                Rule::replace_operator_exp => {
-                    res.add(self.eval_replace_operator_exp(token)?)?;
-                }
-                Rule::cmp_operator_exp => {
-                    res.add(self.eval_cmp_operator_exp(token)?)?;
-                }
-                Rule::typecheck_operator_exp => {
-                    res.add(self.eval_typecheck_operator_exp(token)?)?;
-                }
-                Rule::command_call => {
-                    res.add(self.eval_command_call(token)?)?;
-                }
-                Rule::assignment_exp => {
-                    self.eval_assigment_exp(token)?;
-                }
-                _ => {
-                    println!("eval_expression not implemented: {:?}", token.as_rule());
-                }
-            }
-        }
-        //println!("exp: {}, res: {:?}", token_exp.as_str(), res);
-        Ok(res)
-    }
-
-    fn expand_string(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        check_rule!(token, Rule::expandable_string_content);
-        let mut res = Val::default();
-        let pairs = token.into_inner();
-        for token in pairs {
-            match token.as_rule() {
-                Rule::string_text => {
-                    res.add(Val::String(token.as_str().to_string()))?;
-                }
-                Rule::expression => {
-                    res.add(self.eval_expression(token)?)?;
-                }
-                Rule::variable => {
-                    res.add(self.variables.get(token.as_str()))?;
-                }
-                _ => {
-                    println!("expand_string not implemented: {:?}", token.as_rule());
-                }
-            }
+            let mult = pairs.next().unwrap();
+            let right_op = self.eval_additive(mult)?;
+            res = fun(res, right_op)?;
         }
 
         Ok(res)
+    }
+
+    fn eval_bitwise_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::bitwise_exp);
+
+        let mut pairs = token.into_inner();
+        let mut res = self.eval_comparison_exp(pairs.next().unwrap())?;
+        while let Some(op) = pairs.next() {
+            let Some(fun) = ArithmeticPred::get(op.as_str()) else {
+                panic!()
+            };
+
+            let mult = pairs.next().unwrap();
+            let right_op = self.eval_comparison_exp(mult)?;
+            res = fun(res, right_op);
+        }
+
+        Ok(res)
+    }
+
+    fn eval_expression(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::expression);
+
+        let mut pairs = token.into_inner();
+        let mut res = self.eval_bitwise_exp(pairs.next().unwrap())?;
+        while let Some(op) = pairs.next() {
+            let Some(fun) = ArithmeticPred::get(op.as_str()) else {
+                panic!()
+            };
+
+            let mult = pairs.next().unwrap();
+            let right_op = self.eval_bitwise_exp(mult)?;
+            res = fun(res, right_op);
+        }
+
+        Ok(res)
+    }
+
+    fn eval_pipeline_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::pipeline_statement);
+        let token = token.into_inner().next().unwrap();
+        self.eval_pipeline(token)
+    }
+
+    fn eval_pipeline(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::pipeline);
+        let mut pairs = token.into_inner();
+        let token = pairs.next().unwrap();
+
+        let res = match token.as_rule() {
+            Rule::assignment_exp => {
+                self.eval_assigment_exp(token)?;
+                Val::default()
+            }
+            Rule::expression => self.eval_expression(token)?,
+            _ => {
+                println!("eval_pipeline not implemented: {:?}", token.as_rule());
+                panic!();
+            }
+        };
+
+        Ok(res)
+    }
+
+    // fn eval_replace_operator_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+    //     check_rule!(token, Rule::replace_operator_exp);
+
+    //     let mut pairs = token.into_inner();
+    //     let first_operand = pairs.next().unwrap();
+    //     check_rule!(first_operand, Rule::additive_exp);
+    //     let base = self.eval_additive(first_operand)?;
+
+    //     let operator_token = pairs.next().unwrap();
+    //     check_rule!(operator_token, Rule::replace_op);
+
+    //     let second_operand = pairs.next().unwrap();
+    //     check_rule!(second_operand, Rule::additive_exp);
+    //     let from = self.eval_additive(second_operand)?;
+
+    //     let to = if let Some(third_operand) = pairs.next() {
+    //         check_rule!(third_operand, Rule::additive_exp);
+    //         self.eval_additive(third_operand)?
+    //     } else {
+    //         Val::Null
+    //     };
+
+    //     let Some(replace_fn) = ReplacePred::get(operator_token.as_str()) else {
+    //         panic!();
+    //     };
+    //     Ok(Val::String(replace_fn(base, from, to)))
+    // }
+
+    // fn eval_cmp_operator_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+    //     check_rule!(token, Rule::cmp_operator_exp);
+
+    //     let mut pairs = token.into_inner();
+    //     let first_operand = pairs.next().unwrap();
+    //     check_rule!(first_operand, Rule::additive_exp);
+    //     let v1 = self.eval_additive(first_operand)?;
+
+    //     let operator_token = pairs.next().unwrap();
+    //     check_rule!(operator_token, Rule::cmp_op);
+
+    //     let second_operand = pairs.next().unwrap();
+    //     check_rule!(second_operand, Rule::additive_exp);
+    //     let v2 = self.eval_additive(second_operand)?;
+
+    //     //let token = operator_token.into_inner().next().unwrap();
+
+    //     let Some(cmp_fn) = ComparisonPred::get(operator_token.as_str()) else {
+    //         panic!();
+    //     };
+    //     Ok(Val::Bool(cmp_fn(v1, v2)))
+    // }
+
+    // fn eval_typecheck_operator_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+    //     check_rule!(token, Rule::typecheck_operator_exp);
+
+    //     let mut pairs = token.into_inner();
+    //     let first_operand = pairs.next().unwrap();
+    //     check_rule!(first_operand, Rule::additive_exp);
+    //     let var = self.eval_additive(first_operand)?;
+
+    //     let operator_token = pairs.next().unwrap();
+    //     check_rule!(operator_token, Rule::type_check_op);
+
+    //     let second_operand = pairs.next().unwrap();
+    //     check_rule!(second_operand, Rule::type_name);
+    //     let ttype = ValType::cast(second_operand.as_str())?;
+
+    //     let Some(typecast_fn) = TypeCheckPred::get(operator_token.as_str()) else {
+    //         panic!();
+    //     };
+    //     Ok(Val::Bool(typecast_fn(var, ttype)))
+    // }
+
+    fn eval_cast_expression(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::cast_expression);
+        let mut res = Val::default();
+
+        let mut pairs = token.into_inner();
+        let type_token = pairs.next().unwrap();
+        let val_type = self.eval_type_literal(type_token)?;
+
+        let unary_token = pairs.next().unwrap();
+        let mut val = self.eval_unary_exp(unary_token)?;
+
+        Ok(val.cast(val_type)?)
+    }
+
+    fn expand_string(&mut self, token: Pair<'a>) -> ParserResult<String> {
+        //check_rule!(token, Rule::expandable_string_content);
+        Ok(match token.as_rule() {
+            Rule::variable => self.get_variable(token)?.cast_to_string(),
+            Rule::sub_expression => self.eval_statements(token)?,
+            _ => String::from(token.as_str())
+        })
     }
 
     // fn expand_strings(input: &str) -> ParserResult<String> {
@@ -501,8 +810,9 @@ impl<'a> PowerShellParser {
 
         let mut pairs = token.into_inner();
         let variable_token = pairs.next().unwrap();
-        let var = self.variables.get(variable_token.as_str());
-
+        let (var_name, scope) = self.parse_variable(variable_token)?;
+        let var = self.variables.get(&var_name, scope);
+        
         let assignement_op = pairs.next().unwrap();
 
         //get operand
@@ -515,7 +825,8 @@ impl<'a> PowerShellParser {
         let Some(pred) = pred else { panic!() };
 
         self.variables
-            .set(variable_token.as_str(), pred(var, expression_result));
+            .set(&var_name, None, pred(var, expression_result));
+
         Ok(())
     }
 }

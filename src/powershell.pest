@@ -1,13 +1,11 @@
-//kudos for: https://github.com/airbus-cert/tree-sitter-powershell . I used a lot of ideas from there
-
 BREAK     = _{ " " | "\t" }
 WHITESPACE     = _{ BREAK | single_line_comment | block_comment}
 NEWLINE = _{ "\r\n" | "\n" | "\r" }
 single_line_comment = _{ "#" ~ (!NEWLINE ~ ANY)* }
 block_comment = _{ "<#" ~ (!"#>" ~ ANY)* ~ "#>" }
-statement_terminator = { ";" | NEWLINE* }
+statement_terminator = _{ ";" | NEWLINE* }
 
-program = { SOI ~ param_block? ~ statements ~ EOI }
+program = { SOI ~ statement_terminator~  param_block? ~ statements ~ EOI }
 
 //---------------------------------- BLOCKS
 script_block = { script_block_body | (param_block ~ ";"* ~ script_block_body?)}
@@ -19,7 +17,7 @@ script_block_body = { named_blocks | statements }
 named_blocks = { named_block+ }
 named_block = { block_name ~ statement_block }
 block_name = {"dynamicparam" | "begin" | "process" | "end" }
-statement_block = { "{" ~ statements? ~ "}" }
+statement_block = @{ "{" ~ statements? ~ "}" }
 
 //------------------------------------- STATEMENTS
 statements = _{ statement+ }
@@ -164,14 +162,13 @@ enum_statement = { "enum" ~ simple_name ~ "{" ~ (enum_member ~ statement_termina
 enum_member = { simple_name ~ (("=" ~ decimal_integer) | ("=" ~ hex_integer) )? }
 
 // ---------------------- EXPRESSSION
-expression = _{logical_expression}
-logical_expression = { bitwise_expression ~ (logical_operator ~ bitwise_expression)* }
+expression  = { bitwise_exp ~ (logical_operator ~ bitwise_exp)* }
 logical_operator = { "-and" | "-or" | "-xor" }
 
-bitwise_expression = { comparison_expression ~ (bitwise_operator ~ comparison_expression)* }
+bitwise_exp = { comparison_exp ~ (bitwise_operator ~ comparison_exp)* }
 bitwise_operator = { "-band" | "-bor" | "-bxor" }
 
-comparison_expression = { additive_exp ~ (string_op ~ additive_exp)* }
+comparison_exp = { additive_exp ~ (string_op ~ additive_exp)* }
 
 additive_exp = { multiplicative_exp ~ (WHITESPACE* ~ additive_op ~ WHITESPACE* ~ multiplicative_exp)* }
 additive_op = _{ plus | minus }
@@ -184,27 +181,32 @@ mul = { "*" }
 divide = {"/"}
 mod = {"%"}
 
-format_exp = { range_exp ~ (WHITESPACE* ~ format_op ~ WHITESPACE* ~ range_exp)* }
+format_exp = { range_exp ~ ( format_op  ~ range_exp)* }
 format_op = _{ "-f" | "-F" }
 
-range_exp = { (type_literal? ~ (decimal_integer | hex_integer)) ~ ".." ~  (WHITESPACE* ~ array_exp)*
+range_exp = { (type_literal? ~ (decimal_integer | hex_integer)) ~ ".." ~  (WHITESPACE* ~ array_exp)+
 | array_exp ~ (WHITESPACE* ~ ".." ~ WHITESPACE* ~ array_exp)* }
 
 array_exp = { unary_exp ~ ("," ~ unary_exp)* }
 
-unary_exp = _{ expression_with_unary_operator | primary_expression }
+unary_exp = { expression_with_unary_operator | primary_expression }
 
 expression_with_unary_operator = {
     ("-not" ~ unary_exp)
     | ("!" ~ unary_exp)
     | ("-bnot" ~ unary_exp)
-    | ("+" ~ unary_exp)
-    | ("-" ~ unary_exp)
-    | ("++" ~ unary_exp)
-    | (type_literal ~ unary_exp)
-    | ("-split" ~ unary_exp)
-    | ("-join" ~ unary_exp)
+    | pre_inc_expression
+    | pre_dec_expression
+    //| ("+" ~ unary_exp)
+    //| ("-" ~ unary_exp)
+    | cast_expression
+    //| ("-split" ~ unary_exp)
+    //| ("-join" ~ unary_exp)
 }
+
+pre_inc_expression = { "++" ~ unary_exp }
+pre_dec_expression = { "--" ~ unary_exp }
+cast_expression = { type_literal ~ unary_exp }
 
 //------------------------------------PRIMARY EXPRESSSION
 primary_expression = {
@@ -233,7 +235,7 @@ method_invocation = { member_access ~ "(" ~ argument_list? ~ ")" }
 
 // --------------- PIPELINE
 pipeline_statement = { pipeline ~ statement_terminator }
-pipeline = { assignment_exp | (expression ~ redirections? ~ pipeline_tail?) | ( command ~ verbatim_command_arg? ~ pipeline_tail) }
+pipeline = { assignment_exp | (expression ~ redirections? ~ pipeline_tail?) | ( command ~ verbatim_command_arg? ~ pipeline_tail?) }
 pipeline_tail = { ("|" ~ command)+ }
 
 assignment_exp = { variable ~ assignement_op ~ expression }
@@ -244,48 +246,62 @@ assignement_op = {prefix_assign_op? ~ assign_op }
 
 // ---------------- COMMAND
 command = {
-    ( command_name ~ command_elements? )
+    ( command_name ~ elements_command? )
   | foreach_command
-  | ( command_invokation_operator ~ command_name_expr ~ command_elements? )
+  | ( command_invokation_operator ~ command_name_expr ~ elements_command? )
 }
-command_elements = { command_element+ }
+elements_command = _{ command_element+ }
 
-command_element = _{
-      command_parameter
+command_element = {
+    command_parameter
     | command_argument ~ argument_list?
     | redirection
     | stop_parsing
 }
 command_parameter = @{
-    "-" ~ ("-"*) ~ command_parameter_chars+
+    "-"+ ~ command_parameter_chars+
     | "--"
 }
 command_parameter_chars = _{ ASCII_ALPHA | ASCII_DIGIT | "_" | "?" | "-" | "`" }
 stop_parsing = @{ "--%" ~ (!(NEWLINE) ~ ANY)* }
-command_argument_sep = { " "+ | ":" }
-command_argument = _{
-      command_argument_sep ~ generic_token?
-    | command_argument_sep ~ array_exp
-    | parenthesized_expression
+//command_argument_sep = { " "+ | ":" }
+command_argument_sep = { ":" }
+command_argument = {
+      parenthesized_expression
+    | array_exp 
+    | command_argument_sep? ~ array_exp
+    | command_argument_sep ~ generic_token?
 }
 
 foreach_command = { ("%" | "foreach-object") ~ script_block_expression+ }
 command_name_expr = { command_name | path_command_name | primary_expression }
 command_invokation_operator = {"." | "&"}
 command_call = { command_ident ~ (BREAK+ ~ expression)* }
-command_name = { command_name_base  ~ extra_command_token* }
-extra_command_token = _{
-      immediate_chars
-    | "\"" ~ expandable_string_literal
-    | double_quote_empty
-    | single_quote_empty
+command_name = { command_name_base  ~ extra_command_token }
+command_name_base = @{ (!FORBIDDEN_CHARS ~ ANY)+ }
+FORBIDDEN_CHARS = _{
+      "{" | "}" | "(" | ")" | ";" | "," | "|" | "&" | "`" | "\"" | "'" | WHITESPACE
+    | "[" | "]" | "+" | "-" | "*" | "/" | "$" | "@" | "<" | "!" | "%"
 }
+
+SECOND_FORBIDDEN_CHARS = _{
+      "{" | "}" | "(" | ")" | ";" | "," | "|" | "&" | "\"" | "'" | WHITESPACE | "\r" | "\n"
+}
+
+
+extra_command_token = {
+      immediate_chars
+    | expandable_string_literal
+    | "\"\""
+    | "''" 
+}
+immediate_chars = @{ (!SECOND_FORBIDDEN_CHARS ~ ANY)+ }
 path_command_name = { (path_command_name_token | variable)+ }
 path_command_name_token = @{ (ASCII_ALPHANUMERIC | "_" | "?" | "-" | "." | "\\")+ }
 
 // OPPPP
 
-string_op = { replace_op | split_op | cmp_op | contain_op | join_op | type_check_op }
+string_op = _{ replace_op | split_op | cmp_op | contain_op | join_op | type_check_op }
 replace_op = { "-replace" | "-ireplace" | "-creplace" }
 split_op = { "-split" | "-isplit" | "-csplit" }
 cmp_op = { 
@@ -310,7 +326,7 @@ value = {
     | variable
 }
 parenthesized_expression = { "(" ~ pipeline ~ ")"}
-sub_expression = { "$(" ~ statements? ~ ")" }
+sub_expression = !{ "$(" ~ statements? ~ ")" }
 array_expression = { "@(" ~ statements? ~ ")" }
 script_block_expression = { "{" ~ param_block? ~ script_block ~ ")" }
 
@@ -319,28 +335,23 @@ hash_literal_body = { hash_entry* }
 hash_entry = { key_expression ~ "=" ~ statement ~ statement_terminator ~ ";"*}
 key_expression = { simple_name | unary_exp }
 
-variable = _{
+variable = {
       special_variable
     | scoped_variable
     | array_scoped_variable
     | braced_variable
 }
-
+var_name = @{ identifier | "?" }
 special_variable = { "$$" | "$^" | "$?" | "$_" }
-
-scoped_variable = @{
-    "$" ~ scope_prefix? ~ (identifier | "?")
+scoped_variable = _{
+    "$" ~ (scope_keyword ~ ":")? ~ var_name
 }
-
 array_scoped_variable = @{
-    "@" ~ scope_prefix? ~ (identifier | "?")
+    "@" ~ (scope_keyword ~ ":")? ~ var_name
 }
-
-scope_prefix = { (scope_keyword | identifier) ~ ":" }
-
 scope_keyword = { "global" | "local" | "private" | "script" | "using" | "workflow" }
-
-braced_variable = @{ "${" ~ (!"}" ~ ANY)+ ~ "}" }
+braced_variable = _{ "${" ~ braced_variable_content ~ "}" }
+braced_variable_content = @{ (!"}" ~ ANY)+ }
 
 member_suffix = _{
       dot_member
@@ -352,31 +363,12 @@ dot_member         = { "." ~ expression }
 static_member      = { "::" ~ identifier }
 index_access       = { "[" ~ expression ~ "]" }
 
-static_method_call = {
-    type_literal ~ "::" ~ identifier ~ "(" ~ argument_list? ~ ")"
-}
-
 argument_list      = { expression ~ ("," ~ expression)* }
 command_ident = @{ ASCII_ALPHANUMERIC ~ (ASCII_ALPHANUMERIC | "-")* }
 identifier = @{ (ASCII_ALPHANUMERIC | "_")+ }
 qualified_ident = { identifier ~ ("." ~ identifier)* }
 
 simple_name = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
-
-FORBIDDEN_CHARS = _{
-      "{" | "}" | "(" | ")" | ";" | "," | "|" | "&" | "`" | "\"" | "'" | WHITESPACE
-    | "[" | "]" | "+" | "-" | "*" | "/" | "$" | "@" | "<" | "!" | "%"
-}
-
-SECOND_FORBIDDEN_CHARS = _{
-      "{" | "}" | "(" | ")" | ";" | "," | "|" | "&" | "\"" | "'" | WHITESPACE | "\r" | "\n"
-}
-
-command_name_base = @{ (!FORBIDDEN_CHARS ~ ANY)+ }
-immediate_chars = @{ (!SECOND_FORBIDDEN_CHARS ~ ANY)+ }
-
-double_quote_empty = { "\"\"" }
-single_quote_empty = { "''" }
 
 redirections = { redirection+ }
 redirection = { merging_redirection_operator | (file_redirection_operator ~ redirected_file_name)}
@@ -397,79 +389,85 @@ ampersand_chunk = @{ "&" ~ (!"&" ~ ANY)* }
 generic_verbatim_chunk = @{ (!("|" | "\r" | "\n") ~ ANY)+ }
 
 //--------------------STRING LITERAL
-string_literal = _{
+string_literal = {
     expandable_string_literal
-  | verbatim_string_literal
-  | expandable_here_string_literal
-  | verbatim_here_string_literal
+  | singlequated_string_literal
+  | expandable_multiline_string_literal
+  | singlequated_multiline_string_literal
 }
 
-expandable_string_literal = {
-    "\"" ~ expandable_string_content* ~ "\"" 
+expandable_string_literal = ${
+	 "\""  ~ expandable_string_content* ~ "\""
 }
 
 expandable_string_content = _{
       double_quote_escape
     | variable
+    | dq_text_chunk
     | sub_expression
-    | dollar_escape
+    //| dollar_escape
     | backtick_escape
-    | "$"
-    | non_special_string_chunk
+    | WHITESPACE
+    
 }
 double_quote_escape = @{ "\"\"" }
-dollar_escape = @{ "$" ~ (backtick_escape | WHITESPACE | "\\" ) }
+dollar_escape = @{ "$" ~ (backtick_escape | WHITESPACE | "\\" )? }
 backtick_escape = @{ "`" ~ ANY } // handle backtick+char like `n
-non_special_string_chunk = @{ (!("$" | "\"" | "`") ~ ANY)+ }
+dq_text_chunk = { (!("$" | "\"" | "`") ~ ANY)+ }
 
-expandable_here_string_literal = {
-    "@\"" ~ NEWLINE ~ expandable_here_content* ~ here_string_end
+expandable_multiline_string_literal = {
+    dq_multiline_string_start ~ dq_multiline_content* ~ dq_multiline_string_end
 }
-expandable_here_content = _{
-      variable
+dq_multiline_content = _{
+	variable
     | sub_expression
     | backtick_escape
     | dollar_escape
-    | "$"
-    | here_text_chunk
+    | dq_ml_text_chunk
+    | NEWLINE
+    
 }
-here_text_chunk = @{ (!("\"@" | "$" | "`") ~ ANY)+ }
-here_string_end = @{ NEWLINE ~ "\"@" }
+dq_multiline_string_start = _{ "@\"" ~ NEWLINE }
+dq_ml_text_chunk = @{ (!("\"@" | "$" | "`" | NEWLINE) ~ ANY)+ }
+dq_multiline_string_end = _{ "\"@" }
 
-verbatim_string_literal = @{ "'" ~ verbatim_string_content* ~ "'" }
-verbatim_string_content = _{ "''" | (!"'" ~ ANY)+ }
+singlequated_string_literal = @{ "'" ~ sq_string_content* ~ "'" }
+sq_string_content = _{ "''" | (!"'" ~ ANY)+ }
 
-verbatim_here_string_literal = {
-    "@'" ~ NEWLINE ~ verbatim_here_content* ~ verbatim_here_end
+singlequated_multiline_string_literal = {
+    sq_multiline_start ~ (sq_multiline_content ~ NEWLINE)*  ~ sq_multiline_end
 }
 
-verbatim_here_content = @{ (!("'@" | "\r" | "\n") ~ ANY)+ }
-verbatim_here_end = @{ NEWLINE ~ "'@" }
+sq_multiline_start = _{ "@'" ~ NEWLINE }
+sq_multiline_content = { (!("'@" | "\r" | "\n") ~ ANY)+ }
+sq_multiline_end = _{ "'@" }
 
 //----------------------LITERAL
-literal = {
-	float
-    | decimal_integer 
-    | hex_integer 
+literal = _{
+	number_literal
     | string_literal 
 }
+number_literal = { number ~ (unit ~ ("b"|"B"))? }
+unit = { "k" | "K" | "m" | "M" | "g" | "G" | "t" | "T" | "p" | "P"}
 
-decimal_integer = @{ ASCII_DIGIT+ ~ ("l" | "L" | "d" | "D" )? ~ float_suffix?}
-hex_integer = @{ ("0x" | "0X") ~ ASCII_DIGIT+ ~ ("l" | "L")? ~ float_suffix?}
+number = { float | hex_integer| decimal_integer }
+
+decimal_int = @{ASCII_DIGIT+}
+hex_int = @{HEX_DIGIT+}
+decimal_integer = { decimal_int ~ ("l" | "L" | "d" | "D" )? }
+hex_integer = { ("0x" | "0X") ~ hex_int ~ ("l" | "L")? }
 float = {float_1 | float_2 | float_3}
-float_1 = { ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ float_mantis? ~ float_suffix? }
-float_2 = @{ "." ~ ASCII_DIGIT+ ~ float_mantis? ~ float_suffix? }
-float_3 = @{ ASCII_DIGIT+ ~ float_mantis ~ float_suffix? }
+float_1 = { ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ float_mantis? }
+float_2 = @{ "." ~ ASCII_DIGIT+ ~ float_mantis? }
+float_3 = @{ ASCII_DIGIT+ ~ float_mantis }
 float_mantis = {("e" | "E") ~ ("+" | "-") ~ ASCII_DIGIT+}
-float_suffix = { byte_prefix ~ byte_suffix}
-byte_prefix = { "k" | "K" | "m" | "M" | "g" | "G" | "t" | "T" | "p" | "P"}
-byte_suffix = {"b"|"B"}
+
 
 //----------------------TYPE LITERAL
 type_literal = { "[" ~ type_spec ~ "]" }
 type_name = { type_identifier ~ ("." ~ type_identifier)* }
 type_identifier = @{ (ASCII_ALPHANUMERIC | "_")+ }
-type_spec = {
+type_spec = @{
       type_name ~ "[" ~ dimension? ~ "]"
     | type_name ~ "[" ~ generic_type_arguments ~ "]"
     | type_name
