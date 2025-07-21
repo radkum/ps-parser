@@ -19,3 +19,9 @@
 ## 🚀 Getting Started
 
 Crate it's not ready. It's prerelase version
+
+
+## TODO
+- extend parser to handle all syntax: classes, -and or -or operators, pipes, functions
+- file_redirection_operator, merging_redirection_operator, format_operator, special variables ($$, $^, $?, $_), label, trap, try catch, finnally
+- instead of compilation feature flag, add option to Parser construction .with_culture("en-US)

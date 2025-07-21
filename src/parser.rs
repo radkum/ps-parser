@@ -687,6 +687,15 @@ $c = @(1, 2, @(3, 4))
     }
 
     #[test]
+    fn static_method_call() {
+        let input = r#"
+[Threading.Thread]::Sleep(399)
+"#;
+
+        let _ = PowerShellParser::parse(Rule::program, input).unwrap();
+    }
+
+    #[test]
     fn amsi_fail() {
         let input = r#"
 #Matt Graebers second Reflection method 
