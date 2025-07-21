@@ -1,6 +1,6 @@
 BREAK     = _{ " " | "\t" }
-WHITESPACE     = _{ BREAK | single_line_comment | block_comment}
-NEWLINE = _{ "\r\n" | "\n" | "\r" }
+WHITESPACE     = _{ BREAK | single_line_comment | block_comment | NEWLINE}
+NEWLINE = _{"\r\n" | "\n" | "\r"}
 single_line_comment = _{ "#" ~ (!NEWLINE ~ ANY)* }
 block_comment = _{ "<#" ~ (!"#>" ~ ANY)* ~ "#>" }
 statement_terminator = _{ ";" | NEWLINE* }
@@ -17,7 +17,7 @@ script_block_body = { named_blocks | statements }
 named_blocks = { named_block+ }
 named_block = { block_name ~ statement_block }
 block_name = {"dynamicparam" | "begin" | "process" | "end" }
-statement_block = @{ "{" ~ statements? ~ "}" }
+statement_block = { "{" ~ statements? ~ "}" }
 
 //------------------------------------- STATEMENTS
 statements = _{ statement+ }
@@ -280,7 +280,7 @@ command_call = { command_ident ~ (BREAK+ ~ expression)* }
 command_name = { command_name_base  ~ extra_command_token }
 command_name_base = @{ (!FORBIDDEN_CHARS ~ ANY)+ }
 FORBIDDEN_CHARS = _{
-      "{" | "}" | "(" | ")" | ";" | "," | "|" | "&" | "`" | "\"" | "'" | WHITESPACE
+      "{" | "}" | "(" | ")" | ";" | "," | "|" | "&" | "`" | "\"" | "'" | WHITESPACE | NEWLINE
     | "[" | "]" | "+" | "-" | "*" | "/" | "$" | "@" | "<" | "!" | "%"
 }
 

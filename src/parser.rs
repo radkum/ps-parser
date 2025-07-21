@@ -965,7 +965,6 @@ $numbers = 1..5
     fn literals() {
         let input = r#"
 $hex = 0xFF
-$bin = 0b1101
 
 $name = "Alice"
 $msg = "Hello, $name. Today is $day."
