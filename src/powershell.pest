@@ -204,20 +204,19 @@ expression_with_unary_operator = {
     //| ("-join" ~ unary_exp)
 }
 
-pre_inc_expression = { "++" ~ unary_exp }
-pre_dec_expression = { "--" ~ unary_exp }
+pre_inc_expression = { "++" ~ variable }
+pre_dec_expression = { "--" ~ variable }
 cast_expression = { type_literal ~ unary_exp }
 
 //------------------------------------PRIMARY EXPRESSSION
 primary_expression = {
     access
-    //| invokation_expression
     | post_inc_expression
     | post_dec_expression
     | value 
 }
-post_inc_expression = { value ~ "++" }
-post_dec_expression = { value ~ "--" }
+post_inc_expression = { variable ~ "++" }
+post_dec_expression = { variable ~ "--" }
 
 access = { value ~ 
     (
@@ -336,21 +335,20 @@ hash_entry = { key_expression ~ "=" ~ statement ~ statement_terminator ~ ";"*}
 key_expression = { simple_name | unary_exp }
 
 variable = {
-      special_variable
+    parenthesized_variable
+    | special_variable
     | scoped_variable
-    | array_scoped_variable
+    //| array_scoped_variable
     | braced_variable
 }
-var_name = @{ identifier | "?" }
+parenthesized_variable = { "(" ~ variable ~ ")" }
 special_variable = { "$$" | "$^" | "$?" | "$_" }
-scoped_variable = _{
-    "$" ~ (scope_keyword ~ ":")? ~ var_name
-}
-array_scoped_variable = @{
-    "@" ~ (scope_keyword ~ ":")? ~ var_name
-}
-scope_keyword = { "global" | "local" | "private" | "script" | "using" | "workflow" }
-braced_variable = _{ "${" ~ braced_variable_content ~ "}" }
+scoped_variable = { "$" ~ (scope_keyword ~ ":")? ~ var_name }
+braced_variable = { "${" ~ braced_variable_content ~ "}" }
+//array_scoped_variable = @{ "@" ~ (scope_keyword ~ ":")? ~ var_name }
+
+var_name = @{ identifier | "?" }
+scope_keyword = { "global" | "local" | "private" | "script" | "using" | "workflow" | "env" | "alias" | "fuction" | "variable" }
 braced_variable_content = @{ (!"}" ~ ANY)+ }
 
 member_suffix = _{

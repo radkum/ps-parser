@@ -252,18 +252,401 @@ mod tests {
 
     #[test]
     fn test_cast() {
-        let mut p = PowerShellParser::new();
-        assert_eq!(p.safe_eval("[lonG](97 + 3)").unwrap(), "100".to_string());
         assert_eq!(
-            p.safe_eval("[doUble](97 + 3.1)").unwrap(),
+            PowerShellParser::new()
+                .safe_eval(r#" [INt](70+44-44) "#)
+                .unwrap()
+                .as_str(),
+            "70"
+        );
+        assert_eq!(
+            PowerShellParser::new().safe_eval("[lonG](97 + 3)").unwrap(),
+            "100".to_string()
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval("[doUble](97 + 3.1)")
+                .unwrap(),
             "100.1".to_string()
         );
-        assert_eq!(p.safe_eval("[char](97 + 1)").unwrap(), "b".to_string());
         assert_eq!(
-            p.safe_eval("[bYte][char](97 + 1)").unwrap(),
+            PowerShellParser::new().safe_eval("[char](97 + 1)").unwrap(),
             "b".to_string()
         );
-        assert_eq!(p.safe_eval("[bool]0.09874").unwrap(), "True".to_string());
-        assert_eq!(p.safe_eval(r#" [BOOl]"" "#).unwrap(), "False".to_string());
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval("[bYte][char](97 + 1)")
+                .unwrap(),
+            "b".to_string()
+        );
+        assert_eq!(
+            PowerShellParser::new().safe_eval("[bool]0.09874").unwrap(),
+            "True".to_string()
+        );
+        assert_eq!(
+            PowerShellParser::new().safe_eval(r#" [BOOl]"" "#).unwrap(),
+            "False".to_string()
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" [Bool] @(1,2.3, "asdf", $null, $true) "#)
+                .unwrap()
+                .as_str(),
+            "True"
+        );
+
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" [chaR](70+44-44) "#)
+                .unwrap()
+                .as_str(),
+            "F"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" [string](70+44-44) "#)
+                .unwrap()
+                .as_str(),
+            "70"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" [string]$true "#)
+                .unwrap()
+                .as_str(),
+            "True"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" [string][int]$true "#)
+                .unwrap()
+                .as_str(),
+            "1"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" [string] "asdfad" "#)
+                .unwrap()
+                .as_str(),
+            "asdfad"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" [string] .0 "#)
+                .unwrap()
+                .as_str(),
+            "0"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" [string] @(1,2.3, "asdf", $null, $true) "#)
+                .unwrap()
+                .as_str(),
+            "1 2.3 asdf  True"
+        );
+
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" [arraY](70+44-44) "#)
+                .unwrap()
+                .as_str(),
+            "70"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" [arraY]$true "#)
+                .unwrap()
+                .as_str(),
+            "True"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" [arraY][int]$true "#)
+                .unwrap()
+                .as_str(),
+            "1"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" [arraY] "asdfad" "#)
+                .unwrap()
+                .as_str(),
+            "asdfad"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" [arraY] .0 "#)
+                .unwrap()
+                .as_str(),
+            "0"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" [arraY] @(1,2.3) "#)
+                .unwrap()
+                .as_str(),
+            "1 2.3"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" [arraY] (1,2.3) "#)
+                .unwrap()
+                .as_str(),
+            "1 2.3"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" (1,2.3) "#)
+                .unwrap()
+                .as_str(),
+            "1 2.3"
+        );
+    }
+
+    #[test]
+    fn test_pre_inc() {
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" ++($a);$a "#)
+                .unwrap()
+                .as_str(),
+            "1"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = 70;++($a);$a "#)
+                .unwrap()
+                .as_str(),
+            "71"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = 70;$b=++$a;$b "#)
+                .unwrap()
+                .as_str(),
+            "71"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [Float](70+44-44)+0.1;++$a;$a "#)
+                .unwrap()
+                .as_str(),
+            "71.1"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [StRing](70+44-44);++$a;$a "#)
+                .unwrap()
+                .as_str(),
+            "70"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [cHar](70+44-44);++$a;$a "#)
+                .unwrap()
+                .as_str(),
+            "F"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [bool](70+44-44);++$a;$a "#)
+                .unwrap()
+                .as_str(),
+            "True"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [array](70+44-44);++$a;$a "#)
+                .unwrap()
+                .as_str(),
+            "70"
+        );
+    }
+
+    #[test]
+    fn test_pre_dec() {
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" --($a);$a "#)
+                .unwrap()
+                .as_str(),
+            "-1"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = 70;--($a);$a "#)
+                .unwrap()
+                .as_str(),
+            "69"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = 70;--$a;$a "#)
+                .unwrap()
+                .as_str(),
+            "69"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [Float](70+44-44)+0.1;--$a;$a "#)
+                .unwrap()
+                .as_str(),
+            "69.1"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [StRing](70+44-44);--$a;$a "#)
+                .unwrap()
+                .as_str(),
+            "70"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [cHar](70+44-44);--$a;$a "#)
+                .unwrap()
+                .as_str(),
+            "F"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [bool](70+44-44);--$a;$a "#)
+                .unwrap()
+                .as_str(),
+            "True"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [array](70+44-44);--$a;$a "#)
+                .unwrap()
+                .as_str(),
+            "70"
+        );
+    }
+
+    #[test]
+    fn test_post_inc() {
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" ($a)++;$a "#)
+                .unwrap()
+                .as_str(),
+            "1"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = 70;($a)++;$a "#)
+                .unwrap()
+                .as_str(),
+            "71"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = 70;$b=$a++;$b "#)
+                .unwrap()
+                .as_str(),
+            "70"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [Float](70+44-44)+0.1;$b=$a++;$b "#)
+                .unwrap()
+                .as_str(),
+            "70.1"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [StRing](70+44-44);$b=$a++;$b "#)
+                .unwrap()
+                .as_str(),
+            ""
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [cHar](70+44-44);$b=$a++;$b "#)
+                .unwrap()
+                .as_str(),
+            ""
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [bool](70+44-44);$b=$a++;$b "#)
+                .unwrap()
+                .as_str(),
+            ""
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [array](70+44-44);$b=$a++;$b "#)
+                .unwrap()
+                .as_str(),
+            ""
+        );
+    }
+
+    #[test]
+    fn test_post_dec() {
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" ($a)--;$a "#)
+                .unwrap()
+                .as_str(),
+            "-1"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" (($a))--;$a "#)
+                .unwrap()
+                .as_str(),
+            "-1"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = 70;($a)--;$a "#)
+                .unwrap()
+                .as_str(),
+            "69"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = 70;$b=$a--;$b "#)
+                .unwrap()
+                .as_str(),
+            "70"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [Float](70+44-44)+0.1;$b=$a--;$b "#)
+                .unwrap()
+                .as_str(),
+            "70.1"
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [StRing](70+44-44);$b=$a--;$b "#)
+                .unwrap()
+                .as_str(),
+            ""
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [cHar](70+44-44);$b=$a--;$b "#)
+                .unwrap()
+                .as_str(),
+            ""
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [bool](70+44-44);$b=$a--;$b "#)
+                .unwrap()
+                .as_str(),
+            ""
+        );
+        assert_eq!(
+            PowerShellParser::new()
+                .safe_eval(r#" $a = [array](70+44-44);$b=$a--;$b "#)
+                .unwrap()
+                .as_str(),
+            ""
+        );
     }
 }

@@ -5,7 +5,6 @@ mod join;
 mod replace;
 mod split;
 mod type_check;
-use std::{collections::HashMap, sync::LazyLock};
 
 pub(crate) use arithmetic::ArithmeticPred;
 pub(crate) use comparison::ComparisonPred;

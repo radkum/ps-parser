@@ -37,10 +37,13 @@ mod tests {
             p.safe_eval(r#" 42 -isnot [string] "#).unwrap(),
             "True".to_string()
         );
-        assert_eq!(
-            p.safe_eval(r#" 42 -isnot [asdfas] "#).unwrap_err(),
-            ValError(UnknownType("asdfas".to_string()))
-        );
+
+        let mut p = PowerShellParser::new();
+        assert_eq!(p.safe_eval(r#" 42 -isnot [asdfas] "#), Ok("".to_string()));
+
+        assert_eq!(p.errors()[0], ValError(UnknownType("asdfas".to_string())));
+
+        let mut p = PowerShellParser::new();
         assert_eq!(
             p.safe_eval(r#" 42 -is [int] "#).unwrap(),
             "True".to_string()

@@ -1,4 +1,8 @@
-use std::{cmp::Ordering, num::ParseFloatError, sync::LazyLock};
+use std::{
+    cmp::Ordering,
+    num::{ParseFloatError, ParseIntError},
+    sync::LazyLock,
+};
 
 use thiserror_no_std::Error;
 
@@ -43,6 +47,11 @@ pub enum ValError {
 
 impl From<ParseFloatError> for ValError {
     fn from(_value: ParseFloatError) -> Self {
+        Self::InvalidCast("String".to_string(), "Float".to_string())
+    }
+}
+impl From<ParseIntError> for ValError {
+    fn from(_value: ParseIntError) -> Self {
         Self::InvalidCast("String".to_string(), "Int".to_string())
     }
 }
@@ -75,6 +84,7 @@ impl ValType {
             "int" | "long" | "decimal" => Self::Int,
             "float" | "double" => Self::Float,
             "string" => Self::String,
+            "array" => Self::Array,
             _ => Err(ValError::UnknownType(s))?,
         };
         Ok(t)
@@ -152,7 +162,7 @@ impl Val {
     }
 
     pub fn add(&mut self, val: Val) -> ValResult<()> {
-        let res = match self {
+        match self {
             Val::Null => *self = val,
             Val::Bool(_) | Val::Int(_) | Val::Float(_) => {
                 *self = if val.ttype() == ValType::Float {
@@ -164,30 +174,12 @@ impl Val {
             Val::Char(_) | Val::String(_) => {
                 *self = Val::String(self.cast_to_string() + val.cast_to_string().as_str())
             }
-            Val::Array(_) => todo!(),
-        };
-        Ok(res)
-    }
-
-    pub fn post_inc(&mut self) -> ValResult<Val> {
-        let ret = self.clone();
-        match self {
-            Val::Null => *self = Val::Int(1),
-            Val::Int(i) => *self = Val::Int(*i + 1),
-            Val::Float(f) => *self = Val::Float(*f + 1.),
-            Val::Bool(_) | Val::Char(_) | Val::String(_) | Val::Array(_) => {
-                //error
-                Err(ValError::OperationNotDefined(
-                    "++".to_string(),
-                    self.ttype().to_string(),
-                    self.ttype().to_string(),
-                ))?
-            }
+            Val::Array(arr) => arr.push(val),
         }
-        Ok(ret)
+        Ok(())
     }
 
-    fn pre_operation(&mut self, amount: i64, op: String) -> ValResult<()> {
+    fn inc_or_dec_operation(&mut self, amount: i64, op: String) -> ValResult<()> {
         match self {
             Val::Null => *self = Val::Int(amount),
             Val::Int(i) => *self = Val::Int(*i + amount),
@@ -204,16 +196,22 @@ impl Val {
         Ok(())
     }
 
-    pub fn pre_inc(&mut self) -> ValResult<()> {
-        self.pre_operation(1, "++".to_string())
+    pub fn inc(&mut self) -> ValResult<()> {
+        self.inc_or_dec_operation(1, "++".to_string())
     }
 
-    pub fn pre_dec(&mut self) -> ValResult<()> {
-        self.pre_operation(-1, "--".to_string())
+    pub fn dec(&mut self) -> ValResult<()> {
+        self.inc_or_dec_operation(-1, "--".to_string())
     }
 
     pub fn sub(&mut self, val: Val) -> ValResult<()> {
-        if self.ttype() == ValType::Float || val.ttype() == ValType::Float {
+        if self.ttype() == ValType::Array || val.ttype() == ValType::Array {
+            Err(ValError::OperationNotDefined(
+                "-".to_string(),
+                self.ttype().to_string(),
+                val.ttype().to_string(),
+            ))?
+        } else if self.ttype() == ValType::Float || val.ttype() == ValType::Float {
             *self = Val::Float(self.cast_to_float()? - val.cast_to_float()?);
         } else {
             *self = Val::Int(self.cast_to_int()? - val.cast_to_int()?);
@@ -242,15 +240,21 @@ impl Val {
                 "Char".to_string(),
                 val.ttype().to_string(),
             ))?,
-            Val::String(_) => {
-                Val::String(self.cast_to_string().repeat(val.cast_to_int()? as usize))
-            }
-            Val::Array(_) => todo!(),
+            Val::String(s) => Val::String(s.repeat(val.cast_to_int()? as usize)),
+            Val::Array(v) => Val::Array(Box::new(repeat(v, val.cast_to_int()? as usize))),
         };
         Ok(())
     }
 
     pub fn div(&mut self, val: Val) -> ValResult<()> {
+        if self.ttype() == ValType::Array || val.ttype() == ValType::Array {
+            Err(ValError::OperationNotDefined(
+                "/".to_string(),
+                self.ttype().to_string(),
+                val.ttype().to_string(),
+            ))?
+        }
+
         // check dividing by zero
         if let Ok(v) = val.cast_to_float() {
             if v == 0. {
@@ -277,6 +281,14 @@ impl Val {
     }
 
     pub fn modulo(&mut self, val: Val) -> ValResult<()> {
+        if self.ttype() == ValType::Array || val.ttype() == ValType::Array {
+            Err(ValError::OperationNotDefined(
+                "%".to_string(),
+                self.ttype().to_string(),
+                val.ttype().to_string(),
+            ))?
+        }
+
         // check dividing by zero
         if let Ok(v) = val.cast_to_float() {
             if v == 0. {
@@ -309,7 +321,7 @@ impl Val {
             ValType::Float => Val::Float(self.cast_to_float()?),
             ValType::Char => Val::Char(self.cast_to_char()?),
             ValType::String => Val::String(self.cast_to_string()),
-            ValType::Array => todo!(),
+            ValType::Array => Val::Array(Box::new(self.cast_to_array())),
         })
     }
 
@@ -321,7 +333,7 @@ impl Val {
             ValType::Float => Val::Float(0.),
             ValType::Char => Val::Char(0),
             ValType::String => Val::String(String::new()),
-            ValType::Array => todo!(),
+            ValType::Array => Val::Array(Box::new(vec![])),
         })
     }
 
@@ -331,7 +343,7 @@ impl Val {
             Val::Bool(b) => *b,
             Val::Int(_) | Val::Float(_) | Val::Char(_) => self.cast_to_float()? != 0.,
             Val::String(s) => !s.is_empty(),
-            Val::Array(_) => todo!(),
+            Val::Array(v) => !v.is_empty(),
         };
         Ok(res)
     }
@@ -357,13 +369,27 @@ impl Val {
                     ))?
                 }
             }
-            Val::Array(_) => todo!(),
+            Val::Array(_) => Err(ValError::InvalidCast(
+                "Array".to_string(),
+                "Char".to_string(),
+            ))?,
         };
         Ok(res)
     }
 
-    fn cast_to_int(&self) -> ValResult<i64> {
-        Ok(self.cast_to_float()? as i64)
+    pub(crate) fn cast_to_int(&self) -> ValResult<i64> {
+        Ok(match self {
+            Val::Null => 0,
+            Val::Bool(b) => *b as i64,
+            Val::Int(i) => *i,
+            Val::Float(f) => *f as i64,
+            Val::Char(c) => *c as i64,
+            Val::String(s) => s.trim().parse::<i64>()?,
+            Val::Array(_) => Err(ValError::InvalidCast(
+                "Array".to_string(),
+                "Int".to_string(),
+            ))?,
+        })
     }
 
     fn cast_to_float(&self) -> ValResult<f64> {
@@ -374,7 +400,10 @@ impl Val {
             Val::Float(f) => *f as f64,
             Val::Char(c) => *c as f64,
             Val::String(s) => s.trim().parse::<f64>()?,
-            Val::Array(_) => todo!(),
+            Val::Array(_) => Err(ValError::InvalidCast(
+                "Array".to_string(),
+                "Float".to_string(),
+            ))?,
         })
     }
 
@@ -386,9 +415,31 @@ impl Val {
             Val::Float(f) => f.to_string(),
             Val::Char(c) => char::from_u32(*c).unwrap_or_default().to_string(),
             Val::String(s) => s.clone(),
-            Val::Array(_) => todo!(),
+            Val::Array(v) => v
+                .iter()
+                .map(|val| val.cast_to_string())
+                .collect::<Vec<String>>()
+                .join(" "),
         }
     }
+
+    fn cast_to_array(&self) -> Vec<Self> {
+        match self {
+            Val::Null => vec![],
+            Val::Bool(_) | Val::Int(_) | Val::Float(_) | Val::Char(_) | Val::String(_) => {
+                vec![self.clone()]
+            }
+            Val::Array(v) => *v.clone(),
+        }
+    }
+}
+
+fn repeat(v: &Box<Vec<Val>>, amount: usize) -> Vec<Val> {
+    let mut res = *v.clone();
+    for _ in 1..amount {
+        res.append(&mut *v.clone());
+    }
+    res
 }
 
 #[cfg(test)]
@@ -432,6 +483,20 @@ mod tests {
         let mut val = Val::Char(97);
         val.add(Val::String("bsef".to_string())).unwrap();
         assert_eq!(val, Val::String("absef".to_string()));
+
+        let mut val = Val::Array(Box::new(vec![
+            Val::Int(7),
+            Val::String(" adsf".to_string()),
+        ]));
+        val.add(Val::Float(2.3)).unwrap();
+        assert_eq!(
+            val,
+            Val::Array(Box::new(vec![
+                Val::Int(7),
+                Val::String(" adsf".to_string()),
+                Val::Float(2.3)
+            ]))
+        );
     }
 
     #[test]
@@ -485,8 +550,38 @@ mod tests {
         assert_eq!(val, Val::Int(4));
 
         let mut val = Val::String(" 123".to_string());
-        val.mul(Val::Int(1)).unwrap();
-        assert_eq!(val, Val::String(" 123".to_string()));
+        val.mul(Val::Int(2)).unwrap();
+        assert_eq!(val, Val::String(" 123 123".to_string()));
+
+        let mut val = Val::Array(Box::new(vec![
+            Val::Int(7),
+            Val::String(" adsf".to_string()),
+        ]));
+        val.mul(Val::Int(2)).unwrap();
+        assert_eq!(
+            val,
+            Val::Array(Box::new(vec![
+                Val::Int(7),
+                Val::String(" adsf".to_string()),
+                Val::Int(7),
+                Val::String(" adsf".to_string())
+            ]))
+        );
+
+        let mut val = Val::Array(Box::new(vec![
+            Val::Int(7),
+            Val::String(" adsf".to_string()),
+        ]));
+        val.mul(Val::Float(2.3)).unwrap();
+        assert_eq!(
+            val,
+            Val::Array(Box::new(vec![
+                Val::Int(7),
+                Val::String(" adsf".to_string()),
+                Val::Int(7),
+                Val::String(" adsf".to_string())
+            ]))
+        );
     }
 
     #[test]
@@ -508,6 +603,13 @@ mod tests {
             true
         );
         assert_eq!(Val::String("".to_string()).cast_to_bool().unwrap(), false);
+        assert_eq!(Val::Array(Box::new(vec![])).cast_to_bool().unwrap(), false);
+        assert_eq!(
+            Val::Array(Box::new(vec![Val::Int(7)]))
+                .cast_to_bool()
+                .unwrap(),
+            true
+        );
     }
 
     #[test]
@@ -542,6 +644,12 @@ mod tests {
                 "Char".to_string()
             )
         );
+        assert_eq!(
+            Val::Array(Box::new(vec![Val::Char(7)]))
+                .cast_to_char()
+                .unwrap_err(),
+            ValError::InvalidCast("Array".to_string(), "Char".to_string())
+        );
     }
 
     #[test]
@@ -564,6 +672,12 @@ mod tests {
                 .cast_to_int()
                 .unwrap_err(),
             ValError::InvalidCast("String".to_string(), "Int".to_string())
+        );
+        assert_eq!(
+            Val::Array(Box::new(vec![Val::Int(7)]))
+                .cast_to_int()
+                .unwrap_err(),
+            ValError::InvalidCast("Array".to_string(), "Int".to_string())
         );
     }
 
@@ -595,7 +709,13 @@ mod tests {
             Val::String("  888  a".to_string())
                 .cast_to_float()
                 .unwrap_err(),
-            ValError::InvalidCast("String".to_string(), "Int".to_string())
+            ValError::InvalidCast("String".to_string(), "Float".to_string())
+        );
+        assert_eq!(
+            Val::Array(Box::new(vec![Val::Float(7.)]))
+                .cast_to_float()
+                .unwrap_err(),
+            ValError::InvalidCast("Array".to_string(), "Float".to_string())
         );
     }
 
@@ -614,5 +734,33 @@ mod tests {
         );
         assert_eq!(Val::Char(97).cast_to_string(), "a".to_string());
         assert_eq!(Val::Char(9997).cast_to_string(), "\u{270D}".to_string());
+        assert_eq!(
+            Val::Array(Box::new(vec![
+                Val::Int(7),
+                Val::Null,
+                Val::String(" adsf".to_string())
+            ]))
+            .cast_to_string(),
+            "7   adsf".to_string()
+        );
+    }
+
+    #[test]
+    fn test_cast_to_array() {
+        assert_eq!(Val::Null.cast_to_array(), vec![]);
+        assert_eq!(Val::Bool(true).cast_to_array(), vec![Val::Bool(true)]);
+        assert_eq!(
+            Val::Float(0.09874).cast_to_array(),
+            vec![Val::Float(0.09874)]
+        );
+        assert_eq!(Val::Char(5).cast_to_array(), vec![Val::Char(5)]);
+        assert_eq!(
+            Val::String("elo".to_string()).cast_to_array(),
+            vec![Val::String("elo".to_string())]
+        );
+        assert_eq!(
+            Val::Array(Box::new(vec![Val::Int(7)])).cast_to_array(),
+            vec![Val::Int(7)]
+        );
     }
 }
