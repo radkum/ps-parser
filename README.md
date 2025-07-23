@@ -22,6 +22,9 @@ Crate it's not ready. It's prerelase version
 
 
 ## TODO
-- extend parser to handle all syntax: classes, -and or -or operators, pipes, functions
-- file_redirection_operator, merging_redirection_operator, format_operator, special variables ($$, $^, $?, $_), label, trap, try catch, finnally
++ parse each powershell variant -  DONE
+- extend parser to handle all defined syntax: classes, -and or -or operators, all statements, file_redirection_operator, merging_redirection_operator, format_operator, label, trap, try catch, finnally
+- handle special variables ($$, $^, $?, $_) and environemtns
 - instead of compilation feature flag, add option to Parser construction .with_culture("en-US)
+- add option to use predefined variables or system variables
+- deal with letter case agnostic powershell

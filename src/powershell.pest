@@ -13,7 +13,8 @@ param_block = { attribute_list? ~ "param" ~ "(" ~ parameter_list? ~ ")" }
 parameter_list = { script_parameter ~ ("," ~ script_parameter)* }
 script_parameter = { attribute_list? ~ variable ~ script_parameter_default? }
 script_parameter_default = { "=" ~ expression }
-script_block_body = { named_blocks | statements }
+script_block_body = { named_blocks | statements_block }
+statements_block = { statements }
 named_blocks = { named_block+ }
 named_block = { block_name ~ statement_block }
 block_name = {"dynamicparam" | "begin" | "process" | "end" }
@@ -168,7 +169,13 @@ logical_operator = { "-and" | "-or" | "-xor" }
 bitwise_exp = { comparison_exp ~ (bitwise_operator ~ comparison_exp)* }
 bitwise_operator = { "-band" | "-bor" | "-bxor" }
 
-comparison_exp = { additive_exp ~ (string_op ~ additive_exp)* }
+// strange case. -split and -join can be invoke without previous expression, eg. "-join 'some'"
+comparison_exp = {
+    additive_exp ~split_op ~ script_block_expression |
+    (additive_exp ~ (string_op ~ additive_exp)*) | 
+    empty ~ ((join_op | split_op) ~ additive_exp)+ 
+    }
+empty = {""}
 
 additive_exp = { multiplicative_exp ~ (WHITESPACE* ~ additive_op ~ WHITESPACE* ~ multiplicative_exp)* }
 additive_op = _{ plus | minus }
@@ -184,8 +191,9 @@ mod = {"%"}
 format_exp = { range_exp ~ ( format_op  ~ range_exp)* }
 format_op = _{ "-f" | "-F" }
 
-range_exp = { (type_literal? ~ (decimal_integer | hex_integer)) ~ ".." ~  (WHITESPACE* ~ array_exp)+
-| array_exp ~ (WHITESPACE* ~ ".." ~ WHITESPACE* ~ array_exp)* }
+range_exp = { 
+    decimal_integer ~ ".." ~  WHITESPACE* ~ array_exp | 
+    array_exp ~ (WHITESPACE* ~ ".." ~ WHITESPACE* ~ array_exp)? }
 
 array_exp = { unary_exp ~ ("," ~ unary_exp)* }
 
@@ -206,7 +214,7 @@ expression_with_unary_operator = {
 
 pre_inc_expression = { "++" ~ variable }
 pre_dec_expression = { "--" ~ variable }
-cast_expression = { type_literal ~ unary_exp }
+cast_expression = { type_literal ~ (parenthesized_expression | range_exp | unary_exp) }
 
 //------------------------------------PRIMARY EXPRESSSION
 primary_expression = {
@@ -298,18 +306,17 @@ immediate_chars = @{ (!SECOND_FORBIDDEN_CHARS ~ ANY)+ }
 path_command_name = { (path_command_name_token | variable)+ }
 path_command_name_token = @{ (ASCII_ALPHANUMERIC | "_" | "?" | "-" | "." | "\\")+ }
 
-// OPPPP
-
-string_op = _{ replace_op | split_op | cmp_op | contain_op | join_op | type_check_op }
+//-------------------------------------STRING OPERATORS
+string_op = { replace_op | split_op | cmp_op | contain_op | join_op | type_check_op }
 replace_op = { "-replace" | "-ireplace" | "-creplace" }
 split_op = { "-split" | "-isplit" | "-csplit" }
+join_op = { "-join" }
 cmp_op = { 
     "-eq" | "-ieq" | "-ceq" | "-ge" | "-cge" | "-ige" | "-gt" | "-cgt" | "-igt" 
     | "-le" | "-cle" | "-ile" | "-lt" | "-clt" | "-ilt" | "-ne" | "-cne" | "-ine" 
     | "-match" |"-cmatch" | "-imatch" | "-notmatch" | "-cnotmatch" | "-inotmatch" 
     | "-like"| "-clike" | "-ilike" | "-notlike" | "-inotlike" | "-cnotlike" }
 contain_op = { "-in" | "-isin" |"-notin" | "-contains" | "-ccontains" | "-icontains" | "-notcontains" | "-inotcontains" | "-cnotcontains"}
-join_op = { "-join" }
 type_check_op = { "-isnot" | "-is" }
 
 simple_operator = _{ "-" | "+" | "*" | "/" | "%" }

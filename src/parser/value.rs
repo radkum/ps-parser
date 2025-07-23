@@ -107,7 +107,7 @@ impl Val {
     pub fn eq(&self, val: Val, case_insensitive: bool) -> ValResult<bool> {
         Ok(match self {
             Val::Null => val.ttype() == ValType::Null,
-            Val::Bool(b) => *b == val.cast_to_bool()?,
+            Val::Bool(b) => *b == val.cast_to_bool(),
             Val::Char(c) => *c == val.cast_to_char()?,
             Val::Int(i) => *i == val.cast_to_int()?,
             Val::Float(f) => *f == val.cast_to_float()?,
@@ -122,7 +122,7 @@ impl Val {
     pub fn gt(&self, val: Val, case_insensitive: bool) -> ValResult<bool> {
         Ok(match self {
             Val::Null => false,
-            Val::Bool(b) => *b > val.cast_to_bool()?,
+            Val::Bool(b) => *b > val.cast_to_bool(),
             Val::Char(c) => *c > val.cast_to_char()?,
             Val::Int(i) => *i > val.cast_to_int()?,
             Val::Float(f) => *f > val.cast_to_float()?,
@@ -137,7 +137,7 @@ impl Val {
     pub fn lt(&self, val: Val, case_insensitive: bool) -> ValResult<bool> {
         Ok(match self {
             Val::Null => false,
-            Val::Bool(b) => *b < val.cast_to_bool()?,
+            Val::Bool(b) => *b < val.cast_to_bool(),
             Val::Char(c) => *c < val.cast_to_char()?,
             Val::Int(i) => *i < val.cast_to_int()?,
             Val::Float(f) => *f < val.cast_to_float()?,
@@ -316,7 +316,7 @@ impl Val {
     pub(crate) fn cast(&mut self, ttype: ValType) -> ValResult<Self> {
         Ok(match ttype {
             ValType::Null => Err(ValError::UnknownType("Null".to_string()))?,
-            ValType::Bool => Val::Bool(self.cast_to_bool()?),
+            ValType::Bool => Val::Bool(self.cast_to_bool()),
             ValType::Int => Val::Int(self.cast_to_int()?),
             ValType::Float => Val::Float(self.cast_to_float()?),
             ValType::Char => Val::Char(self.cast_to_char()?),
@@ -337,15 +337,16 @@ impl Val {
         })
     }
 
-    fn cast_to_bool(&self) -> ValResult<bool> {
-        let res = match self {
+    pub(crate) fn cast_to_bool(&self) -> bool {
+        match self {
             Val::Null => false,
             Val::Bool(b) => *b,
-            Val::Int(_) | Val::Float(_) | Val::Char(_) => self.cast_to_float()? != 0.,
+            Val::Char(c) => *c != 0,
+            Val::Int(i) => *i != 0,
+            Val::Float(f) => *f != 0.,
             Val::String(s) => !s.is_empty(),
             Val::Array(v) => !v.is_empty(),
-        };
-        Ok(res)
+        }
     }
 
     fn cast_to_char(&self) -> ValResult<u32> {
@@ -382,7 +383,7 @@ impl Val {
             Val::Null => 0,
             Val::Bool(b) => *b as i64,
             Val::Int(i) => *i,
-            Val::Float(f) => *f as i64,
+            Val::Float(f) => f.round() as i64,
             Val::Char(c) => *c as i64,
             Val::String(s) => s.trim().parse::<i64>()?,
             Val::Array(_) => Err(ValError::InvalidCast(
@@ -423,7 +424,15 @@ impl Val {
         }
     }
 
-    fn cast_to_array(&self) -> Vec<Self> {
+    pub(super) fn cast_to_join_string(&self) -> String {
+        if let Val::Array(_) = self {
+            "System.Object[]".to_string()
+        } else {
+            self.cast_to_string()
+        }
+    }
+
+    pub(crate) fn cast_to_array(&self) -> Vec<Self> {
         match self {
             Val::Null => vec![],
             Val::Bool(_) | Val::Int(_) | Val::Float(_) | Val::Char(_) | Val::String(_) => {
@@ -586,30 +595,22 @@ mod tests {
 
     #[test]
     fn test_cast_to_bool() {
-        assert_eq!(Val::Null.cast_to_bool().unwrap(), false);
-        assert_eq!(Val::Bool(true).cast_to_bool().unwrap(), true);
-        assert_eq!(Val::Bool(false).cast_to_bool().unwrap(), false);
-        assert_eq!(Val::Int(-4).cast_to_bool().unwrap(), true);
-        assert_eq!(Val::Int(0).cast_to_bool().unwrap(), false);
-        assert_eq!(Val::Int(123456).cast_to_bool().unwrap(), true);
-        assert_eq!(Val::Float(0.).cast_to_bool().unwrap(), false);
-        assert_eq!(Val::Float(0.09874).cast_to_bool().unwrap(), true);
-        assert_eq!(Val::Float(-0.09874).cast_to_bool().unwrap(), true);
-        assert_eq!(Val::Char(0).cast_to_bool().unwrap(), false);
-        assert_eq!(Val::Char(97).cast_to_bool().unwrap(), true);
-        assert_eq!(Val::String("a".to_string()).cast_to_bool().unwrap(), true);
-        assert_eq!(
-            Val::String("  888  a".to_string()).cast_to_bool().unwrap(),
-            true
-        );
-        assert_eq!(Val::String("".to_string()).cast_to_bool().unwrap(), false);
-        assert_eq!(Val::Array(Box::new(vec![])).cast_to_bool().unwrap(), false);
-        assert_eq!(
-            Val::Array(Box::new(vec![Val::Int(7)]))
-                .cast_to_bool()
-                .unwrap(),
-            true
-        );
+        assert_eq!(Val::Null.cast_to_bool(), false);
+        assert_eq!(Val::Bool(true).cast_to_bool(), true);
+        assert_eq!(Val::Bool(false).cast_to_bool(), false);
+        assert_eq!(Val::Int(-4).cast_to_bool(), true);
+        assert_eq!(Val::Int(0).cast_to_bool(), false);
+        assert_eq!(Val::Int(123456).cast_to_bool(), true);
+        assert_eq!(Val::Float(0.).cast_to_bool(), false);
+        assert_eq!(Val::Float(0.09874).cast_to_bool(), true);
+        assert_eq!(Val::Float(-0.09874).cast_to_bool(), true);
+        assert_eq!(Val::Char(0).cast_to_bool(), false);
+        assert_eq!(Val::Char(97).cast_to_bool(), true);
+        assert_eq!(Val::String("a".to_string()).cast_to_bool(), true);
+        assert_eq!(Val::String("  888  a".to_string()).cast_to_bool(), true);
+        assert_eq!(Val::String("".to_string()).cast_to_bool(), false);
+        assert_eq!(Val::Array(Box::new(vec![])).cast_to_bool(), false);
+        assert_eq!(Val::Array(Box::new(vec![Val::Int(7)])).cast_to_bool(), true);
     }
 
     #[test]
