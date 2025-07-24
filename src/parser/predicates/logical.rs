@@ -29,8 +29,8 @@ pub fn xor(a: Val, b: Val) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::PowerShellParser;
-
+    use crate::{parser::ParserError, PowerShellParser};
+    
     #[test]
     fn test_and() {
         let mut p = PowerShellParser::new();
@@ -71,6 +71,11 @@ mod tests {
             p.safe_eval(r#" $false -or $false "#).unwrap(),
             "False".to_string()
         );
+
+        assert!(
+            matches!(p.safe_eval(r#" $false -or $false -or $false "#).unwrap_err(),
+            ParserError::PestError(_))
+        );
     }
 
     #[test]
@@ -92,5 +97,16 @@ mod tests {
             p.safe_eval(r#" $false -xor $false "#).unwrap(),
             "False".to_string()
         );
+    }
+
+    #[test]
+    fn test_not() {
+        let mut p = PowerShellParser::new();
+        assert_eq!(p.safe_eval(r#" -not 4 "#).unwrap(),"False".to_string());
+        assert_eq!(p.safe_eval(r#" -not "" "#).unwrap(),"True".to_string());
+        assert_eq!(p.safe_eval(r#" -not "asd" "#).unwrap(),"False".to_string());
+        assert_eq!(p.safe_eval(r#" -not "96.5" "#).unwrap(),"False".to_string());
+        assert_eq!(p.safe_eval(r#" -not "+96.5" "#).unwrap(),"False".to_string());
+        assert_eq!(p.safe_eval(r#" -not "96.5as" "#).unwrap(),"False".to_string());
     }
 }

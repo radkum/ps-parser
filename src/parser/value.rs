@@ -1,7 +1,5 @@
 use std::{
-    cmp::Ordering,
-    num::{ParseFloatError, ParseIntError},
-    sync::LazyLock,
+    cmp::Ordering, num::{ParseFloatError, ParseIntError}, ops::Neg, sync::LazyLock
 };
 
 use thiserror_no_std::Error;
@@ -241,7 +239,7 @@ impl Val {
                 val.ttype().to_string(),
             ))?,
             Val::String(s) => Val::String(s.repeat(val.cast_to_int()? as usize)),
-            Val::Array(v) => Val::Array(Box::new(repeat(v, val.cast_to_int()? as usize))),
+            Val::Array(v) => Val::Array(Box::new(Self::repeat(v, val.cast_to_int()? as usize))),
         };
         Ok(())
     }
@@ -310,6 +308,19 @@ impl Val {
             Val::Float(_) => Val::Float(self.cast_to_float()? % self.cast_to_float()?),
             Val::Array(_) => todo!(),
         };
+        Ok(())
+    }
+
+    pub fn neg(&mut self) -> ValResult<()> {
+        match self {
+            Val::Float(f) => *f = f.neg(),
+            Val::Null | Val::Bool(_) | Val::Int(_) | Val::Char(_) | Val::String(_) => *self = Val::Int(self.cast_to_int()?.neg()),
+            Val::Array(_) => Err(ValError::OperationNotDefined(
+                    "-".to_string(),
+                    self.ttype().to_string(),
+                    self.ttype().to_string(),
+                ))?,
+        }
         Ok(())
     }
 
@@ -385,7 +396,18 @@ impl Val {
             Val::Int(i) => *i,
             Val::Float(f) => f.round() as i64,
             Val::Char(c) => *c as i64,
-            Val::String(s) => s.trim().parse::<i64>()?,
+            Val::String(s) =>  {
+                let s = s.to_ascii_lowercase();
+                if let Some(hex) = s.strip_prefix("0x") {
+                    i64::from_str_radix(hex, 16)?
+                } else {
+                    if let Ok(casted) = s.trim().parse::<f64>() {
+                        Self::round_bankers(casted) as i64
+                    } else {
+                        s.trim().parse::<i64>()?
+                    }
+                }
+            }
             Val::Array(_) => Err(ValError::InvalidCast(
                 "Array".to_string(),
                 "Int".to_string(),
@@ -393,7 +415,7 @@ impl Val {
         })
     }
 
-    fn cast_to_float(&self) -> ValResult<f64> {
+    pub(crate) fn cast_to_float(&self) -> ValResult<f64> {
         Ok(match self {
             Val::Null => 0.,
             Val::Bool(b) => *b as i64 as f64,
@@ -441,15 +463,43 @@ impl Val {
             Val::Array(v) => *v.clone(),
         }
     }
+
+    fn repeat(v: &Box<Vec<Val>>, amount: usize) -> Vec<Val> {
+        let mut res = *v.clone();
+        for _ in 1..amount {
+            res.append(&mut *v.clone());
+        }
+        res
+    }
+
+    fn round_bankers(x: f64) -> f64 {
+        let rounded = x.trunc();
+        let frac = x.fract().abs();
+
+        if frac > 0.5 {
+            if x.is_sign_positive() {
+                rounded + 1.0
+            } else {
+                rounded - 1.0
+            }
+        } else if frac < 0.5 {
+            rounded
+        } else {
+            // exactly halfway: round to even
+            if rounded as i64 % 2 == 0 {
+                rounded
+            } else {
+                if x.is_sign_positive() {
+                    rounded + 1.0
+                } else {
+                    rounded - 1.0
+                }
+            }
+        }
+    }
 }
 
-fn repeat(v: &Box<Vec<Val>>, amount: usize) -> Vec<Val> {
-    let mut res = *v.clone();
-    for _ in 1..amount {
-        res.append(&mut *v.clone());
-    }
-    res
-}
+
 
 #[cfg(test)]
 mod tests {

@@ -6,13 +6,14 @@ mod variables;
 use command::PsCommand;
 use pest::Parser;
 use pest_derive::Parser;
-use predicates::{ArithmeticPred, LogicalPred, StringPred};
+use predicates::{ArithmeticPred, LogicalPred, StringPred, BitwisePred};
 use thiserror_no_std::Error;
 pub use value::{Val, ValType};
 use variables::Variables;
 
 type PestError = pest::error::Error<Rule>;
 type Pair<'i> = ::pest::iterators::Pair<'i, Rule>;
+type Pairs<'i> = ::pest::iterators::Pairs<'i, Rule>;
 use predicates::OpError;
 use value::ValError;
 
@@ -260,6 +261,16 @@ impl<'a> PowerShellParser {
                 var
             }
             Rule::cast_expression => self.eval_cast_expression(token)?,
+            Rule::negate_op => {
+                let unary_token = pair.next().unwrap();
+                let unary = self.eval_unary_exp(unary_token)?;
+                Val::Bool(!unary.cast_to_bool())
+            }
+            Rule::bitwise_negate_op => {
+                let unary_token = pair.next().unwrap();
+                let unary = self.eval_unary_exp(unary_token)?;
+                Val::Int(!unary.cast_to_int()?)
+            }
             _ => {
                 println!("token.rule(): {:?}", token.as_rule());
                 panic!()
@@ -462,9 +473,24 @@ impl<'a> PowerShellParser {
 
     fn eval_number_literal(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::number_literal);
+        let mut negate = false;
         let mut pairs = token.into_inner();
-        let token = pairs.next().unwrap();
+        let mut token = pairs.next().unwrap();
+
+        //first handle prefix sign: + or -
+        if token.as_rule() == Rule::minus {
+            negate = true;
+            token = pairs.next().unwrap();
+        } else if token.as_rule() == Rule::plus {
+             token = pairs.next().unwrap();
+        }
+
         let mut val = self.eval_number(token)?;
+
+        if negate {
+            val.neg()?;
+        }
+        
         if let Some(unit) = pairs.next() {
             let unit = unit.as_str().to_ascii_lowercase();
             let unit_int = match unit.as_str() {
@@ -487,6 +513,7 @@ impl<'a> PowerShellParser {
         let v = match token.as_rule() {
             Rule::decimal_integer => {
                 let int_val = token.into_inner().next().unwrap();
+                println!("int_val: {}", int_val.as_str());
                 Val::Int(int_val.as_str().parse::<i64>().unwrap())
             }
             Rule::hex_integer => {
@@ -588,22 +615,121 @@ impl<'a> PowerShellParser {
         Ok(res)
     }
 
+    fn eval_format_impl(&mut self, format: Val, mut pairs: Pairs<'a>) -> ParserResult<Val> {
+        fn format_with_vec(fmt: &str, args: Vec<Val>) -> ParserResult<String> {
+            fn strange_special_case(fmt: &str, n: i64) -> String {
+                fn split_digits(n: i64) -> Vec<u8> {
+                    n.abs()  // ignore sign for digit splitting
+                    .to_string()
+                    .chars()
+                    .filter_map(|c| c.to_digit(10).map(|opt| opt as u8))
+                    .collect()
+                }
+
+                //"{0:31sdfg,0100a0b00}" -f 578 evals to 310100a5b78
+                let mut digits = split_digits(n);
+                digits.reverse();
+                let mut fmt_vec = fmt.as_bytes().to_vec();
+                fmt_vec.reverse();
+
+                let mut i = 0;
+                for digit in digits {
+                    while i < fmt_vec.len() {
+                        if fmt_vec[i] != ('0' as u8) {i+=1} else {
+                           fmt_vec[i] = digit+('0' as u8);
+                           break;
+                        }
+                    }
+                }
+                fmt_vec.reverse();
+                String::from_utf8(fmt_vec).unwrap_or_default()
+            }
+
+            let mut output = String::new();
+            let mut i = 0;
+
+            while i < fmt.len() {
+                if fmt[i..].starts_with('{') {
+                    if let Some(end) = fmt[i..].find('}') {
+                        let token = &fmt[i + 1..i + end];
+                        let formatted = if token.contains(':') {
+                            let mut parts = token.split(':');
+                            let index: usize = if let Some(p) = parts.next() {
+                                p.parse().unwrap_or(0)
+                            } else {
+                                0
+                            };
+
+                            let spec = parts.next();
+                            match args.get(index) {
+                                Some(val) => match spec {
+                                    Some(s) if s.starts_with('N') => {
+                                        let precision = s[1..].parse::<usize>().unwrap_or(2);
+                                        if let Ok(f) = val.cast_to_float() {
+                                            format!("{:.1$}", f, precision)
+                                        } else {
+                                            format!("{}", val.cast_to_string())
+                                        }
+                                    }
+                                    Some(s) => strange_special_case(s, val.cast_to_int()?),
+                                    None => format!("{}", val.cast_to_string()),
+                                },
+                                None => format!("{{{}}}", token), // leave as-is if index out of bounds
+                            }
+                        } else if token.contains(','){
+                            let mut parts = token.split(',');
+                            let index: usize = parts.next().unwrap().parse().unwrap_or(0);
+                            let spec = parts.next();
+                            match args.get(index) {
+                                Some(val) => match spec {
+                                    Some(s) => {
+                                        let spaces = s.parse::<usize>().unwrap_or(0);
+                                        let spaces_str = " ".repeat(spaces);
+                                        format!("{spaces_str}{}", val.cast_to_string())
+                                    }
+                                    _ => format!("{}", val.cast_to_string()),
+                                },
+                                None => format!("{{{}}}", token), // leave as-is if index out of bounds
+                            }
+                        } else {
+                            let index: usize = Val::String(token.to_string()).cast_to_int()? as usize;
+                            match args.get(index) {
+                                Some(val) => format!("{}", val.cast_to_string()),
+                                None => format!("{{{}}}", token), // leave as-is if index out of bounds
+                            }
+                        };
+
+                        output.push_str(&formatted);
+                        i += end + 1;
+                    } else {
+                        output.push('{');
+                        i += 1;
+                    }
+                } else {
+                    output.push(fmt[i..].chars().next().unwrap());
+                    i += 1;
+                }
+            }
+
+            Ok(output)
+        }
+
+        Ok(if let Some(token) = pairs.next() {
+            let first_fmt = format.cast_to_string();
+
+            let second_fmt = self.eval_range_exp(token)?;
+            let res = self.eval_format_impl(second_fmt, pairs)?;
+            Val::String(format_with_vec(first_fmt.as_str(), res.cast_to_array())?)
+        } else {
+            format
+        })
+    }
+
     fn eval_format_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::format_exp);
         let mut pairs = token.into_inner();
-        let res = self.eval_range_exp(pairs.next().unwrap())?;
-        // while let Some(op) = pairs.next() {
-        //     let Some(fun) = ArithmeticPred::get(op.as_str()) else {
-        //         panic!()
-        //     };
-
-        //     let postfix = pairs.next().unwrap();
-        //     let right_op = self.eval_format_exp(postfix)?;
-        //     println!("{} {:?} {:?}", op.as_str(), res, right_op);
-        //     res = fun(res, right_op);
-        // }
-
-        Ok(res)
+        let format = self.eval_range_exp(pairs.next().unwrap())?;
+        Ok(self.eval_format_impl(format, pairs)?)
     }
 
     fn eval_mult(&mut self, token: Pair<'a>) -> ParserResult<Val> {
@@ -693,7 +819,7 @@ impl<'a> PowerShellParser {
 
         while let Some(op) = pairs.next() {
             let Some(fun) = StringPred::get(op.as_str()) else {
-                panic!()
+                panic!("no operator: {}", op.as_str())
             };
 
             let token = pairs.next().unwrap();
@@ -727,7 +853,7 @@ impl<'a> PowerShellParser {
         let mut res = self.eval_comparison_exp(pairs.next().unwrap())?;
         while let Some(op) = pairs.next() {
             check_rule!(op, Rule::bitwise_operator);
-            let Some(fun) = ArithmeticPred::get(op.as_str()) else {
+            let Some(fun) = BitwisePred::get(op.as_str()) else {
                 panic!()
             };
 
@@ -1011,6 +1137,15 @@ $c = @(1, 2, @(3, 4))
     fn static_method_call() {
         let input = r#"
 [Threading.Thread]::Sleep(399)
+"#;
+
+        let _ = PowerShellParser::parse(Rule::program, input).unwrap();
+    }
+
+    #[test]
+    fn neg_pipeline() {
+        let input = r#"
+-not $input | Where-Object { $_ -gt 5 }
 "#;
 
         let _ = PowerShellParser::parse(Rule::program, input).unwrap();

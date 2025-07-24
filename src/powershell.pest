@@ -163,11 +163,11 @@ enum_statement = { "enum" ~ simple_name ~ "{" ~ (enum_member ~ statement_termina
 enum_member = { simple_name ~ (("=" ~ decimal_integer) | ("=" ~ hex_integer) )? }
 
 // ---------------------- EXPRESSSION
-expression  = { bitwise_exp ~ (logical_operator ~ bitwise_exp)* }
+expression  = { bitwise_exp ~ (logical_operator ~ bitwise_exp)? }
 logical_operator = { "-and" | "-or" | "-xor" }
 
 bitwise_exp = { comparison_exp ~ (bitwise_operator ~ comparison_exp)* }
-bitwise_operator = { "-band" | "-bor" | "-bxor" }
+bitwise_operator = { "-band" | "-bor" | "-bxor" | "-shl" | "-shr" }
 
 // strange case. -split and -join can be invoke without previous expression, eg. "-join 'some'"
 comparison_exp = {
@@ -199,17 +199,14 @@ array_exp = { unary_exp ~ ("," ~ unary_exp)* }
 
 unary_exp = { expression_with_unary_operator | primary_expression }
 
+negate_op = { "!" | "-not" }
+bitwise_negate_op = { "-bnot" }
 expression_with_unary_operator = {
-    ("-not" ~ unary_exp)
-    | ("!" ~ unary_exp)
-    | ("-bnot" ~ unary_exp)
+    (negate_op ~ unary_exp)
+    | (bitwise_negate_op ~ unary_exp)
     | pre_inc_expression
     | pre_dec_expression
-    //| ("+" ~ unary_exp)
-    //| ("-" ~ unary_exp)
     | cast_expression
-    //| ("-split" ~ unary_exp)
-    //| ("-join" ~ unary_exp)
 }
 
 pre_inc_expression = { "++" ~ variable }
@@ -284,7 +281,7 @@ foreach_command = { ("%" | "foreach-object") ~ script_block_expression+ }
 command_name_expr = { command_name | path_command_name | primary_expression }
 command_invokation_operator = {"." | "&"}
 command_call = { command_ident ~ (BREAK+ ~ expression)* }
-command_name = { command_name_base  ~ extra_command_token }
+command_name = { command_name_base  ~ extra_command_token? }
 command_name_base = @{ (!FORBIDDEN_CHARS ~ ANY)+ }
 FORBIDDEN_CHARS = _{
       "{" | "}" | "(" | ")" | ";" | "," | "|" | "&" | "`" | "\"" | "'" | WHITESPACE | NEWLINE
@@ -316,7 +313,7 @@ cmp_op = {
     | "-le" | "-cle" | "-ile" | "-lt" | "-clt" | "-ilt" | "-ne" | "-cne" | "-ine" 
     | "-match" |"-cmatch" | "-imatch" | "-notmatch" | "-cnotmatch" | "-inotmatch" 
     | "-like"| "-clike" | "-ilike" | "-notlike" | "-inotlike" | "-cnotlike" }
-contain_op = { "-in" | "-isin" |"-notin" | "-contains" | "-ccontains" | "-icontains" | "-notcontains" | "-inotcontains" | "-cnotcontains"}
+contain_op = { "-inotin" | "-notin" | "-inotin" | "-cnotin" | "-contains" | "-ccontains" | "-icontains" | "-notcontains" | "-inotcontains" | "-cnotcontains" | "-in" | "-iin" | "-cin" }
 type_check_op = { "-isnot" | "-is" }
 
 simple_operator = _{ "-" | "+" | "*" | "/" | "%" }
@@ -452,12 +449,12 @@ literal = _{
 	number_literal
     | string_literal 
 }
-number_literal = { number ~ (unit ~ ("b"|"B"))? }
+number_literal = { additive_op? ~ number ~ (unit ~ ("b"|"B"))? }
 unit = { "k" | "K" | "m" | "M" | "g" | "G" | "t" | "T" | "p" | "P"}
 
 number = { float | hex_integer| decimal_integer }
 
-decimal_int = @{ASCII_DIGIT+}
+decimal_int = @{ ASCII_DIGIT+}
 hex_int = @{HEX_DIGIT+}
 decimal_integer = { decimal_int ~ ("l" | "L" | "d" | "D" )? }
 hex_integer = { ("0x" | "0X") ~ hex_int ~ ("l" | "L")? }
