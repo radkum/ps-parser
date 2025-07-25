@@ -1,11 +1,11 @@
 BREAK     = _{ " " | "\t" }
-WHITESPACE     = _{ BREAK | single_line_comment | block_comment | NEWLINE}
+WHITESPACE     = _{ BREAK | single_line_comment | block_comment }
 NEWLINE = _{"\r\n" | "\n" | "\r"}
 single_line_comment = _{ "#" ~ (!NEWLINE ~ ANY)* }
 block_comment = _{ "<#" ~ (!"#>" ~ ANY)* ~ "#>" }
-statement_terminator = _{ ";" | NEWLINE* }
+statement_terminator = _{ (";" | NEWLINE)+ }
 
-program = { SOI ~ statement_terminator~  param_block? ~ statements ~ EOI }
+program = { SOI ~ NEWLINE*~  param_block? ~ statements ~ EOI }
 
 //---------------------------------- BLOCKS
 script_block = { script_block_body | (param_block ~ ";"* ~ script_block_body?)}
@@ -21,7 +21,7 @@ block_name = {"dynamicparam" | "begin" | "process" | "end" }
 statement_block = { "{" ~ statements? ~ "}" }
 
 //------------------------------------- STATEMENTS
-statements = _{ statement+ }
+statements = _{ (statement+ ~ pipeline?) | pipeline }
 
 statement = _{ 
 	if_statement 
@@ -37,7 +37,7 @@ statement = _{
     | parallel_statement
     | sequence_statement
     | pipeline_statement 
-    | empty_statement 
+    | statement_terminator
 }
 empty_statement = {";"}
 
@@ -59,14 +59,14 @@ labeled_statement = _{ label? ~ (
 ) }
 label_exp = { label | unary_exp }
 
-switch_statement = { "switch" ~ switch_parameters? ~ switch_condition ~ switch_body }
+switch_statement = { "switch" ~ switch_parameters? ~ switch_condition ~ NEWLINE* ~ switch_body }
 switch_parameters = { switch_parameter+ }
 switch_parameter = { "-regex" | "-wildcard" | "-exact" | "-casesensitive" | "-parallel" }
 switch_condition = { "(" ~ pipeline ~ ")" | "-file" ~ switch_filename }
 switch_filename = { command_token | primary_expression }
 switch_body = { "{" ~ switch_clauses? ~ "}" }
 switch_clauses = { switch_clause+ }
-switch_clause = { switch_clause_condition ~ statement_block ~ statement_terminator ~ ";"* }
+switch_clause = { NEWLINE* ~ switch_clause_condition ~ NEWLINE* ~  statement_block ~ NEWLINE* }
 switch_clause_condition = { command_token | primary_expression }
 
 
@@ -192,10 +192,10 @@ format_exp = { range_exp ~ ( format_op  ~ range_exp)* }
 format_op = _{ "-f" | "-F" }
 
 range_exp = { 
-    decimal_integer ~ ".." ~  WHITESPACE* ~ array_exp | 
-    array_exp ~ (WHITESPACE* ~ ".." ~ WHITESPACE* ~ array_exp)? }
+    decimal_integer ~ ".." ~  WHITESPACE* ~ array_literal_exp | 
+    array_literal_exp ~ (WHITESPACE* ~ ".." ~ WHITESPACE* ~ array_literal_exp)? }
 
-array_exp = { unary_exp ~ ("," ~ unary_exp)* }
+array_literal_exp = { unary_exp ~ ("," ~ unary_exp)* }
 
 unary_exp = { expression_with_unary_operator | primary_expression }
 
@@ -272,8 +272,9 @@ stop_parsing = @{ "--%" ~ (!(NEWLINE) ~ ANY)* }
 command_argument_sep = { ":" }
 command_argument = {
       parenthesized_expression
-    | array_exp 
-    | command_argument_sep? ~ array_exp
+    | array_literal_exp 
+    | generic_token
+    | command_argument_sep ~ array_literal_exp
     | command_argument_sep ~ generic_token?
 }
 
@@ -487,10 +488,11 @@ attribute_argument   = { expression | (simple_name ~ ("=" ~ expression)?) }
 //-----------------------GENERIC TOKEN
 generic_token = @{ generic_token_start ~ generic_token_rest* }
 generic_token_start = _{
-    !( "(" | ")" | "$" | "\"" | "'" | "-" | "{" | "}" | "@" | "|" | "[" | "`" | WHITESPACE ) ~ ANY
+    !( "(" | ")" | "$" | "\"" | "'" | "-" | "{" | "}" | "@" | "|" | "[" | "`" | WHITESPACE | NEWLINE ) ~ ANY
 }
 generic_token_rest = _{
     !(WHITESPACE | "(" | ")" | "}" | "|" | ";" | ",") ~ ANY
 }
 command_token = @{ command_char+ }
-command_char = _{ ASCII_ALPHANUMERIC | "-" | "_" | "." | "/" | "\\" | ":" | "'" | "\"" }
+//command_char = _{ ASCII_ALPHANUMERIC | "-" | "_" | "." | "/" | "\\" | ":" | "'" | "\"" }
+command_char = _{ !( "(" | ")" | "{" | "}" | ";" | NEWLINE ) ~ ANY }
