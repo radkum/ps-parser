@@ -1,11 +1,10 @@
 BREAK     = _{ " " | "\t" }
-WHITESPACE     = _{ BREAK | single_line_comment | block_comment }
-NEWLINE = _{"\r\n" | "\n" | "\r"}
+WHITESPACE     = _{ BREAK | single_line_comment | block_comment | NEWLINE }
 single_line_comment = _{ "#" ~ (!NEWLINE ~ ANY)* }
 block_comment = _{ "<#" ~ (!"#>" ~ ANY)* ~ "#>" }
-statement_terminator = _{ (";" | NEWLINE)+ }
+statement_terminator = { (";" | NEWLINE)+ }
 
-program = { SOI ~ NEWLINE*~  param_block? ~ statements ~ EOI }
+program = { SOI ~ param_block? ~ statements ~ EOI }
 
 //---------------------------------- BLOCKS
 script_block = { script_block_body | (param_block ~ ";"* ~ script_block_body?)}
@@ -21,7 +20,7 @@ block_name = {"dynamicparam" | "begin" | "process" | "end" }
 statement_block = { "{" ~ statements? ~ "}" }
 
 //------------------------------------- STATEMENTS
-statements = _{ (statement+ ~ pipeline?) | pipeline }
+statements = _{ statement+ }
 
 statement = _{ 
 	if_statement 
@@ -59,14 +58,14 @@ labeled_statement = _{ label? ~ (
 ) }
 label_exp = { label | unary_exp }
 
-switch_statement = { "switch" ~ switch_parameters? ~ switch_condition ~ NEWLINE* ~ switch_body }
+switch_statement = { "switch" ~ switch_parameters? ~ switch_condition ~ switch_body }
 switch_parameters = { switch_parameter+ }
 switch_parameter = { "-regex" | "-wildcard" | "-exact" | "-casesensitive" | "-parallel" }
 switch_condition = { "(" ~ pipeline ~ ")" | "-file" ~ switch_filename }
 switch_filename = { command_token | primary_expression }
 switch_body = { "{" ~ switch_clauses? ~ "}" }
 switch_clauses = { switch_clause+ }
-switch_clause = { NEWLINE* ~ switch_clause_condition ~ NEWLINE* ~  statement_block ~ NEWLINE* }
+switch_clause = { switch_clause_condition ~  statement_block }
 switch_clause_condition = { command_token | primary_expression }
 
 
@@ -238,7 +237,7 @@ element_access = { "[" ~ expression ~ "]" }
 method_invocation = { member_access ~ "(" ~ argument_list? ~ ")" }
 
 // --------------- PIPELINE
-pipeline_statement = { pipeline ~ statement_terminator }
+pipeline_statement = _{ pipeline ~ statement_terminator? }
 pipeline = { assignment_exp | (expression ~ redirections? ~ pipeline_tail?) | ( command ~ verbatim_command_arg? ~ pipeline_tail?) }
 pipeline_tail = { ("|" ~ command)+ }
 

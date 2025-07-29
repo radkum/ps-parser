@@ -114,6 +114,13 @@ mod tests {
     }
 
     #[test]
+    fn test_unary() {
+        let mut p = PowerShellParser::new();
+        assert_eq!(p.safe_eval(r#" +5 "#).unwrap().as_str(), "5");
+        assert_eq!(p.safe_eval(r#" -5 "#).unwrap().as_str(), "-5");
+    }
+
+    #[test]
     fn test_format_operator() {
         let mut p = PowerShellParser::new();
         assert_eq!(p.safe_eval(r#" "Hello, {0}!" -f "world" "#).unwrap().as_str(), "Hello, world!");

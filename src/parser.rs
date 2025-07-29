@@ -96,6 +96,10 @@ impl<'a> PowerShellParser {
                     Rule::EOI => {
                         break;
                     }
+                    Rule::pipeline => {
+                        //println!("Assignment: {}", token.as_str());
+                        res = self.eval_pipeline(token).unwrap_or_default();
+                    }
                     _ => {
                         println!("not implemented: {:?}", token.as_rule());
                     }
@@ -145,6 +149,10 @@ impl<'a> PowerShellParser {
                 Rule::pipeline_statement => {
                     //println!("Assignment: {}", token.as_str());
                     v.push(self.eval_pipeline_statement(token)?);
+                }
+                Rule::pipeline => {
+                    //println!("Assignment: {}", token.as_str());
+                    v.push(self.eval_pipeline(token)?);
                 }
                 _ => {
                     println!("not implemented: {:?}", token.as_rule());
@@ -546,8 +554,8 @@ impl<'a> PowerShellParser {
         }
     }
 
-    fn eval_array_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        check_rule!(token, Rule::array_exp);
+    fn eval_array_literal_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::array_literal_exp);
         let mut arr = Vec::new();
         let mut pairs = token.into_inner();
         arr.push(self.eval_unary_exp(pairs.next().unwrap())?);
@@ -583,14 +591,14 @@ impl<'a> PowerShellParser {
                 let int_val = token.into_inner().next().unwrap();
                 let left = int_val.as_str().parse::<i64>().unwrap();
                 let token = pairs.next().unwrap();
-                let right = self.eval_array_exp(token)?.cast_to_int()?;
+                let right = self.eval_array_literal_exp(token)?.cast_to_int()?;
                 Val::Array(Box::new(range(left, right)))
             }
-            Rule::array_exp => {
-                let res = self.eval_array_exp(token)?;
+            Rule::array_literal_exp => {
+                let res = self.eval_array_literal_exp(token)?;
                 if let Some(token) = pairs.next() {
                     let left = res.cast_to_int()?;
-                    let right = self.eval_array_exp(token)?.cast_to_int()?;
+                    let right = self.eval_array_literal_exp(token)?.cast_to_int()?;
                     Val::Array(Box::new(range(left, right)))
                 } else {
                     res
