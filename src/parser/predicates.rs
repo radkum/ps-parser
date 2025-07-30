@@ -1,4 +1,5 @@
 mod arithmetic;
+mod bitwise;
 mod comparison;
 mod contain;
 mod join;
@@ -6,17 +7,15 @@ mod logical;
 mod replace;
 mod split;
 mod type_check;
-mod bitwise;
 
 pub(crate) use arithmetic::ArithmeticPred;
+pub(crate) use bitwise::BitwisePred;
 pub(crate) use comparison::ComparisonPred;
+pub(crate) use contain::ContainPred;
 pub(crate) use join::JoinPred;
 pub(crate) use logical::LogicalPred;
 pub(crate) use replace::ReplacePred;
 pub(crate) use split::SplitPred;
-pub(crate) use bitwise::BitwisePred;
-pub(crate) use contain::ContainPred;
-
 use thiserror_no_std::Error;
 pub(crate) use type_check::TypeCheckPred;
 
@@ -70,7 +69,7 @@ impl StringPred {
             return Some(Box::new(move |v1, v2| Ok(split(v1, v2))));
         }
 
-         if let Some(contain) = ContainPred::get(name) {
+        if let Some(contain) = ContainPred::get(name) {
             return Some(Box::new(move |v1, v2| Ok(Val::Bool(contain(v1, v2)))));
         }
 
@@ -123,16 +122,111 @@ mod tests {
     #[test]
     fn test_format_operator() {
         let mut p = PowerShellParser::new();
-        assert_eq!(p.safe_eval(r#" "Hello, {0}!" -f "world" "#).unwrap().as_str(), "Hello, world!");
-        assert_eq!(p.safe_eval(r#" "Hello, {0}!" -f "every{0}" -f "body"  "#).unwrap().as_str(), "Hello, everybody!");
-        assert_eq!(p.safe_eval(r#" "{0} + {1} = {2}" -f 5, 7, (5 + 7) "#).unwrap().as_str(), "5 + 7 = 12");
-        assert_eq!(p.safe_eval(r#" "{0:N2}" -f 1234.56789 "#).unwrap().as_str(), "1234.57");
-        assert_eq!(p.safe_eval(r#" "|{0,10}|" -f "Hi" "#).unwrap().as_str(), "|          Hi|");
-        assert_eq!(p.safe_eval(r#" $level = "INFO";$message = "Disk space low";"{0}: {1}" -f $level, $message "#).unwrap().as_str(), "INFO: Disk space low");
-        assert_eq!(p.safe_eval(r#" "{0:310100a0b00}" -f 578 "#).unwrap().as_str(), "310100a5b78");
-        
+        assert_eq!(
+            p.safe_eval(r#" "Hello, {0}!" -f "world" "#)
+                .unwrap()
+                .as_str(),
+            "Hello, world!"
+        );
+        assert_eq!(
+            p.safe_eval(r#" "Hello, {0}!" -f "every{0}" -f "body"  "#)
+                .unwrap()
+                .as_str(),
+            "Hello, everybody!"
+        );
+        assert_eq!(
+            p.safe_eval(r#" "{0} + {1} = {2}" -f 5, 7, (5 + 7) "#)
+                .unwrap()
+                .as_str(),
+            "5 + 7 = 12"
+        );
+        assert_eq!(
+            p.safe_eval(r#" "{0:N2}" -f 1234.56789 "#).unwrap().as_str(),
+            "1234.57"
+        );
+        assert_eq!(
+            p.safe_eval(r#" "|{0,10}|" -f "Hi" "#).unwrap().as_str(),
+            "|          Hi|"
+        );
+        assert_eq!(
+            p.safe_eval(
+                r#" $level = "INFO";$message = "Disk space low";"{0}: {1}" -f $level, $message "#
+            )
+            .unwrap()
+            .as_str(),
+            "INFO: Disk space low"
+        );
+        assert_eq!(
+            p.safe_eval(r#" "{0:310100a0b00}" -f 578 "#)
+                .unwrap()
+                .as_str(),
+            "310100a5b78"
+        );
+
         //veeeery strange cases
-        //assert_eq!(p.safe_eval(r#" "{0:31sdfg,0100a0b00000000000000000000000}" -f 57899999999999999999999999999 "#).unwrap().as_str(), "31sdfg578199a9b99999999999999999999999");
-        //assert_eq!(p.safe_eval(r#" "{0:31sdfg,0100a0b00000000000000000000000}" -f 578999999999999999999999999999 "#).unwrap().as_str(), "31sdfg5790100a0b00000000000000000000000");
+        //assert_eq!(p.safe_eval(r#"
+        // "{0:31sdfg,0100a0b00000000000000000000000}" -f
+        // 57899999999999999999999999999 "#).unwrap().as_str(),
+        // "31sdfg578199a9b99999999999999999999999"); assert_eq!(p.
+        // safe_eval(r#" "{0:31sdfg,0100a0b00000000000000000000000}" -f
+        // 578999999999999999999999999999 "#).unwrap().as_str(),
+        // "31sdfg5790100a0b00000000000000000000000");
+    }
+
+    #[test]
+    fn test_strings() {
+        let mut p = PowerShellParser::new();
+        assert_eq!(
+            p.safe_eval(r#" 'It''s fine' "#).unwrap().as_str(),
+            "It''s fine"
+        );
+        assert_eq!(
+            p.safe_eval(r#" "Price is $" "#).unwrap().as_str(),
+            "Price is $"
+        );
+        assert_eq!(
+            p.safe_eval(r#" "Result: $(1+2)" "#).unwrap().as_str(),
+            "Result: 3"
+        );
+        assert_eq!(
+            p.safe_eval(r#" $name = "Radek";"Hello $name" "#)
+                .unwrap()
+                .as_str(),
+            "Hello Radek"
+        );
+        assert_eq!(
+            p.safe_eval(r#" "This is a quote: `"" "#).unwrap().as_str(),
+            "This is a quote: \""
+        );
+        assert_eq!(
+            p.safe_eval(r#" "A backtick `` and escaped quote `"" "#)
+                .unwrap()
+                .as_str(),
+            "A backtick ` and escaped quote \""
+        );
+        assert_eq!(
+            p.safe_eval(
+                r#" @"
+Hello $name $
+Multiline with $(1+2)
+"@ "#
+            )
+            .unwrap()
+            .as_str(),
+            "Hello Radek $\nMultiline with 3"
+        );
+
+        assert_eq!(
+            p.safe_eval(
+                r#" @'
+This is a
+multi-line
+here string
+'@ "#
+            )
+            .unwrap()
+            .as_str(),
+            "This is a\nmulti-line\nhere string"
+        );
     }
 }

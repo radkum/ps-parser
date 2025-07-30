@@ -1,5 +1,8 @@
 use std::{
-    cmp::Ordering, num::{ParseFloatError, ParseIntError}, ops::Neg, sync::LazyLock
+    cmp::Ordering,
+    num::{ParseFloatError, ParseIntError},
+    ops::Neg,
+    sync::LazyLock,
 };
 
 use thiserror_no_std::Error;
@@ -314,12 +317,14 @@ impl Val {
     pub fn neg(&mut self) -> ValResult<()> {
         match self {
             Val::Float(f) => *f = f.neg(),
-            Val::Null | Val::Bool(_) | Val::Int(_) | Val::Char(_) | Val::String(_) => *self = Val::Int(self.cast_to_int()?.neg()),
+            Val::Null | Val::Bool(_) | Val::Int(_) | Val::Char(_) | Val::String(_) => {
+                *self = Val::Int(self.cast_to_int()?.neg())
+            }
             Val::Array(_) => Err(ValError::OperationNotDefined(
-                    "-".to_string(),
-                    self.ttype().to_string(),
-                    self.ttype().to_string(),
-                ))?,
+                "-".to_string(),
+                self.ttype().to_string(),
+                self.ttype().to_string(),
+            ))?,
         }
         Ok(())
     }
@@ -396,7 +401,7 @@ impl Val {
             Val::Int(i) => *i,
             Val::Float(f) => f.round() as i64,
             Val::Char(c) => *c as i64,
-            Val::String(s) =>  {
+            Val::String(s) => {
                 let s = s.to_ascii_lowercase();
                 if let Some(hex) = s.strip_prefix("0x") {
                     i64::from_str_radix(hex, 16)?
@@ -498,8 +503,6 @@ impl Val {
         }
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

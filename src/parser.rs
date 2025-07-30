@@ -6,7 +6,7 @@ mod variables;
 use command::PsCommand;
 use pest::Parser;
 use pest_derive::Parser;
-use predicates::{ArithmeticPred, LogicalPred, StringPred, BitwisePred};
+use predicates::{ArithmeticPred, BitwisePred, LogicalPred, StringPred};
 use thiserror_no_std::Error;
 pub use value::{Val, ValType};
 use variables::Variables;
@@ -101,7 +101,7 @@ impl<'a> PowerShellParser {
                         res = self.eval_pipeline(token).unwrap_or_default();
                     }
                     _ => {
-                        println!("not implemented: {:?}", token.as_rule());
+                        println!("safe_eval not implemented: {:?}", token.as_rule());
                     }
                 }
             }
@@ -129,7 +129,7 @@ impl<'a> PowerShellParser {
                         break;
                     }
                     _ => {
-                        println!("not implemented: {:?}", token.as_rule());
+                        println!(" evaluate not implemented: {:?}", token.as_rule());
                         panic!()
                     }
                 }
@@ -155,7 +155,7 @@ impl<'a> PowerShellParser {
                     v.push(self.eval_pipeline(token)?);
                 }
                 _ => {
-                    println!("not implemented: {:?}", token.as_rule());
+                    println!("eval statemets not implemented: {:?}", token.as_rule());
                     panic!()
                 }
             }
@@ -164,28 +164,36 @@ impl<'a> PowerShellParser {
         Ok(v)
     }
 
+    fn parse_dq(&mut self, token: Pair<'a>) -> ParserResult<String> {
+        let mut res_str = String::new();
+        let mut pairs = token.into_inner();
+        while let Some(token) = pairs.next() {
+            let token = token.into_inner().next().unwrap();
+            let s = match token.as_rule() {
+                Rule::variable => self.get_variable(token)?.cast_to_string(),
+                Rule::sub_expression => {
+                    Val::Array(Box::new(self.eval_statements(token)?)).cast_to_string()
+                }
+                Rule::backtick_escape => token
+                    .as_str()
+                    .strip_prefix("`")
+                    .unwrap_or_default()
+                    .to_string(),
+                _ => token.as_str().to_string(),
+            };
+            res_str.push_str(s.as_str());
+        }
+        Ok(res_str)
+    }
+
     fn eval_string_literal(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::string_literal);
         let mut pair = token.into_inner();
         let token = pair.next().unwrap();
 
         let res = match token.as_rule() {
-            Rule::expandable_string_literal => {
-                let mut res_str = String::new();
-                let mut pairs = token.into_inner();
-                while let Some(token) = pairs.next() {
-                    let s = match token.as_rule() {
-                        Rule::variable => self.get_variable(token)?.cast_to_string(),
-                        Rule::sub_expression => {
-                            Val::Array(Box::new(self.eval_statements(token)?)).cast_to_string()
-                        }
-                        _ => token.as_str().to_string(),
-                    };
-                    res_str.push_str(s.as_str());
-                }
-                res_str
-            }
-            Rule::singlequated_string_literal => {
+            Rule::doublequoted_string_literal => self.parse_dq(token)?,
+            Rule::singlequoted_string_literal => {
                 if let Some(stripped_prefix) = token.as_str().to_string().strip_prefix("'") {
                     if let Some(stripped_suffix) = stripped_prefix.to_string().strip_suffix("'") {
                         stripped_suffix.to_string()
@@ -195,6 +203,15 @@ impl<'a> PowerShellParser {
                 } else {
                     panic!("no prefix")
                 }
+            }
+            Rule::doublequoted_multiline_string_literal => self.parse_dq(token)?,
+            Rule::singlequoted_multiline_string_literal => {
+                let mut res_str = String::new();
+                let mut pairs = token.into_inner();
+                while let Some(token) = pairs.next() {
+                    res_str.push_str(token.as_str());
+                }
+                res_str
             }
             _ => {
                 println!("token.rule(): {:?}", token.as_rule());
@@ -490,7 +507,7 @@ impl<'a> PowerShellParser {
             negate = true;
             token = pairs.next().unwrap();
         } else if token.as_rule() == Rule::plus {
-             token = pairs.next().unwrap();
+            token = pairs.next().unwrap();
         }
 
         let mut val = self.eval_number(token)?;
@@ -498,7 +515,7 @@ impl<'a> PowerShellParser {
         if negate {
             val.neg()?;
         }
-        
+
         if let Some(unit) = pairs.next() {
             let unit = unit.as_str().to_ascii_lowercase();
             let unit_int = match unit.as_str() {
@@ -627,11 +644,11 @@ impl<'a> PowerShellParser {
         fn format_with_vec(fmt: &str, args: Vec<Val>) -> ParserResult<String> {
             fn strange_special_case(fmt: &str, n: i64) -> String {
                 fn split_digits(n: i64) -> Vec<u8> {
-                    n.abs()  // ignore sign for digit splitting
-                    .to_string()
-                    .chars()
-                    .filter_map(|c| c.to_digit(10).map(|opt| opt as u8))
-                    .collect()
+                    n.abs() // ignore sign for digit splitting
+                        .to_string()
+                        .chars()
+                        .filter_map(|c| c.to_digit(10).map(|opt| opt as u8))
+                        .collect()
                 }
 
                 //"{0:31sdfg,0100a0b00}" -f 578 evals to 310100a5b78
@@ -643,9 +660,11 @@ impl<'a> PowerShellParser {
                 let mut i = 0;
                 for digit in digits {
                     while i < fmt_vec.len() {
-                        if fmt_vec[i] != ('0' as u8) {i+=1} else {
-                           fmt_vec[i] = digit+('0' as u8);
-                           break;
+                        if fmt_vec[i] != ('0' as u8) {
+                            i += 1
+                        } else {
+                            fmt_vec[i] = digit + ('0' as u8);
+                            break;
                         }
                     }
                 }
@@ -682,9 +701,10 @@ impl<'a> PowerShellParser {
                                     Some(s) => strange_special_case(s, val.cast_to_int()?),
                                     None => format!("{}", val.cast_to_string()),
                                 },
-                                None => format!("{{{}}}", token), // leave as-is if index out of bounds
+                                None => format!("{{{}}}", token), /* leave as-is if index out of
+                                                                   * bounds */
                             }
-                        } else if token.contains(','){
+                        } else if token.contains(',') {
                             let mut parts = token.split(',');
                             let index: usize = parts.next().unwrap().parse().unwrap_or(0);
                             let spec = parts.next();
@@ -697,13 +717,16 @@ impl<'a> PowerShellParser {
                                     }
                                     _ => format!("{}", val.cast_to_string()),
                                 },
-                                None => format!("{{{}}}", token), // leave as-is if index out of bounds
+                                None => format!("{{{}}}", token), /* leave as-is if index out of
+                                                                   * bounds */
                             }
                         } else {
-                            let index: usize = Val::String(token.to_string()).cast_to_int()? as usize;
+                            let index: usize =
+                                Val::String(token.to_string()).cast_to_int()? as usize;
                             match args.get(index) {
                                 Some(val) => format!("{}", val.cast_to_string()),
-                                None => format!("{{{}}}", token), // leave as-is if index out of bounds
+                                None => format!("{{{}}}", token), /* leave as-is if index out of
+                                                                   * bounds */
                             }
                         };
 

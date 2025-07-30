@@ -1,8 +1,7 @@
-BREAK     = _{ " " | "\t" }
-WHITESPACE     = _{ BREAK | single_line_comment | block_comment | NEWLINE }
 single_line_comment = _{ "#" ~ (!NEWLINE ~ ANY)* }
 block_comment = _{ "<#" ~ (!"#>" ~ ANY)* ~ "#>" }
-statement_terminator = { (";" | NEWLINE)+ }
+COMMENT = _{ single_line_comment | block_comment }
+WHITESPACE     = _{ " " | "\t" | NEWLINE }
 
 program = { SOI ~ param_block? ~ statements ~ EOI }
 
@@ -38,7 +37,7 @@ statement = _{
     | pipeline_statement 
     | statement_terminator
 }
-empty_statement = {";"}
+statement_terminator = { (";" | NEWLINE)+ }
 
 if_statement = {
     "if" ~ "(" ~ pipeline ~ ")"  ~ statement_block ~ elseif_clauses? ~ else?
@@ -280,7 +279,7 @@ command_argument = {
 foreach_command = { ("%" | "foreach-object") ~ script_block_expression+ }
 command_name_expr = { command_name | path_command_name | primary_expression }
 command_invokation_operator = {"." | "&"}
-command_call = { command_ident ~ (BREAK+ ~ expression)* }
+command_call = { command_ident ~ expression* }
 command_name = { command_name_base  ~ extra_command_token? }
 command_name_base = @{ (!FORBIDDEN_CHARS ~ ANY)+ }
 FORBIDDEN_CHARS = _{
@@ -295,7 +294,7 @@ SECOND_FORBIDDEN_CHARS = _{
 
 extra_command_token = {
       immediate_chars
-    | expandable_string_literal
+    | doublequoted_string_literal
     | "\"\""
     | "''" 
 }
@@ -392,57 +391,59 @@ generic_verbatim_chunk = @{ (!("|" | "\r" | "\n") ~ ANY)+ }
 
 //--------------------STRING LITERAL
 string_literal = {
-    expandable_string_literal
-  | singlequated_string_literal
-  | expandable_multiline_string_literal
-  | singlequated_multiline_string_literal
+    doublequoted_string_literal
+  | singlequoted_string_literal
+  | doublequoted_multiline_string_literal
+  | singlequoted_multiline_string_literal
 }
 
-expandable_string_literal = ${
-	 "\""  ~ expandable_string_content* ~ "\""
+doublequoted_string_literal = ${
+	 "\""  ~ dq_string_content* ~ "\""
 }
 
-expandable_string_content = _{
-      double_quote_escape
+dq_string_content = ${
+      dq_escape
     | variable
     | dq_text_chunk
     | sub_expression
-    //| dollar_escape
+    | dollar_escape
     | backtick_escape
     | WHITESPACE
-    
 }
-double_quote_escape = @{ "\"\"" }
-dollar_escape = @{ "$" ~ (backtick_escape | WHITESPACE | "\\" )? }
-backtick_escape = @{ "`" ~ ANY } // handle backtick+char like `n
+
+dq_escape = @{ "\"\"" }
+dollar_escape = @{ "$" ~ (backtick_escape | "\\" )? }
+backtick_escape = @{ "`" ~ non_whitespace_char ? } // handle backtick+char like `n
+non_whitespace_char  = { !WHITESPACE ~ ANY }
 dq_text_chunk = { (!("$" | "\"" | "`") ~ ANY)+ }
 
-expandable_multiline_string_literal = {
+doublequoted_multiline_string_literal = @{
     dq_multiline_string_start ~ dq_multiline_content* ~ dq_multiline_string_end
 }
-dq_multiline_content = _{
+dq_multiline_content = ${
 	variable
     | sub_expression
     | backtick_escape
     | dollar_escape
     | dq_ml_text_chunk
-    | NEWLINE
-    
+    | dq_newline
 }
-dq_multiline_string_start = _{ "@\"" ~ NEWLINE }
-dq_ml_text_chunk = @{ (!("\"@" | "$" | "`" | NEWLINE) ~ ANY)+ }
-dq_multiline_string_end = _{ "\"@" }
+dq_newline = {NEWLINE ~ !"\"@"}
+dq_multiline_string_start = @{ "@\"" ~ NEWLINE }
+dq_ml_text_chunk = ${ (!("\"@" | "$" | "`" | NEWLINE) ~ ANY)+ }
+dq_multiline_string_end = @{ NEWLINE ~ "\"@" }
 
-singlequated_string_literal = @{ "'" ~ sq_string_content* ~ "'" }
+singlequoted_string_literal = @{ "'" ~ sq_string_content* ~ "'" }
 sq_string_content = _{ "''" | (!"'" ~ ANY)+ }
 
-singlequated_multiline_string_literal = {
-    sq_multiline_start ~ (sq_multiline_content ~ NEWLINE)*  ~ sq_multiline_end
+singlequoted_multiline_string_literal = ${
+    sq_multiline_start ~ sq_multiline_content*  ~ sq_multiline_end
 }
 
 sq_multiline_start = _{ "@'" ~ NEWLINE }
-sq_multiline_content = { (!("'@" | "\r" | "\n") ~ ANY)+ }
-sq_multiline_end = _{ "'@" }
+sq_multiline_content = @{ ((!("'@" | "\r" | "\n") ~ ANY)+) | sq_newline }
+sq_multiline_end = _{ NEWLINE ~ "'@" }
+sq_newline = {NEWLINE ~ !"'@"}
 
 //----------------------LITERAL
 literal = _{
