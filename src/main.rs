@@ -28,7 +28,10 @@ $ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([b
 "#;
 
         let mut p = PowerShellParser::new();
-        assert_eq!(p.safe_eval(input).unwrap().as_str(), "System.Management.Automation.AmsiUtils");
+        assert_eq!(
+            p.safe_eval(input).unwrap().as_str(),
+            "System.Management.Automation.AmsiUtils"
+        );
     }
 
     #[test]
@@ -58,6 +61,9 @@ $([cHar]([BYte]0x61)+[chAr]([bYTE]0x6d)+[CHaR]([ByTe]0x73)+[char](105)+[CHAR]([b
 "#;
 
         let mut p = PowerShellParser::new();
-        assert_eq!(p.safe_eval(input).unwrap().as_str(), "System.Management.Automation.AmsiUtils");
+        assert_eq!(
+            p.safe_eval(input).unwrap().as_str(),
+            "System.Management.Automation.AmsiUtils"
+        );
     }
 }

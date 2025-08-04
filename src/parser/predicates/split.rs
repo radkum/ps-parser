@@ -166,7 +166,7 @@ mod tests {
     fn test_split() {
         let mut p = PowerShellParser::new();
         assert_eq!(
-            p.safe_eval(r#" -split "red yellow blue green" "#).unwrap(),
+            p.safe_eval(r#" -sPlit "red yellow blue green" "#).unwrap(),
             "red yellow blue green".to_string()
         );
         assert_eq!(

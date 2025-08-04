@@ -11,7 +11,9 @@ impl LogicalPred {
         LazyLock::new(|| HashMap::from([("-and", and as _), ("-or", or as _), ("-xor", xor as _)]));
 
     pub(crate) fn get(name: &str) -> Option<LogicalPredType> {
-        Self::LOGICAL_PRED_MAP.get(name).map(|elem| *elem)
+        Self::LOGICAL_PRED_MAP
+            .get(name.to_ascii_lowercase().as_str())
+            .map(|elem| *elem)
     }
 }
 
@@ -35,11 +37,11 @@ mod tests {
     fn test_and() {
         let mut p = PowerShellParser::new();
         assert_eq!(
-            p.safe_eval(r#" $true -and $true "#).unwrap(),
+            p.safe_eval(r#" $true -AND $true "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" $true -and $false "#).unwrap(),
+            p.safe_eval(r#" $true -And $false "#).unwrap(),
             "False".to_string()
         );
         assert_eq!(
@@ -56,7 +58,7 @@ mod tests {
     fn test_or() {
         let mut p = PowerShellParser::new();
         assert_eq!(
-            p.safe_eval(r#" $true -or $true "#).unwrap(),
+            p.safe_eval(r#" $true -oR $true "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(
@@ -83,15 +85,15 @@ mod tests {
     fn test_xor() {
         let mut p = PowerShellParser::new();
         assert_eq!(
-            p.safe_eval(r#" $true -xor $true "#).unwrap(),
+            p.safe_eval(r#" $true -Xor $true "#).unwrap(),
             "False".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" $true -xor $false "#).unwrap(),
+            p.safe_eval(r#" $true -xOr $false "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" $false -xor $true "#).unwrap(),
+            p.safe_eval(r#" $false -XOR $true "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(
@@ -103,19 +105,19 @@ mod tests {
     #[test]
     fn test_not() {
         let mut p = PowerShellParser::new();
-        assert_eq!(p.safe_eval(r#" -not 4 "#).unwrap(), "False".to_string());
-        assert_eq!(p.safe_eval(r#" -not "" "#).unwrap(), "True".to_string());
+        assert_eq!(p.safe_eval(r#" -Not 4 "#).unwrap(), "False".to_string());
+        assert_eq!(p.safe_eval(r#" -nOt "" "#).unwrap(), "True".to_string());
         assert_eq!(p.safe_eval(r#" -not "asd" "#).unwrap(), "False".to_string());
         assert_eq!(
-            p.safe_eval(r#" -not "96.5" "#).unwrap(),
+            p.safe_eval(r#" -nOt "96.5" "#).unwrap(),
             "False".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" -not "+96.5" "#).unwrap(),
+            p.safe_eval(r#" -Not "+96.5" "#).unwrap(),
             "False".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" -not "96.5as" "#).unwrap(),
+            p.safe_eval(r#" -NOT "96.5as" "#).unwrap(),
             "False".to_string()
         );
     }

@@ -106,7 +106,7 @@ mod tests {
         );
         assert_eq!(p.safe_eval(r#" 1 -in "1"   "#).unwrap(), "True".to_string());
         assert_eq!(
-            p.safe_eval(r#" $true -iin "true", "1" "#).unwrap(),
+            p.safe_eval(r#" $true -iIn "true", "1" "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(
@@ -146,7 +146,7 @@ mod tests {
     fn test_constains() {
         let mut p = PowerShellParser::new();
         assert_eq!(
-            p.safe_eval(r#" ("True 1", 2) -contains ($true, 1) "#)
+            p.safe_eval(r#" ("True 1", 2) -Contains ($true, 1) "#)
                 .unwrap(),
             "True".to_string()
         );

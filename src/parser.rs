@@ -1,8 +1,8 @@
 mod command;
+mod error;
 mod predicates;
 mod value;
 mod variables;
-mod error;
 
 type ParserResult<T> = core::result::Result<T, ParserError>;
 use error::ParserError;
@@ -11,7 +11,6 @@ use command::PsCommand;
 use pest::Parser;
 use pest_derive::Parser;
 use predicates::{ArithmeticPred, BitwisePred, LogicalPred, StringPred};
-
 pub use value::{Val, ValType};
 use variables::{VariableError, Variables};
 
@@ -87,7 +86,8 @@ impl<'a> PowerShellParser {
                     }
                     _ => {
                         token.as_str().to_string()
-                        //println!("safe_eval not implemented: {:?}", token.as_rule());
+                        //println!("safe_eval not implemented: {:?}",
+                        // token.as_rule());
                     }
                 };
                 output_script.push_str(&s);
@@ -96,7 +96,6 @@ impl<'a> PowerShellParser {
 
         Ok(res.cast_to_string())
     }
-
 
     #[allow(unused_mut)]
     pub(crate) fn safe_eval(&mut self, input: &str) -> ParserResult<String> {
@@ -940,7 +939,6 @@ impl<'a> PowerShellParser {
             }
         };
 
-
         Ok(v)
     }
 
@@ -997,8 +995,12 @@ impl<'a> PowerShellParser {
             pred(var.clone(), expression_result.clone())
         );
         self.variables.set(&var_name, pred(var, expression_result));
-        println!("After Set: var_name: {} = {:?}", var_name, self.variables.get(&var_name).unwrap_or_default());
-        
+        println!(
+            "After Set: var_name: {} = {:?}",
+            var_name,
+            self.variables.get(&var_name).unwrap_or_default()
+        );
+
         Ok(())
     }
 }

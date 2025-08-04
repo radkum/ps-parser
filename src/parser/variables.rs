@@ -37,7 +37,7 @@ impl Variables {
     //         HashMap::from([
     //             ("true".to_ascii_lowercase(), (VarProp::ReadOnly,
     // Val::Bool(true))),             ("false".to_ascii_lowercase(),
-    // (VarProp::ReadOnly, Val::Bool(false))),             
+    // (VarProp::ReadOnly, Val::Bool(false))),
     // ("null".to_ascii_lowercase(), (VarProp::ReadOnly, Val::Null)),         ])
     //     });
 

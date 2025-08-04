@@ -19,7 +19,9 @@ impl BitwisePred {
         });
 
     pub(crate) fn get(name: &str) -> Option<BitwisePredType> {
-        Self::BITWISE_PRED_MAP.get(name).map(|elem| *elem)
+        Self::BITWISE_PRED_MAP
+            .get(name.to_ascii_lowercase().as_str())
+            .map(|elem| *elem)
     }
 }
 
@@ -87,13 +89,13 @@ mod tests {
         let mut p = PowerShellParser::new();
         assert_eq!(p.safe_eval(r#" 5 -band 4 "#).unwrap(), "4".to_string());
         assert_eq!(p.safe_eval(r#" 5 -band 2 "#).unwrap(), "0".to_string());
-        assert_eq!(p.safe_eval(r#" 5 -band 9 "#).unwrap(), "1".to_string());
+        assert_eq!(p.safe_eval(r#" 5 -Band 9 "#).unwrap(), "1".to_string());
     }
 
     #[test]
     fn test_bor() {
         let mut p = PowerShellParser::new();
-        assert_eq!(p.safe_eval(r#" 5 -bor 4 "#).unwrap(), "5".to_string());
+        assert_eq!(p.safe_eval(r#" 5 -bOr 4 "#).unwrap(), "5".to_string());
         assert_eq!(p.safe_eval(r#" 5 -bor 2 "#).unwrap(), "7".to_string());
         assert_eq!(p.safe_eval(r#" 5 -bor 9 "#).unwrap(), "13".to_string());
         assert_eq!(
@@ -128,7 +130,7 @@ mod tests {
             "96".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" "+5.5" -shl 3.5 "#).unwrap(),
+            p.safe_eval(r#" "+5.5" -sHl 3.5 "#).unwrap(),
             "96".to_string()
         );
         assert_eq!(

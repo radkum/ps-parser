@@ -45,7 +45,7 @@ mod tests {
     fn test_join() {
         let mut p = PowerShellParser::new();
         assert_eq!(
-            p.safe_eval(r#" 1,2,3 -join ",,""#).unwrap(),
+            p.safe_eval(r#" 1,2,3 -jOin ",,""#).unwrap(),
             "1,,2,,3".to_string()
         );
         assert_eq!(

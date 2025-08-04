@@ -34,11 +34,12 @@ pub(crate) type StringPredType = Box<dyn Fn(Val, Val) -> OpResult<Val>>;
 pub(crate) struct StringPred;
 impl StringPred {
     pub(crate) fn get(name: &str) -> Option<StringPredType> {
-        if let Some(compare) = ComparisonPred::get(name) {
+        let name_lowercase = name.to_ascii_lowercase();
+        if let Some(compare) = ComparisonPred::get(name_lowercase.as_str()) {
             return Some(Box::new(move |v1, v2| Ok(Val::Bool(compare(v1, v2)))));
         }
 
-        if let Some(replace) = ReplacePred::get(name) {
+        if let Some(replace) = ReplacePred::get(name_lowercase.as_str()) {
             return Some(Box::new(move |v1, v2| {
                 let (from, to) = if let Val::Array(arr) = v2 {
                     if arr.len() == 1 {
@@ -55,21 +56,21 @@ impl StringPred {
             }));
         }
 
-        if let Some(type_check) = TypeCheckPred::get(name) {
+        if let Some(type_check) = TypeCheckPred::get(name_lowercase.as_str()) {
             return Some(Box::new(move |v1, v2| {
                 Ok(Val::Bool(type_check(v1, v2.ttype())))
             }));
         }
 
-        if let Some(join) = JoinPred::get(name) {
+        if let Some(join) = JoinPred::get(name_lowercase.as_str()) {
             return Some(Box::new(move |v1, v2| Ok(Val::String(join(v1, v2)))));
         }
 
-        if let Some(split) = SplitPred::get(name) {
+        if let Some(split) = SplitPred::get(name_lowercase.as_str()) {
             return Some(Box::new(move |v1, v2| Ok(split(v1, v2))));
         }
 
-        if let Some(contain) = ContainPred::get(name) {
+        if let Some(contain) = ContainPred::get(name_lowercase.as_str()) {
             return Some(Box::new(move |v1, v2| Ok(Val::Bool(contain(v1, v2)))));
         }
 

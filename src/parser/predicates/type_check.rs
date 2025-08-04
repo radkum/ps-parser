@@ -28,15 +28,13 @@ fn isnot(var: Val, ttype: ValType) -> bool {
 mod tests {
     use crate::{
         PowerShellParser,
-        parser::{ParserError::ValError},
-        
+        parser::{ParserError::ValError, value::ValError::UnknownType},
     };
-    use crate::parser::value::ValError::UnknownType;
     #[test]
     fn test_typecheck() {
         let mut p = PowerShellParser::new();
         assert_eq!(
-            p.safe_eval(r#" 42 -isnot [string] "#).unwrap(),
+            p.safe_eval(r#" 42 -iSnot [string] "#).unwrap(),
             "True".to_string()
         );
 
@@ -47,7 +45,7 @@ mod tests {
 
         let mut p = PowerShellParser::new();
         assert_eq!(
-            p.safe_eval(r#" 42 -is [int] "#).unwrap(),
+            p.safe_eval(r#" 42 -Is [int] "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(

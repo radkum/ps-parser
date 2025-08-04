@@ -313,7 +313,7 @@ mod tests {
     fn test_match() {
         let mut p = PowerShellParser::new();
         assert_eq!(
-            p.safe_eval(r#" "Hello World" -match "hello" "#).unwrap(),
+            p.safe_eval(r#" "Hello World" -Match "hello" "#).unwrap(),
             "True".to_string()
         );
         assert_eq!(
@@ -325,7 +325,7 @@ mod tests {
             "False".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" "Hello World" -cnotmatch "hello" "#)
+            p.safe_eval(r#" "Hello World" -cNotmatch "hello" "#)
                 .unwrap(),
             "True".to_string()
         );

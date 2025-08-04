@@ -65,7 +65,7 @@ mod tests {
             "abc456".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" "one two One two" -replace "one", "1" "#)
+            p.safe_eval(r#" "one two One two" -rEplace "one", "1" "#)
                 .unwrap(),
             "1 two 1 two".to_string()
         );
@@ -75,7 +75,7 @@ mod tests {
             "1 two 1 two".to_string()
         );
         assert_eq!(
-            p.safe_eval(r#" "one two One two" -creplace "one", "1" "#)
+            p.safe_eval(r#" "one two One two" -crEplace "one", "1" "#)
                 .unwrap(),
             "1 two One two".to_string()
         );

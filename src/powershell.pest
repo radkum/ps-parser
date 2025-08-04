@@ -7,7 +7,7 @@ program = { SOI ~ param_block? ~ statements ~ EOI }
 
 //---------------------------------- BLOCKS
 script_block = { script_block_body | (param_block ~ ";"* ~ script_block_body?)}
-param_block = { attribute_list? ~ "param" ~ "(" ~ parameter_list? ~ ")" }
+param_block = { attribute_list? ~ ^"param" ~ "(" ~ parameter_list? ~ ")" }
 parameter_list = { script_parameter ~ ("," ~ script_parameter)* }
 script_parameter = { attribute_list? ~ variable ~ script_parameter_default? }
 script_parameter_default = { "=" ~ expression }
@@ -15,7 +15,7 @@ script_block_body = { named_blocks | statements_block }
 statements_block = { statements }
 named_blocks = { named_block+ }
 named_block = { block_name ~ statement_block }
-block_name = {"dynamicparam" | "begin" | "process" | "end" }
+block_name = { ^"dynamicparam" | ^"begin" | ^"process" | ^"end" }
 statement_block = { "{" ~ statements? ~ "}" }
 
 //------------------------------------- STATEMENTS
@@ -40,11 +40,11 @@ statement = _{
 statement_terminator = { (";" | NEWLINE)+ }
 
 if_statement = {
-    "if" ~ "(" ~ pipeline ~ ")"  ~ statement_block ~ elseif_clauses? ~ else?
+    ^"if" ~ "(" ~ pipeline ~ ")"  ~ statement_block ~ elseif_clauses? ~ else?
 }
 elseif_clauses = {else_if+}
-else_if = { "elseif" ~ "(" ~ pipeline ~ ")" ~ statement_block }
-else = { "else" ~ statement_block }
+else_if = { ^"elseif" ~ "(" ~ pipeline ~ ")" ~ statement_block }
+else = { ^"else" ~ statement_block }
 
 //------------------------------- LABELED STATEMENTS
 label = @{ ":" ~ ASCII_ALPHANUMERIC* }
@@ -57,10 +57,10 @@ labeled_statement = _{ label? ~ (
 ) }
 label_exp = { label | unary_exp }
 
-switch_statement = { "switch" ~ switch_parameters? ~ switch_condition ~ switch_body }
+switch_statement = { ^"switch" ~ switch_parameters? ~ switch_condition ~ switch_body }
 switch_parameters = { switch_parameter+ }
-switch_parameter = { "-regex" | "-wildcard" | "-exact" | "-casesensitive" | "-parallel" }
-switch_condition = { "(" ~ pipeline ~ ")" | "-file" ~ switch_filename }
+switch_parameter = { ^"-regex" | ^"-wildcard" | ^"-exact" | ^"-casesensitive" | ^"-parallel" }
+switch_condition = { "(" ~ pipeline ~ ")" | ^"-file" ~ switch_filename }
 switch_filename = { command_token | primary_expression }
 switch_body = { "{" ~ switch_clauses? ~ "}" }
 switch_clauses = { switch_clause+ }
@@ -68,15 +68,15 @@ switch_clause = { switch_clause_condition ~  statement_block }
 switch_clause_condition = { command_token | primary_expression }
 
 
-foreach_statement = { "foreach" ~ foreach_parameter? ~ "(" ~ variable ~ "in" ~ pipeline ~ ")" ~ statement_block }
-foreach_parameter = { "-parallel" }
+foreach_statement = { ^"foreach" ~ foreach_parameter? ~ "(" ~ variable ~ ^"in" ~ pipeline ~ ")" ~ statement_block }
+foreach_parameter = { ^"-parallel" }
 
-while_statement = { "while" ~ "(" ~ while_condition ~ ")" ~ statement_block }
+while_statement = { ^"while" ~ "(" ~ while_condition ~ ")" ~ statement_block }
 while_condition = { pipeline }
-do_statement = { "do" ~ statement_block ~ ("while" | "until") ~ "(" ~ while_condition ~ ")"}
+do_statement = { ^"do" ~ statement_block ~ ( ^"while" | ^"until" ) ~ "(" ~ while_condition ~ ")"}
 
 for_statement = {
-    "for" ~ "(" ~
+    ^"for" ~ "(" ~
         for_initializer_block? ~
         ")" ~
         statement_block
@@ -94,41 +94,41 @@ for_iterator    = { pipeline }
 function_statement = {
     function_keyword ~ function_name ~ function_parameter_declaration? ~ "{" ~ script_block? ~ "}"
 }
-function_keyword = { "function" | "filter" | "workflow" }
+function_keyword = { ^"function" | ^"filter" | ^"workflow" }
 function_name = { command_token }
 function_parameter_declaration = { "(" ~ parameter_list? ~ ")" }
 
 flow_control_statement = {
-    ("break" ~ label_exp?)
-  | ("continue" ~ label_exp?)
-  | ("throw" ~ pipeline?)
-  | ("return" ~ pipeline?)
-  | ("exit" ~ pipeline?)
+    ( ^"break" ~ label_exp?)
+  | ( ^"continue" ~ label_exp?)
+  | ( ^"throw" ~ pipeline?)
+  | ( ^"return" ~ pipeline?)
+  | ( ^"exit" ~ pipeline?)
 }
 
-trap_statement = {"trap" ~ type_literal? ~ statement_block}
+trap_statement = { ^"trap" ~ type_literal? ~ statement_block}
 
-inlinescript_statement = { "inlinescript" ~ statement_block}
+inlinescript_statement = { ^"inlinescript" ~ statement_block}
 
-parallel_statement = { "parallel" ~ statement_block }
+parallel_statement = { ^"parallel" ~ statement_block }
 
-sequence_statement = { "sequence" ~ statement_block }
+sequence_statement = { ^"sequence" ~ statement_block }
 
 //--------------------------------- TRY CATCH
-try_statement = { "try" ~ statement_block ~ (catch_clauses ~ finally_clause? | finally_clause?) }
+try_statement = { ^"try" ~ statement_block ~ (catch_clauses ~ finally_clause? | finally_clause?) }
 catch_clauses = { catch_clause+ }
-catch_clause = { "catch" ~ catch_type_list? ~ statement_block }
+catch_clause = { ^"catch" ~ catch_type_list? ~ statement_block }
 catch_type_list = { type_literal ~ ("," ~ type_literal)* }
-finally_clause = {"finally" ~ statement_block }
+finally_clause = { ^"finally" ~ statement_block }
 
 //----------------------------------- DATA STATEMENTS
-data_statement = { "data" ~ simple_name? ~ data_commands_allowed? ~ statement_block }
-data_commands_allowed = { "-supportedcommand" ~ data_commands_list }
+data_statement = { ^"data" ~ simple_name? ~ data_commands_allowed? ~ statement_block }
+data_commands_allowed = { ^"-supportedcommand" ~ data_commands_list }
 data_commands_list = { data_command ~ ("," ~ data_command)* }
 data_command = { command_name_expr }
 
 //--------------------------------- CLASS STATEMENTS
-class_attribute = { "hidden" | "static" }
+class_attribute = { ^"hidden" | ^"static" }
 class_property_definition = {
     attribute? ~
     class_attribute* ~
@@ -147,7 +147,7 @@ class_method_definition = {
     "{" ~ script_block? ~ "}"
 }
 class_statement = {
-    "class" ~ simple_name ~ (":" ~ simple_name ~ ("," ~ simple_name)*)? ~
+    ^"class" ~ simple_name ~ (":" ~ simple_name ~ ("," ~ simple_name)*)? ~
     "{" ~
         (
           class_property_definition ~ statement_terminator ~ ";"* 
@@ -157,15 +157,15 @@ class_statement = {
 }
 
 // -----------------------ENUM
-enum_statement = { "enum" ~ simple_name ~ "{" ~ (enum_member ~ statement_terminator ~ ";"*)* ~ "}" }
+enum_statement = { ^"enum" ~ simple_name ~ "{" ~ (enum_member ~ statement_terminator ~ ";"*)* ~ "}" }
 enum_member = { simple_name ~ (("=" ~ decimal_integer) | ("=" ~ hex_integer) )? }
 
 // ---------------------- EXPRESSSION
 expression  = { bitwise_exp ~ (logical_operator ~ bitwise_exp)? }
-logical_operator = { "-and" | "-or" | "-xor" }
+logical_operator = { ^"-and" | ^"-or" | ^"-xor" }
 
 bitwise_exp = { comparison_exp ~ (bitwise_operator ~ comparison_exp)* }
-bitwise_operator = { "-band" | "-bor" | "-bxor" | "-shl" | "-shr" }
+bitwise_operator = { ^"-band" | ^"-bor" | ^"-bxor" | ^"-shl" | ^"-shr" }
 
 // strange case. -split and -join can be invoke without previous expression, eg. "-join 'some'"
 comparison_exp = {
@@ -183,11 +183,11 @@ minus = {"-"}
 multiplicative_exp = { format_exp ~ (WHITESPACE* ~ multiplicative_op ~ WHITESPACE* ~ format_exp)* }
 multiplicative_op = _{ mul | divide | mod }
 mul = { "*" }
-divide = {"/"}
-mod = {"%"}
+divide = { "/" }
+mod = { "%" }
 
 format_exp = { range_exp ~ ( format_op  ~ range_exp)* }
-format_op = _{ "-f" | "-F" }
+format_op = _{ ^"-f" }
 
 range_exp = { 
     decimal_integer ~ ".." ~  WHITESPACE* ~ array_literal_exp | 
@@ -197,8 +197,8 @@ array_literal_exp = { unary_exp ~ ("," ~ unary_exp)* }
 
 unary_exp = { expression_with_unary_operator | primary_expression }
 
-negate_op = { "!" | "-not" }
-bitwise_negate_op = { "-bnot" }
+negate_op = { "!" | ^"-not" }
+bitwise_negate_op = { ^"-bnot" }
 expression_with_unary_operator = {
     (negate_op ~ unary_exp)
     | (bitwise_negate_op ~ unary_exp)
@@ -241,7 +241,6 @@ pipeline = { assignment_exp | (expression ~ redirections? ~ pipeline_tail?) | ( 
 pipeline_tail = { ("|" ~ command)+ }
 
 assignment_exp = { variable ~ assignement_op ~ expression }
-//assignement_op = {"=" | "!=" | "+=" | "*=" | "/=" | "%=" | "-="}
 prefix_assign_op = { (additive_op | multiplicative_op) }
 assign_op = { "=" }
 assignement_op = {prefix_assign_op? ~ assign_op }
@@ -266,7 +265,6 @@ command_parameter = @{
 }
 command_parameter_chars = _{ ASCII_ALPHA | ASCII_DIGIT | "_" | "?" | "-" | "`" }
 stop_parsing = @{ "--%" ~ (!(NEWLINE) ~ ANY)* }
-//command_argument_sep = { " "+ | ":" }
 command_argument_sep = { ":" }
 command_argument = {
       parenthesized_expression
@@ -276,7 +274,7 @@ command_argument = {
     | command_argument_sep ~ generic_token?
 }
 
-foreach_command = { ("%" | "foreach-object") ~ script_block_expression+ }
+foreach_command = { ("%" | ^"foreach-object") ~ script_block_expression+ }
 command_name_expr = { command_name | path_command_name | primary_expression }
 command_invokation_operator = {"." | "&"}
 command_call = { command_ident ~ expression* }
@@ -304,16 +302,16 @@ path_command_name_token = @{ (ASCII_ALPHANUMERIC | "_" | "?" | "-" | "." | "\\")
 
 //-------------------------------------STRING OPERATORS
 string_op = { replace_op | split_op | cmp_op | contain_op | join_op | type_check_op }
-replace_op = { "-replace" | "-ireplace" | "-creplace" }
-split_op = { "-split" | "-isplit" | "-csplit" }
-join_op = { "-join" }
+replace_op = { ^"-replace" | ^"-ireplace" | ^"-creplace" }
+split_op = { ^"-split" | ^"-isplit" | ^"-csplit" }
+join_op = { ^"-join" }
 cmp_op = { 
-    "-eq" | "-ieq" | "-ceq" | "-ge" | "-cge" | "-ige" | "-gt" | "-cgt" | "-igt" 
-    | "-le" | "-cle" | "-ile" | "-lt" | "-clt" | "-ilt" | "-ne" | "-cne" | "-ine" 
-    | "-match" |"-cmatch" | "-imatch" | "-notmatch" | "-cnotmatch" | "-inotmatch" 
-    | "-like"| "-clike" | "-ilike" | "-notlike" | "-inotlike" | "-cnotlike" }
-contain_op = { "-inotin" | "-notin" | "-inotin" | "-cnotin" | "-contains" | "-ccontains" | "-icontains" | "-notcontains" | "-inotcontains" | "-cnotcontains" | "-in" | "-iin" | "-cin" }
-type_check_op = { "-isnot" | "-is" }
+    ^"-eq" | ^"-ieq" | ^"-ceq" | ^"-ge" | ^"-cge" | ^"-ige" | ^"-gt" | ^"-cgt" | ^"-igt"
+    | ^"-le" | ^"-cle" | ^"-ile" | ^"-lt" | ^"-clt" | ^"-ilt" | ^"-ne" | ^"-cne" | ^"-ine"
+    | ^"-match" | ^"-cmatch" | ^"-imatch" | ^"-notmatch" | ^"-cnotmatch" | ^"-inotmatch"
+    | ^"-like"| ^"-clike" | ^"-ilike" | ^"-notlike" | ^"-inotlike" | ^"-cnotlike" }
+contain_op = { ^"-inotin" | ^"-notin" | ^"-inotin" | ^"-cnotin" | ^"-contains" | ^"-ccontains" | ^"-icontains" | ^"-notcontains" | ^"-inotcontains" | ^"-cnotcontains" | ^"-in" | ^"-iin" | ^"-cin" }
+type_check_op = { ^"-isnot" | ^"-is" }
 
 simple_operator = _{ "-" | "+" | "*" | "/" | "%" }
 
@@ -341,17 +339,15 @@ variable = {
     parenthesized_variable
     | special_variable
     | scoped_variable
-    //| array_scoped_variable
     | braced_variable
 }
 parenthesized_variable = { "(" ~ variable ~ ")" }
 special_variable = { "$$" | "$^" | "$?" | "$_" }
 scoped_variable = { "$" ~ (scope_keyword ~ ":")? ~ var_name }
 braced_variable = { "${" ~ braced_variable_content ~ "}" }
-//array_scoped_variable = @{ "@" ~ (scope_keyword ~ ":")? ~ var_name }
 
 var_name = @{ identifier | "?" }
-scope_keyword = { "global" | "local" | "private" | "script" | "using" | "workflow" | "env" | "alias" | "fuction" | "variable" }
+scope_keyword = { ^"global" | ^"local" | ^"private" | ^"script" | ^"using" | ^"workflow" | ^"env" | ^"alias" | ^"fuction" | ^"variable" }
 braced_variable_content = @{ (!"}" ~ ANY)+ }
 
 member_suffix = _{
@@ -451,7 +447,7 @@ literal = _{
     | string_literal 
 }
 number_literal = { additive_op? ~ number ~ (unit ~ ("b"|"B"))? }
-unit = { "k" | "K" | "m" | "M" | "g" | "G" | "t" | "T" | "p" | "P"}
+unit = { ^"k" | ^"m" | ^"g" | ^"t" | ^"p"}
 
 number = { float | hex_integer| decimal_integer }
 
