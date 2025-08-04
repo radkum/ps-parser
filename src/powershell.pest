@@ -284,7 +284,7 @@ command_name = { command_name_base  ~ extra_command_token? }
 command_name_base = @{ (!FORBIDDEN_CHARS ~ ANY)+ }
 FORBIDDEN_CHARS = _{
       "{" | "}" | "(" | ")" | ";" | "," | "|" | "&" | "`" | "\"" | "'" | WHITESPACE | NEWLINE
-    | "[" | "]" | "+" | "-" | "*" | "/" | "$" | "@" | "<" | "!" | "%"
+    | "[" | "]" | "+" | "-" | "*" | "/" | "@" | "<" | "!" | "%"
 }
 
 SECOND_FORBIDDEN_CHARS = _{
@@ -488,7 +488,7 @@ attribute_argument   = { expression | (simple_name ~ ("=" ~ expression)?) }
 //-----------------------GENERIC TOKEN
 generic_token = @{ generic_token_start ~ generic_token_rest* }
 generic_token_start = _{
-    !( "(" | ")" | "$" | "\"" | "'" | "-" | "{" | "}" | "@" | "|" | "[" | "`" | WHITESPACE | NEWLINE ) ~ ANY
+    !( ";" | "(" | ")" | "$" | "\"" | "'" | "-" | "{" | "}" | "@" | "|" | "[" | "`" | WHITESPACE | NEWLINE ) ~ ANY
 }
 generic_token_rest = _{
     !(WHITESPACE | "(" | ")" | "}" | "|" | ";" | ",") ~ ANY

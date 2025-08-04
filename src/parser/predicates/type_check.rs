@@ -28,8 +28,10 @@ fn isnot(var: Val, ttype: ValType) -> bool {
 mod tests {
     use crate::{
         PowerShellParser,
-        parser::{ParserError::ValError, ValError::UnknownType},
+        parser::{ParserError::ValError},
+        
     };
+    use crate::parser::value::ValError::UnknownType;
     #[test]
     fn test_typecheck() {
         let mut p = PowerShellParser::new();

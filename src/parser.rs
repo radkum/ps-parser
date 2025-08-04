@@ -2,52 +2,21 @@ mod command;
 mod predicates;
 mod value;
 mod variables;
+mod error;
 
+type ParserResult<T> = core::result::Result<T, ParserError>;
+use error::ParserError;
+type PestError = pest::error::Error<Rule>;
 use command::PsCommand;
 use pest::Parser;
 use pest_derive::Parser;
 use predicates::{ArithmeticPred, BitwisePred, LogicalPred, StringPred};
-use thiserror_no_std::Error;
-pub use value::{Val, ValType};
-use variables::Variables;
 
-type PestError = pest::error::Error<Rule>;
+pub use value::{Val, ValType};
+use variables::{VariableError, Variables};
+
 type Pair<'i> = ::pest::iterators::Pair<'i, Rule>;
 type Pairs<'i> = ::pest::iterators::Pairs<'i, Rule>;
-use predicates::OpError;
-use value::ValError;
-
-#[derive(Error, Debug, PartialEq)]
-pub enum ParserError {
-    #[error("PestError: {0}")]
-    PestError(PestError),
-
-    #[error("ValError: {0}")]
-    ValError(ValError),
-
-    #[error("OperatorError: {0}")]
-    OpError(OpError),
-}
-
-impl From<PestError> for ParserError {
-    fn from(value: PestError) -> Self {
-        Self::PestError(value)
-    }
-}
-
-impl From<ValError> for ParserError {
-    fn from(value: ValError) -> Self {
-        Self::ValError(value)
-    }
-}
-
-impl From<OpError> for ParserError {
-    fn from(value: OpError) -> Self {
-        Self::OpError(value)
-    }
-}
-
-type ParserResult<T> = core::result::Result<T, ParserError>;
 
 macro_rules! check_rule {
     ($pair:expr, $rule:pat) => {
@@ -58,6 +27,11 @@ macro_rules! check_rule {
     };
 }
 
+#[derive(Default)]
+struct PsParserOptions {
+    force_var_evaluation: bool,
+}
+
 #[derive(Parser)]
 #[grammar = "powershell.pest"]
 pub(crate) struct PowerShellParser {
@@ -66,20 +40,66 @@ pub(crate) struct PowerShellParser {
 }
 
 impl<'a> PowerShellParser {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
+        Self::new_with_options(None)
+    }
+
+    pub(crate) fn new_with_options(options: Option<PsParserOptions>) -> Self {
+        let opt = if let Some(options) = options {
+            options
+        } else {
+            Default::default()
+        };
+
         Self {
-            variables: Variables::new(),
+            variables: Variables::new(true),
             errors: vec![],
         }
     }
 
     #[allow(unused_mut)]
-    pub fn errors(self) -> Vec<ParserError> {
+    pub(crate) fn errors(self) -> Vec<ParserError> {
         self.errors
     }
 
     #[allow(unused_mut)]
-    pub fn safe_eval(&mut self, input: &str) -> ParserResult<String> {
+    pub(crate) fn deobfuscate(&mut self, input: &str) -> ParserResult<String> {
+        let mut output_script = String::new();
+        let mut pairs = PowerShellParser::parse(Rule::program, input)?;
+        let program_token = pairs.next().expect("");
+        let mut res = Val::default();
+
+        if let Rule::program = program_token.as_rule() {
+            let pairs = program_token.into_inner();
+            for token in pairs {
+                //self.parse_statement(pair)?;
+                let s = match token.as_rule() {
+                    Rule::pipeline_statement => {
+                        let token = token.into_inner().next().unwrap();
+                        self.eval_pipeline(token)?.cast_to_string()
+                    }
+                    Rule::EOI => {
+                        break;
+                    }
+                    Rule::pipeline => {
+                        self.eval_pipeline(token)?.cast_to_string()
+                        //println!("safe_eval res: {:?}", res);
+                    }
+                    _ => {
+                        token.as_str().to_string()
+                        //println!("safe_eval not implemented: {:?}", token.as_rule());
+                    }
+                };
+                output_script.push_str(&s);
+            }
+        }
+
+        Ok(res.cast_to_string())
+    }
+
+
+    #[allow(unused_mut)]
+    pub(crate) fn safe_eval(&mut self, input: &str) -> ParserResult<String> {
         let mut pairs = PowerShellParser::parse(Rule::program, input)?;
         let program_token = pairs.next().expect("");
         let mut res = Val::default();
@@ -99,6 +119,7 @@ impl<'a> PowerShellParser {
                     Rule::pipeline => {
                         //println!("Assignment: {}", token.as_str());
                         res = self.eval_pipeline(token).unwrap_or_default();
+                        println!("safe_eval res: {:?}", res);
                     }
                     _ => {
                         println!("safe_eval not implemented: {:?}", token.as_rule());
@@ -110,36 +131,7 @@ impl<'a> PowerShellParser {
         Ok(res.cast_to_string())
     }
 
-    pub fn evaluate(&mut self, input: &str) -> ParserResult<String> {
-        let mut pairs = PowerShellParser::parse(Rule::program, input)?;
-        let program_token = pairs.next().expect("");
-        let mut str_res = String::new();
-
-        if let Rule::program = program_token.as_rule() {
-            let pairs = program_token.into_inner();
-            for token in pairs {
-                //self.parse_statement(pair)?;
-                match token.as_rule() {
-                    Rule::pipeline_statement => {
-                        //println!("Assignment: {}", token.as_str());
-                        str_res.push_str(&self.eval_pipeline_statement(token)?.cast_to_string());
-                        str_res.push_str("\n");
-                    }
-                    Rule::EOI => {
-                        break;
-                    }
-                    _ => {
-                        println!(" evaluate not implemented: {:?}", token.as_rule());
-                        panic!()
-                    }
-                }
-            }
-        }
-
-        Ok(str_res)
-    }
-
-    pub fn eval_statements(&mut self, token: Pair<'a>) -> ParserResult<Vec<Val>> {
+    pub(crate) fn eval_statements(&mut self, token: Pair<'a>) -> ParserResult<Vec<Val>> {
         let pairs = token.into_inner();
         let mut v = vec![];
 
@@ -224,7 +216,12 @@ impl<'a> PowerShellParser {
     fn get_variable(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::variable);
         let var_name = self.parse_variable(token)?;
-        Ok(self.variables.get(&var_name))
+        let Some(var) = self.variables.get(&var_name) else {
+            return Err(ParserError::VariableError(VariableError::NotDefined(
+                var_name,
+            )));
+        };
+        Ok(var)
     }
 
     fn parse_variable(&mut self, token: Pair<'a>) -> ParserResult<String> {
@@ -270,7 +267,7 @@ impl<'a> PowerShellParser {
             Rule::pre_inc_expression => {
                 let variable_token = token.into_inner().next().unwrap();
                 let var_name = self.parse_variable(variable_token)?;
-                let mut var = self.variables.get(&var_name);
+                let mut var = self.variables.get(&var_name).unwrap_or_default();
                 var.inc()?;
 
                 self.variables.set(&var_name, var.clone());
@@ -279,7 +276,7 @@ impl<'a> PowerShellParser {
             Rule::pre_dec_expression => {
                 let variable_token = token.into_inner().next().unwrap();
                 let var_name = self.parse_variable(variable_token)?;
-                let mut var = self.variables.get(&var_name);
+                let mut var = self.variables.get(&var_name).unwrap_or_default();
                 var.dec()?;
 
                 self.variables.set(&var_name, var.clone());
@@ -382,7 +379,7 @@ impl<'a> PowerShellParser {
             Rule::post_inc_expression => {
                 let variable_token = token.into_inner().next().unwrap();
                 let var_name = self.parse_variable(variable_token)?;
-                let mut var = self.variables.get(&var_name);
+                let mut var = self.variables.get(&var_name).unwrap_or_default();
                 let var_to_return = var.clone();
 
                 var.inc()?;
@@ -394,7 +391,7 @@ impl<'a> PowerShellParser {
             Rule::post_dec_expression => {
                 let variable_token = token.into_inner().next().unwrap();
                 let var_name = self.parse_variable(variable_token)?;
-                let mut var = self.variables.get(&var_name);
+                let mut var = self.variables.get(&var_name).unwrap_or_default();
                 let var_to_return = var.clone();
 
                 var.dec()?;
@@ -538,7 +535,7 @@ impl<'a> PowerShellParser {
         let v = match token.as_rule() {
             Rule::decimal_integer => {
                 let int_val = token.into_inner().next().unwrap();
-                println!("int_val: {}", int_val.as_str());
+                //println!("int_val: {}", int_val.as_str());
                 Val::Int(int_val.as_str().parse::<i64>().unwrap())
             }
             Rule::hex_integer => {
@@ -547,7 +544,7 @@ impl<'a> PowerShellParser {
             }
             //todo: parse float in proper way
             Rule::float => {
-                println!("float: \'{}\'", token.as_str());
+                //println!("float: \'{}\'", token.as_str());
                 Val::Float(token.as_str().trim().parse::<f64>().unwrap())
             }
             _ => {
@@ -775,7 +772,7 @@ impl<'a> PowerShellParser {
 
             let postfix = pairs.next().unwrap();
             let right_op = self.eval_format_exp(postfix)?;
-            println!("{} {:?} {:?}", op.as_str(), res, right_op);
+            //println!("{} {:?} {:?}", op.as_str(), res, right_op);
             res = fun(res, right_op);
         }
 
@@ -927,24 +924,24 @@ impl<'a> PowerShellParser {
         let token = pairs.next().unwrap();
 
         let res = match token.as_rule() {
-            Rule::assignment_exp => {
-                self.eval_assigment_exp(token)?;
-                Val::default()
-            }
-            Rule::expression => match self.eval_expression(token) {
-                Ok(val) => val,
-                Err(err) => {
-                    self.errors.push(err);
-                    Val::Null
-                }
-            },
+            Rule::assignment_exp => self.eval_assigment_exp(token).map(|_| Val::Null),
+            Rule::expression => self.eval_expression(token),
             _ => {
                 println!("eval_pipeline not implemented: {:?}", token.as_rule());
                 panic!();
             }
         };
 
-        Ok(res)
+        let v = match res {
+            Ok(val) => val,
+            Err(err) => {
+                self.errors.push(err);
+                Val::Null
+            }
+        };
+
+
+        Ok(v)
     }
 
     fn eval_cast_expression(&mut self, token: Pair<'a>) -> ParserResult<Val> {
@@ -980,7 +977,7 @@ impl<'a> PowerShellParser {
         let mut pairs = token.into_inner();
         let variable_token = pairs.next().unwrap();
         let var_name = self.parse_variable(variable_token)?;
-        let var = self.variables.get(&var_name);
+        let var = self.variables.get(&var_name).unwrap_or_default();
 
         let assignement_op = pairs.next().unwrap();
 
@@ -993,8 +990,15 @@ impl<'a> PowerShellParser {
 
         let Some(pred) = pred else { panic!() };
 
+        log::trace!(
+            "Assignment: var_name: {} var: {:?}, res: {:?}",
+            var_name,
+            var,
+            pred(var.clone(), expression_result.clone())
+        );
         self.variables.set(&var_name, pred(var, expression_result));
-
+        println!("After Set: var_name: {} = {:?}", var_name, self.variables.get(&var_name).unwrap_or_default());
+        
         Ok(())
     }
 }
