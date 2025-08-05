@@ -1,6 +1,6 @@
 use thiserror_no_std::Error;
 
-use super::{PestError, predicates::OpError, value::ValError, variables::VariableError};
+use super::{PestError, predicates::OpError, value::ValError, variables::VariableError, command::CommandError};
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ParserError {
@@ -15,6 +15,9 @@ pub enum ParserError {
 
     #[error("OperatorError: {0}")]
     OpError(OpError),
+
+    #[error("CommandError: {0}")]
+    CommandError(CommandError),
 }
 
 impl From<PestError> for ParserError {
@@ -38,6 +41,12 @@ impl From<VariableError> for ParserError {
 impl From<OpError> for ParserError {
     fn from(value: OpError) -> Self {
         Self::OpError(value)
+    }
+}
+
+impl From<CommandError> for ParserError {
+    fn from(value: CommandError) -> Self {
+        Self::CommandError(value)
     }
 }
 

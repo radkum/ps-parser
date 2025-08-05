@@ -224,16 +224,18 @@ post_dec_expression = { variable ~ "--" }
 access = { value ~ 
     (
         method_invocation
-        | member_access 
+        | member_access
+        | static_access
         | element_access
     )+
 }
-member_access = { ("." | "::") ~ member_name }
+member_access = { "." ~ member_name }
+static_access = { "::" ~ member_name }
 member_name = {
     simple_name
 }
 element_access = { "[" ~ expression ~ "]" }
-method_invocation = { member_access ~ "(" ~ argument_list? ~ ")" }
+method_invocation = { (member_access | static_access) ~ "(" ~ argument_list? ~ ")" }
 
 // --------------- PIPELINE
 pipeline_statement = _{ pipeline ~ statement_terminator? }
