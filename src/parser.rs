@@ -88,12 +88,16 @@ impl<'a> PowerShellParser {
                     }
                     Rule::statement_terminator => continue,
                     _ => {
-
                         println!("safe_eval not implemented: {:?}", token.as_rule());
                         token.as_str().to_string()
                     }
                 };
-                println!("rule: {:?} token: {:?}, statement res: {}",cloned_token.as_rule(), cloned_token.as_str(), &s);
+                println!(
+                    "rule: {:?} token: {:?}, statement res: {}",
+                    cloned_token.as_rule(),
+                    cloned_token.as_str(),
+                    &s
+                );
                 output_script.push_str(&s);
                 output_script.push_str(";\r\n");
             }
@@ -352,13 +356,10 @@ impl<'a> PowerShellParser {
 
         //println!("Method: {:?}", token.as_str());
         let mut object = self.eval_value(token)?;
-
-        let token = pairs.next().unwrap();
-        //println!("Method: {:?}", token.as_rule());
         while let Some(token) = pairs.next() {
+            println!("Method: {:?}", token.as_rule());
             match token.as_rule() {
                 Rule::method_invocation => {
-                    println!("Method:");
                     let (method_name, args) = self.eval_method_invokation(token)?;
                     object = PsCommand::call(object.clone(), method_name.as_str(), args.clone())?;
                 }
@@ -388,7 +389,12 @@ impl<'a> PowerShellParser {
                 Rule::method_invocation => {
                     println!("Method:");
                     let (method_name, args) = self.eval_method_invokation(token)?;
-                    object = format!("{}.{}({:?})", object, method_name.to_ascii_lowercase(), args)
+                    object = format!(
+                        "{}.{}({:?})",
+                        object,
+                        method_name.to_ascii_lowercase(),
+                        args
+                    )
                 }
                 //Rule::member_access => res.invoke(self.eval_method_invokation(token))?,
                 //Rule::element_access => res.invoke(self.eval_method_invokation(token))?,
@@ -406,8 +412,8 @@ impl<'a> PowerShellParser {
         let mut pair = token.into_inner();
         let token = pair.next().unwrap();
         let res = match token.as_rule() {
-            Rule::access => match self.eval_access(token.clone()){
-                Ok(res)=> res,
+            Rule::access => match self.eval_access(token.clone()) {
+                Ok(res) => res,
                 Err(err) => {
                     self.errors.push(err);
                     self.parse_access(token)?
@@ -527,7 +533,7 @@ impl<'a> PowerShellParser {
                 panic!()
             }
         };
-        println!("res: {:?}",res);
+        println!("res: {:?}", res);
         Ok(res)
     }
 

@@ -1,5 +1,6 @@
-use super::Val;
 use thiserror_no_std::Error;
+
+use super::Val;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum CommandError {
@@ -11,7 +12,6 @@ pub enum CommandError {
 
     #[error("Incorrect arguments \"{1:?}\" for method \"{0}\"")]
     IncorrectArgs(String, Vec<String>),
-
 }
 type CommandResult<T> = core::result::Result<T, CommandError>;
 
@@ -50,7 +50,12 @@ impl PsCommand {
         match method.as_str() {
             "normalize" => {
                 let Val::String(form) = args[0].clone() else {
-                    return Err(CommandError::IncorrectArgs(method, args.into_iter().map(|v|v.cast_to_string()).collect::<Vec<String>>()));
+                    return Err(CommandError::IncorrectArgs(
+                        method,
+                        args.into_iter()
+                            .map(|v| v.cast_to_string())
+                            .collect::<Vec<String>>(),
+                    ));
                 };
                 Ok(normalize(field.as_str(), form.as_str()))
             }

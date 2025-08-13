@@ -1,6 +1,9 @@
 use thiserror_no_std::Error;
 
-use super::{PestError, predicates::OpError, value::ValError, variables::VariableError, command::CommandError};
+use super::{
+    PestError, command::CommandError, predicates::OpError, value::ValError,
+    variables::VariableError,
+};
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ParserError {

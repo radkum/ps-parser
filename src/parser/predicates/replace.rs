@@ -108,5 +108,9 @@ mod tests {
                 .unwrap(),
             "abcdef".to_string()
         );
+        assert_eq!(
+            p.safe_eval(r#" [int]("e1e2" -replace "e") * 8 "#).unwrap(),
+            "96".to_string()
+        );
     }
 }
