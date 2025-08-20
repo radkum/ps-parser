@@ -1,13 +1,13 @@
-mod command;
 mod error;
 mod predicates;
 mod value;
 mod variables;
 
+use icu::properties::sets::print;
+use value::RuntimeObject;
 type ParserResult<T> = core::result::Result<T, ParserError>;
 use error::ParserError;
 type PestError = pest::error::Error<Rule>;
-use command::PsCommand;
 use pest::Parser;
 use pest_derive::Parser;
 use predicates::{ArithmeticPred, BitwisePred, LogicalPred, StringPred};
@@ -219,7 +219,7 @@ impl<'a> PowerShellParser {
                 panic!()
             }
         };
-        Ok(Val::String(res))
+        Ok(Val::String(res.into()))
     }
 
     fn get_variable(&mut self, token: Pair<'a>) -> ParserResult<Val> {
@@ -324,20 +324,32 @@ impl<'a> PowerShellParser {
     }
 
     fn eval_member_access(&mut self, token: Pair<'a>) -> ParserResult<String> {
-        check_rule!(token, Rule::member_access);
+        //check_rule!(token, Rule::member_access);
         let member_name_token = token.into_inner().next().unwrap();
         let member_name = member_name_token.as_str().to_ascii_lowercase();
 
         Ok(member_name)
     }
 
+    fn method_is_static(&mut self, token: Pair<'a>) -> bool {
+        check_rule!(token, Rule::method_invocation);
+        let mut pairs = token.into_inner();
+
+        let access = pairs.next().unwrap();
+        match access.as_rule() {
+            Rule::member_access => false,
+            Rule::static_access => true,
+            _ => todo!(),
+        }
+    }
+
     fn eval_method_invokation(&mut self, token: Pair<'a>) -> ParserResult<(String, Vec<Val>)> {
         check_rule!(token, Rule::method_invocation);
         let mut pairs = token.into_inner();
 
-        let member_access = pairs.next().unwrap();
-        check_rule!(member_access, Rule::member_access);
-        let method_name = self.eval_member_access(member_access)?;
+        let access = pairs.next().unwrap();
+        //check_rule!(member_access, Rule::member_access);
+        let method_name = self.eval_member_access(access)?;
 
         let args = if let Some(token) = pairs.next() {
             check_rule!(token, Rule::argument_list);
@@ -350,27 +362,45 @@ impl<'a> PowerShellParser {
     }
 
     fn eval_access(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        fn get_member_name(token: Pair<'_>) -> &'_ str {
+            token.into_inner().next().unwrap().as_str()
+        }
         check_rule!(token, Rule::access);
         let mut pairs = token.into_inner();
         let token = pairs.next().unwrap();
 
-        //println!("Method: {:?}", token.as_str());
+        //println!("eval_access: {:?}", token.as_str());
         let mut object = self.eval_value(token)?;
+
         while let Some(token) = pairs.next() {
-            println!("Method: {:?}", token.as_rule());
+            println!("OBJECT: {:?}", object);
             match token.as_rule() {
-                Rule::method_invocation => {
-                    let (method_name, args) = self.eval_method_invokation(token)?;
-                    object = PsCommand::call(object.clone(), method_name.as_str(), args.clone())?;
+                Rule::static_access => {
+                    object = object.get_static_member(get_member_name(token))?;
                 }
-                //Rule::member_access => res.invoke(self.eval_method_invokation(token))?,
-                //Rule::element_access => res.invoke(self.eval_method_invokation(token))?,
+                Rule::member_access => {
+                    object = object.get_member(get_member_name(token))?;
+                }
+                Rule::method_invocation => {
+                    let static_method = self.method_is_static(token.clone());
+                    println!("eval_access - method_invocation:");
+                    let (function_name, args) = self.eval_method_invokation(token)?;
+                    println!("Method: {:?} {:?}", &function_name, &args);
+                    object = if static_method {
+                        let call = object.get_static_fn(function_name.as_str())?;
+                        call(args)?
+                    } else {
+                        let call = object.get_method(function_name.as_str())?;
+                        call(object, args)?
+                    };
+                }
                 _ => {
                     println!("token.rule(): {:?}", token.as_rule());
                     panic!()
                 }
             }
         }
+        println!("Success eval_access: {:?}", object);
         Ok(object)
     }
 
@@ -379,16 +409,27 @@ impl<'a> PowerShellParser {
         let mut pairs = token.into_inner();
         let token = pairs.next().unwrap();
 
-        //println!("Method: {:?}", token.as_str());
+        println!("parse_access: {:?}", token.as_str());
         let mut object = token.as_str().to_string();
 
-        let token = pairs.next().unwrap();
-        //println!("Method: {:?}", token.as_rule());
+        //let token = pairs.next().unwrap();
+        //println!("parse_access: {:?}", token.as_rule());
         while let Some(token) = pairs.next() {
             match token.as_rule() {
+                Rule::static_access => {
+                    object.push_str("::");
+                    object.push_str(token.as_str());
+                }
+                Rule::member_access => {
+                    object.push_str(".");
+                    object.push_str(token.as_str());
+                }
                 Rule::method_invocation => {
-                    println!("Method:");
+                    println!("parse_access - method_invocation:");
+                    let static_method = self.method_is_static(token.clone());
                     let (method_name, args) = self.eval_method_invokation(token)?;
+
+                    let separator = if static_method { "::" } else { "." };
                     object = format!(
                         "{}.{}({:?})",
                         object,
@@ -396,15 +437,13 @@ impl<'a> PowerShellParser {
                         args
                     )
                 }
-                //Rule::member_access => res.invoke(self.eval_method_invokation(token))?,
-                //Rule::element_access => res.invoke(self.eval_method_invokation(token))?,
                 _ => {
                     println!("token.rule(): {:?}", token.as_rule());
                     panic!()
                 }
             }
         }
-        Ok(Val::String(object))
+        Ok(Val::String(object.into()))
     }
 
     fn eval_primary_expression(&mut self, token: Pair<'a>) -> ParserResult<Val> {
@@ -415,6 +454,7 @@ impl<'a> PowerShellParser {
             Rule::access => match self.eval_access(token.clone()) {
                 Ok(res) => res,
                 Err(err) => {
+                    println!("eval_primary_expression error: {:?}", err);
                     self.errors.push(err);
                     self.parse_access(token)?
                 }
@@ -458,7 +498,9 @@ impl<'a> PowerShellParser {
 
         let token = token.into_inner().next().unwrap();
         check_rule!(token, Rule::type_spec);
+        println!("before: {:?}", token.as_str());
         let res = ValType::cast(token.as_str())?;
+        println!("eval_type_literal: {:?} -> {:?}", token.as_str(), res);
         Ok(res)
     }
 
@@ -510,7 +552,7 @@ impl<'a> PowerShellParser {
         check_rule!(token, Rule::value);
         let mut pair = token.into_inner();
         let token = pair.next().unwrap();
-        //println!("eval_value: {:?} - {:?}", token.as_rule(), token.as_str());
+        println!("eval_value: {:?} - {:?}", token.as_rule(), token.as_str());
         let res = match token.as_rule() {
             Rule::parenthesized_expression => {
                 let token = token.into_inner().next().unwrap();
@@ -763,7 +805,7 @@ impl<'a> PowerShellParser {
                             }
                         } else {
                             let index: usize =
-                                Val::String(token.to_string()).cast_to_int()? as usize;
+                                Val::String(token.to_string().into()).cast_to_int()? as usize;
                             match args.get(index) {
                                 Some(val) => format!("{}", val.cast_to_string()),
                                 None => format!("{{{}}}", token), /* leave as-is if index out of
@@ -791,7 +833,7 @@ impl<'a> PowerShellParser {
 
             let second_fmt = self.eval_range_exp(token)?;
             let res = self.eval_format_impl(second_fmt, pairs)?;
-            Val::String(format_with_vec(first_fmt.as_str(), res.cast_to_array())?)
+            Val::String(format_with_vec(first_fmt.as_str(), res.cast_to_array())?.into())
         } else {
             format
         })
@@ -852,7 +894,7 @@ impl<'a> PowerShellParser {
         let input_str = input.cast_to_string();
         let mut characters = input_str.chars();
         while let Some(ch) = characters.next() {
-            self.variables.set("$_", Val::String(ch.to_string()));
+            self.variables.set("$_", Val::String(ch.to_string().into()));
             let Ok(v) = self.eval_script_block_expression(token.clone()) else {
                 return Ok(vec![]);
             };
@@ -900,7 +942,7 @@ impl<'a> PowerShellParser {
                     return Ok(Val::Array(Box::new(
                         self.eval_split_special_case(token, res)?
                             .into_iter()
-                            .map(|s| Val::String(s))
+                            .map(|s| Val::String(s.into()))
                             .collect::<Vec<_>>(),
                     )));
                 }
@@ -1052,7 +1094,7 @@ impl<'a> PowerShellParser {
         } else {
             right_operand.cast_to_string()
         };
-        Ok(Val::String(format!("${} = {}", var_name, right)))
+        Ok(Val::String(format!("${} = {}", var_name, right).into()))
     }
 }
 

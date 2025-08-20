@@ -1,62 +1,27 @@
+mod method_error;
+mod ps_string;
+mod runtime_object;
+mod system_convert;
+mod system_encoding;
+mod val_error;
+
 use std::{
     cmp::Ordering,
+    collections::HashMap,
     num::{ParseFloatError, ParseIntError},
     ops::Neg,
     sync::LazyLock,
 };
 
-use thiserror_no_std::Error;
-
-// very strange. En-us culture has different ordering than default. A (ascii 65)
-// is greater than a(ascii 97 need to Collator object to perform string
-// comparison
-#[cfg(feature = "en-us")]
-const COLLATOR: LazyLock<icu::collator::Collator> = LazyLock::new(|| {
-    icu::collator::Collator::try_new(
-        &icu::locid::locale!("en-US").into(),
-        icu::collator::CollatorOptions::new(),
-    )
-    .unwrap()
-});
-
-fn str_cmp(s1: &str, s2: &str, case_insensitive: bool) -> Ordering {
-    if case_insensitive {
-        s1.to_ascii_lowercase().cmp(&s2.to_ascii_lowercase())
-    } else {
-        if cfg!(feature = "en-us") {
-            COLLATOR.compare(s1, s2)
-        } else {
-            s1.cmp(s2)
-        }
-    }
-}
-
-#[derive(Error, Debug, PartialEq)]
-pub enum ValError {
-    #[error("Cannot convert value \"{0}\" to type \"{1}\"")]
-    InvalidCast(String, String),
-
-    #[error("Unknown type \"{0}\"")]
-    UnknownType(String),
-
-    #[error("Operation \"{0}\" is not defined for types \"{1}\" op \"{2}\"")]
-    OperationNotDefined(String, String, String),
-
-    #[error("Can't divide by zero")]
-    DividingByZero,
-}
-
-impl From<ParseFloatError> for ValError {
-    fn from(_value: ParseFloatError) -> Self {
-        Self::InvalidCast("String".to_string(), "Float".to_string())
-    }
-}
-impl From<ParseIntError> for ValError {
-    fn from(_value: ParseIntError) -> Self {
-        Self::InvalidCast("String".to_string(), "Int".to_string())
-    }
-}
+pub(crate) use method_error::{MethodError, MethodResult};
+pub(crate) use ps_string::PsString;
+use ps_string::str_cmp;
+pub(super) use runtime_object::RuntimeObject;
+use runtime_object::{MethodCallType, StaticFnCallType};
 use smart_default::SmartDefault;
+use system_convert::Convert;
+use system_encoding::Encoding;
+pub(crate) use val_error::ValError;
 type ValResult<T> = core::result::Result<T, ValError>;
 
 #[derive(PartialEq, Debug)]
@@ -68,6 +33,7 @@ pub enum ValType {
     Char,
     String,
     Array,
+    RuntimeType(String),
 }
 
 impl std::fmt::Display for ValType {
@@ -77,6 +43,14 @@ impl std::fmt::Display for ValType {
 }
 
 impl ValType {
+    const STATIC_OBJECT_MAP: LazyLock<HashMap<&'static str, Box<dyn RuntimeObject>>> =
+        LazyLock::new(|| {
+            HashMap::from([
+                ("system.convert", Box::new(Convert {}) as _),
+                ("system.text.encoding", Box::new(Encoding {}) as _),
+            ])
+        });
+
     pub(crate) fn cast(s: &str) -> ValResult<Self> {
         let s = s.to_ascii_lowercase();
         let t = match s.as_str() {
@@ -86,13 +60,19 @@ impl ValType {
             "float" | "double" => Self::Float,
             "string" => Self::String,
             "array" => Self::Array,
-            _ => Err(ValError::UnknownType(s))?,
+            _ => {
+                if !Self::STATIC_OBJECT_MAP.contains_key(s.as_str()) {
+                    Err(ValError::UnknownType(s.clone()))?;
+                }
+
+                Self::RuntimeType(s)
+            }
         };
         Ok(t)
     }
 }
 
-#[derive(Clone, Debug, SmartDefault, PartialEq)]
+#[derive(Debug, SmartDefault)]
 pub enum Val {
     #[default]
     Null,
@@ -100,8 +80,46 @@ pub enum Val {
     Int(i64),
     Float(f64),
     Char(u32),
-    String(String),
+    String(PsString),
     Array(Box<Vec<Val>>),
+    RuntimeObject(Box<dyn RuntimeObject>),
+}
+
+impl PartialEq for Val {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Val::Null, Val::Null) => true,
+            (Val::Bool(a), Val::Bool(b)) => a == b,
+            (Val::Int(a), Val::Int(b)) => a == b,
+            (Val::Float(a), Val::Float(b)) => a == b,
+            (Val::Char(a), Val::Char(b)) => a == b,
+            (Val::String(a), Val::String(b)) => a == b,
+            (Val::Array(a), Val::Array(b)) => a == b,
+            (Val::RuntimeObject(a), Val::RuntimeObject(b)) => a.name() == b.name(),
+            _ => false,
+        }
+    }
+}
+
+impl Clone for Val {
+    fn clone(&self) -> Self {
+        match self {
+            Val::Null => Val::Null,
+            Val::Bool(a) => Val::Bool(*a),
+            Val::Int(a) => Val::Int(*a),
+            Val::Float(a) => Val::Float(*a),
+            Val::Char(a) => Val::Char(*a),
+            Val::String(a) => Val::String(a.clone()),
+            Val::Array(a) => Val::Array(a.clone()),
+            Val::RuntimeObject(a) => {
+                if let Ok(runtime_object) = runtime_object::get_runtime_object(a.name().as_str()) {
+                    Val::RuntimeObject(runtime_object)
+                } else {
+                    Val::Null
+                }
+            }
+        }
+    }
 }
 
 impl Val {
@@ -112,11 +130,18 @@ impl Val {
             Val::Char(c) => *c == val.cast_to_char()?,
             Val::Int(i) => *i == val.cast_to_int()?,
             Val::Float(f) => *f == val.cast_to_float()?,
-            Val::String(s1) => {
+            Val::String(PsString(s1)) => {
                 let s2 = val.cast_to_string();
                 str_cmp(s1, &s2, case_insensitive) == std::cmp::Ordering::Equal
             }
             Val::Array(_) => todo!(),
+            Val::RuntimeObject(s) => {
+                if let Val::RuntimeObject(s2) = val {
+                    str_cmp(&s.name(), &s2.name(), case_insensitive) == std::cmp::Ordering::Equal
+                } else {
+                    false
+                }
+            }
         })
     }
 
@@ -127,11 +152,12 @@ impl Val {
             Val::Char(c) => *c > val.cast_to_char()?,
             Val::Int(i) => *i > val.cast_to_int()?,
             Val::Float(f) => *f > val.cast_to_float()?,
-            Val::String(s1) => {
+            Val::String(PsString(s1)) => {
                 let s2 = val.cast_to_string();
                 str_cmp(s1, &s2, case_insensitive) == std::cmp::Ordering::Greater
             }
             Val::Array(_) => todo!(),
+            Val::RuntimeObject(_) => todo!(),
         })
     }
 
@@ -142,11 +168,12 @@ impl Val {
             Val::Char(c) => *c < val.cast_to_char()?,
             Val::Int(i) => *i < val.cast_to_int()?,
             Val::Float(f) => *f < val.cast_to_float()?,
-            Val::String(s1) => {
+            Val::String(PsString(s1)) => {
                 let s2 = val.cast_to_string();
                 str_cmp(s1, &s2, case_insensitive) == std::cmp::Ordering::Less
             }
             Val::Array(_) => todo!(),
+            Val::RuntimeObject(_) => todo!(),
         })
     }
 
@@ -159,6 +186,7 @@ impl Val {
             Val::Char(_) => ValType::Char,
             Val::String(_) => ValType::String,
             Val::Array(_) => ValType::Array,
+            Val::RuntimeObject(_) => todo!(),
         }
     }
 
@@ -173,9 +201,12 @@ impl Val {
                 };
             }
             Val::Char(_) | Val::String(_) => {
-                *self = Val::String(self.cast_to_string() + val.cast_to_string().as_str())
+                *self = Val::String(PsString(
+                    self.cast_to_string() + val.cast_to_string().as_str(),
+                ))
             }
             Val::Array(arr) => arr.push(val),
+            Val::RuntimeObject(_) => todo!(),
         }
         Ok(())
     }
@@ -185,7 +216,11 @@ impl Val {
             Val::Null => *self = Val::Int(amount),
             Val::Int(i) => *self = Val::Int(*i + amount),
             Val::Float(f) => *self = Val::Float(*f + amount as f64),
-            Val::Bool(_) | Val::Char(_) | Val::String(_) | Val::Array(_) => {
+            Val::Bool(_)
+            | Val::Char(_)
+            | Val::String(_)
+            | Val::Array(_)
+            | Val::RuntimeObject(_) => {
                 //error
                 Err(ValError::OperationNotDefined(
                     op,
@@ -206,13 +241,31 @@ impl Val {
     }
 
     pub fn sub(&mut self, val: Val) -> ValResult<()> {
+        if let ValType::RuntimeType(_) = self.ttype() {
+            Err(ValError::OperationNotDefined(
+                "-".to_string(),
+                self.ttype().to_string(),
+                val.ttype().to_string(),
+            ))?
+        }
+
+        if let ValType::RuntimeType(_) = val.ttype() {
+            Err(ValError::OperationNotDefined(
+                "-".to_string(),
+                self.ttype().to_string(),
+                val.ttype().to_string(),
+            ))?
+        }
+
         if self.ttype() == ValType::Array || val.ttype() == ValType::Array {
             Err(ValError::OperationNotDefined(
                 "-".to_string(),
                 self.ttype().to_string(),
                 val.ttype().to_string(),
             ))?
-        } else if self.ttype() == ValType::Float || val.ttype() == ValType::Float {
+        }
+
+        if self.ttype() == ValType::Float || val.ttype() == ValType::Float {
             *self = Val::Float(self.cast_to_float()? - val.cast_to_float()?);
         } else {
             *self = Val::Int(self.cast_to_int()? - val.cast_to_int()?);
@@ -241,8 +294,18 @@ impl Val {
                 "Char".to_string(),
                 val.ttype().to_string(),
             ))?,
-            Val::String(s) => Val::String(s.repeat(val.cast_to_int()? as usize)),
+            Val::String(PsString(s)) => {
+                Val::String(PsString(s.repeat(val.cast_to_int()? as usize)))
+            }
             Val::Array(v) => Val::Array(Box::new(Self::repeat(v, val.cast_to_int()? as usize))),
+            Val::RuntimeObject(_) => {
+                //error
+                Err(ValError::OperationNotDefined(
+                    "*".to_string(),
+                    self.ttype().to_string(),
+                    self.ttype().to_string(),
+                ))?
+            }
         };
         Ok(())
     }
@@ -277,6 +340,7 @@ impl Val {
             }
             Val::Float(_) => Val::Float(self.cast_to_float()? / self.cast_to_float()?),
             Val::Array(_) => todo!(),
+            Val::RuntimeObject(_) => todo!(),
         };
         Ok(())
     }
@@ -310,6 +374,7 @@ impl Val {
             }
             Val::Float(_) => Val::Float(self.cast_to_float()? % self.cast_to_float()?),
             Val::Array(_) => todo!(),
+            Val::RuntimeObject(_) => todo!(),
         };
         Ok(())
     }
@@ -325,6 +390,7 @@ impl Val {
                 self.ttype().to_string(),
                 self.ttype().to_string(),
             ))?,
+            Val::RuntimeObject(_) => todo!(),
         }
         Ok(())
     }
@@ -336,8 +402,9 @@ impl Val {
             ValType::Int => Val::Int(self.cast_to_int()?),
             ValType::Float => Val::Float(self.cast_to_float()?),
             ValType::Char => Val::Char(self.cast_to_char()?),
-            ValType::String => Val::String(self.cast_to_string()),
+            ValType::String => Val::String(PsString(self.cast_to_string())),
             ValType::Array => Val::Array(Box::new(self.cast_to_array())),
+            ValType::RuntimeType(_) => todo!(),
         })
     }
 
@@ -348,8 +415,15 @@ impl Val {
             ValType::Int => Val::Int(0),
             ValType::Float => Val::Float(0.),
             ValType::Char => Val::Char(0),
-            ValType::String => Val::String(String::new()),
+            ValType::String => Val::String(PsString::default()),
             ValType::Array => Val::Array(Box::new(vec![])),
+            ValType::RuntimeType(s) => {
+                if let Ok(runtime_object) = runtime_object::get_runtime_object(s.as_str()) {
+                    Val::RuntimeObject(runtime_object)
+                } else {
+                    Err(ValError::UnknownType(s.to_string()))?
+                }
+            }
         })
     }
 
@@ -360,8 +434,9 @@ impl Val {
             Val::Char(c) => *c != 0,
             Val::Int(i) => *i != 0,
             Val::Float(f) => *f != 0.,
-            Val::String(s) => !s.is_empty(),
+            Val::String(PsString(s)) => !s.is_empty(),
             Val::Array(v) => !v.is_empty(),
+            Val::RuntimeObject(_) => todo!(),
         }
     }
 
@@ -376,7 +451,7 @@ impl Val {
                 "Float".to_string(),
                 "Char".to_string(),
             ))?,
-            Val::String(s) => {
+            Val::String(PsString(s)) => {
                 if s.len() == 1 {
                     s.chars().next().unwrap_or_default() as u32
                 } else {
@@ -390,6 +465,7 @@ impl Val {
                 "Array".to_string(),
                 "Char".to_string(),
             ))?,
+            Val::RuntimeObject(_) => todo!(),
         };
         Ok(res)
     }
@@ -401,7 +477,7 @@ impl Val {
             Val::Int(i) => *i,
             Val::Float(f) => f.round() as i64,
             Val::Char(c) => *c as i64,
-            Val::String(s) => {
+            Val::String(PsString(s)) => {
                 let s = s.to_ascii_lowercase();
                 if let Some(hex) = s.strip_prefix("0x") {
                     i64::from_str_radix(hex, 16)?
@@ -417,6 +493,7 @@ impl Val {
                 "Array".to_string(),
                 "Int".to_string(),
             ))?,
+            Val::RuntimeObject(_) => todo!(),
         })
     }
 
@@ -427,11 +504,12 @@ impl Val {
             Val::Int(i) => *i as f64,
             Val::Float(f) => *f as f64,
             Val::Char(c) => *c as f64,
-            Val::String(s) => s.trim().parse::<f64>()?,
+            Val::String(PsString(s)) => s.trim().parse::<f64>()?,
             Val::Array(_) => Err(ValError::InvalidCast(
                 "Array".to_string(),
                 "Float".to_string(),
             ))?,
+            Val::RuntimeObject(_) => todo!(),
         })
     }
 
@@ -442,12 +520,13 @@ impl Val {
             Val::Int(i) => i.to_string(),
             Val::Float(f) => f.to_string(),
             Val::Char(c) => char::from_u32(*c).unwrap_or_default().to_string(),
-            Val::String(s) => s.clone(),
+            Val::String(PsString(s)) => s.clone(),
             Val::Array(v) => v
                 .iter()
                 .map(|val| val.cast_to_string())
                 .collect::<Vec<String>>()
                 .join(" "),
+            Val::RuntimeObject(s) => s.name(),
         }
     }
 
@@ -466,6 +545,7 @@ impl Val {
                 vec![self.clone()]
             }
             Val::Array(v) => *v.clone(),
+            Val::RuntimeObject(_) => todo!(),
         }
     }
 
@@ -514,48 +594,45 @@ mod tests {
         val.add(Val::Float(0.1)).unwrap();
         assert_eq!(val, Val::Float(4.1));
 
-        let mut val = Val::String(" 123".to_string());
+        let mut val = Val::String(" 123".into());
         val.add(Val::Float(0.1)).unwrap();
-        assert_eq!(val, Val::String(" 1230.1".to_string()));
+        assert_eq!(val, Val::String(" 1230.1".into()));
 
         let mut val = Val::Char(97);
         val.add(Val::Float(0.1)).unwrap();
-        assert_eq!(val, Val::String("a0.1".to_string()));
+        assert_eq!(val, Val::String("a0.1".into()));
 
         let mut val = Val::Int(4);
         val.add(Val::Int(1)).unwrap();
         assert_eq!(val, Val::Int(5));
 
-        let mut val = Val::String(" 123".to_string());
+        let mut val = Val::String(" 123".into());
         val.add(Val::Int(1)).unwrap();
-        assert_eq!(val, Val::String(" 1231".to_string()));
+        assert_eq!(val, Val::String(" 1231".into()));
 
         let mut val = Val::Char(97);
         val.add(Val::Int(1)).unwrap();
-        assert_eq!(val, Val::String("a1".to_string()));
+        assert_eq!(val, Val::String("a1".into()));
 
         let mut val = Val::Char(97);
         val.add(Val::Int(1)).unwrap();
-        assert_eq!(val, Val::String("a1".to_string()));
+        assert_eq!(val, Val::String("a1".into()));
 
-        let mut val = Val::String(" 123".to_string());
+        let mut val = Val::String(" 123".into());
         val.add(Val::Int(1)).unwrap();
-        assert_eq!(val, Val::String(" 1231".to_string()));
+        assert_eq!(val, Val::String(" 1231".into()));
 
         let mut val = Val::Char(97);
-        val.add(Val::String("bsef".to_string())).unwrap();
-        assert_eq!(val, Val::String("absef".to_string()));
+        val.add(Val::String("bsef".into())).unwrap();
+        assert_eq!(val, Val::String("absef".into()));
 
-        let mut val = Val::Array(Box::new(vec![
-            Val::Int(7),
-            Val::String(" adsf".to_string()),
-        ]));
+        let mut val = Val::Array(Box::new(vec![Val::Int(7), Val::String(" adsf".into())]));
         val.add(Val::Float(2.3)).unwrap();
         assert_eq!(
             val,
             Val::Array(Box::new(vec![
                 Val::Int(7),
-                Val::String(" adsf".to_string()),
+                Val::String(" adsf".into()),
                 Val::Float(2.3)
             ]))
         );
@@ -567,7 +644,7 @@ mod tests {
         val.sub(Val::Float(0.1)).unwrap();
         assert_eq!(val, Val::Float(3.9));
 
-        let mut val = Val::String(" 123".to_string());
+        let mut val = Val::String(" 123".into());
         val.sub(Val::Float(0.1)).unwrap();
         assert_eq!(val, Val::Float(122.9));
 
@@ -579,7 +656,7 @@ mod tests {
         val.sub(Val::Int(1)).unwrap();
         assert_eq!(val, Val::Int(3));
 
-        let mut val = Val::String(" 123".to_string());
+        let mut val = Val::String(" 123".into());
         val.sub(Val::Int(1)).unwrap();
         assert_eq!(val, Val::Int(122));
 
@@ -594,13 +671,13 @@ mod tests {
         val.mul(Val::Float(0.1)).unwrap();
         assert_eq!(val, Val::Float(0.4));
 
-        let mut val = Val::String(" 123".to_string());
+        let mut val = Val::String(" 123".into());
         val.mul(Val::Float(0.1)).unwrap();
-        assert_eq!(val, Val::String("".to_string()));
+        assert_eq!(val, Val::String("".into()));
 
-        let mut val = Val::String(" 123".to_string());
+        let mut val = Val::String(" 123".into());
         val.mul(Val::Float(2.1)).unwrap();
-        assert_eq!(val, Val::String(" 123 123".to_string()));
+        assert_eq!(val, Val::String(" 123 123".into()));
 
         // ERROR
         // let mut val = Val::Char(123);
@@ -611,37 +688,31 @@ mod tests {
         val.mul(Val::Int(1)).unwrap();
         assert_eq!(val, Val::Int(4));
 
-        let mut val = Val::String(" 123".to_string());
+        let mut val = Val::String(" 123".into());
         val.mul(Val::Int(2)).unwrap();
-        assert_eq!(val, Val::String(" 123 123".to_string()));
+        assert_eq!(val, Val::String(" 123 123".into()));
 
-        let mut val = Val::Array(Box::new(vec![
-            Val::Int(7),
-            Val::String(" adsf".to_string()),
-        ]));
+        let mut val = Val::Array(Box::new(vec![Val::Int(7), Val::String(" adsf".into())]));
         val.mul(Val::Int(2)).unwrap();
         assert_eq!(
             val,
             Val::Array(Box::new(vec![
                 Val::Int(7),
-                Val::String(" adsf".to_string()),
+                Val::String(" adsf".into()),
                 Val::Int(7),
-                Val::String(" adsf".to_string())
+                Val::String(" adsf".into())
             ]))
         );
 
-        let mut val = Val::Array(Box::new(vec![
-            Val::Int(7),
-            Val::String(" adsf".to_string()),
-        ]));
+        let mut val = Val::Array(Box::new(vec![Val::Int(7), Val::String(" adsf".into())]));
         val.mul(Val::Float(2.3)).unwrap();
         assert_eq!(
             val,
             Val::Array(Box::new(vec![
                 Val::Int(7),
-                Val::String(" adsf".to_string()),
+                Val::String(" adsf".into()),
                 Val::Int(7),
-                Val::String(" adsf".to_string())
+                Val::String(" adsf".into())
             ]))
         );
     }
@@ -659,9 +730,9 @@ mod tests {
         assert_eq!(Val::Float(-0.09874).cast_to_bool(), true);
         assert_eq!(Val::Char(0).cast_to_bool(), false);
         assert_eq!(Val::Char(97).cast_to_bool(), true);
-        assert_eq!(Val::String("a".to_string()).cast_to_bool(), true);
-        assert_eq!(Val::String("  888  a".to_string()).cast_to_bool(), true);
-        assert_eq!(Val::String("".to_string()).cast_to_bool(), false);
+        assert_eq!(Val::String("a".into()).cast_to_bool(), true);
+        assert_eq!(Val::String("  888  a".into()).cast_to_bool(), true);
+        assert_eq!(Val::String("".into()).cast_to_bool(), false);
         assert_eq!(Val::Array(Box::new(vec![])).cast_to_bool(), false);
         assert_eq!(Val::Array(Box::new(vec![Val::Int(7)])).cast_to_bool(), true);
     }
@@ -688,11 +759,9 @@ mod tests {
             ValError::InvalidCast("Float".to_string(), "Char".to_string())
         );
         assert_eq!(Val::Char(97).cast_to_char().unwrap(), 97);
-        assert_eq!(Val::String("a".to_string()).cast_to_char().unwrap(), 97);
+        assert_eq!(Val::String("a".into()).cast_to_char().unwrap(), 97);
         assert_eq!(
-            Val::String("  888  a".to_string())
-                .cast_to_char()
-                .unwrap_err(),
+            Val::String("  888  a".into()).cast_to_char().unwrap_err(),
             ValError::InvalidCast(
                 "String with len() more than 1".to_string(),
                 "Char".to_string()
@@ -716,15 +785,10 @@ mod tests {
         assert_eq!(Val::Float(0.09874).cast_to_int().unwrap(), 0);
         assert_eq!(Val::Float(-0.09874).cast_to_int().unwrap(), 0);
         assert_eq!(Val::Char(97).cast_to_int().unwrap(), 97);
-        assert_eq!(Val::String("00001".to_string()).cast_to_int().unwrap(), 1);
+        assert_eq!(Val::String("00001".into()).cast_to_int().unwrap(), 1);
+        assert_eq!(Val::String("  888  ".into()).cast_to_int().unwrap(), 888);
         assert_eq!(
-            Val::String("  888  ".to_string()).cast_to_int().unwrap(),
-            888
-        );
-        assert_eq!(
-            Val::String("  888  a".to_string())
-                .cast_to_int()
-                .unwrap_err(),
+            Val::String("  888  a".into()).cast_to_int().unwrap_err(),
             ValError::InvalidCast("String".to_string(), "Int".to_string())
         );
         assert_eq!(
@@ -745,24 +809,17 @@ mod tests {
         assert_eq!(Val::Float(0.09874).cast_to_float().unwrap(), 0.09874);
         assert_eq!(Val::Float(-0.09874).cast_to_float().unwrap(), -0.09874);
         assert_eq!(Val::Char(97).cast_to_float().unwrap(), 97.);
+        assert_eq!(Val::String("00001.".into()).cast_to_float().unwrap(), 1.);
         assert_eq!(
-            Val::String("00001.".to_string()).cast_to_float().unwrap(),
-            1.
-        );
-        assert_eq!(
-            Val::String("00001.12".to_string()).cast_to_float().unwrap(),
+            Val::String("00001.12".into()).cast_to_float().unwrap(),
             1.12
         );
         assert_eq!(
-            Val::String("  888.123  ".to_string())
-                .cast_to_float()
-                .unwrap(),
+            Val::String("  888.123  ".into()).cast_to_float().unwrap(),
             888.123
         );
         assert_eq!(
-            Val::String("  888  a".to_string())
-                .cast_to_float()
-                .unwrap_err(),
+            Val::String("  888  a".into()).cast_to_float().unwrap_err(),
             ValError::InvalidCast("String".to_string(), "Float".to_string())
         );
         assert_eq!(
@@ -792,7 +849,7 @@ mod tests {
             Val::Array(Box::new(vec![
                 Val::Int(7),
                 Val::Null,
-                Val::String(" adsf".to_string())
+                Val::String(" adsf".into())
             ]))
             .cast_to_string(),
             "7   adsf".to_string()
@@ -809,8 +866,8 @@ mod tests {
         );
         assert_eq!(Val::Char(5).cast_to_array(), vec![Val::Char(5)]);
         assert_eq!(
-            Val::String("elo".to_string()).cast_to_array(),
-            vec![Val::String("elo".to_string())]
+            Val::String("elo".into()).cast_to_array(),
+            vec![Val::String("elo".into())]
         );
         assert_eq!(
             Val::Array(Box::new(vec![Val::Int(7)])).cast_to_array(),

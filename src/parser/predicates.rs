@@ -52,7 +52,7 @@ impl StringPred {
                 } else {
                     (v2, Val::Null)
                 };
-                Ok(Val::String(replace(v1, from, to)))
+                Ok(Val::String(replace(v1, from, to).into()))
             }));
         }
 
@@ -63,7 +63,7 @@ impl StringPred {
         }
 
         if let Some(join) = JoinPred::get(name_lowercase.as_str()) {
-            return Some(Box::new(move |v1, v2| Ok(Val::String(join(v1, v2)))));
+            return Some(Box::new(move |v1, v2| Ok(Val::String(join(v1, v2).into()))));
         }
 
         if let Some(split) = SplitPred::get(name_lowercase.as_str()) {

@@ -135,7 +135,7 @@ pub fn split(input: Val, args: Val, case_insensitive: bool) -> Val {
             max_splits,
             case_insensitive,
         ) {
-            res.push(Val::String(v.join(" ")))
+            res.push(Val::String(v.join(" ").into()))
         }
     }
     if res.len() == 0 {
