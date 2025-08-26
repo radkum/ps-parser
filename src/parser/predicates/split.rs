@@ -17,7 +17,7 @@ impl SplitPred {
     });
 
     pub(crate) fn get(name: &str) -> Option<SplitPredType> {
-        Self::JOIN_PRED_MAP.get(name).map(|elem| *elem)
+        Self::JOIN_PRED_MAP.get(name).copied()
     }
 }
 
@@ -70,9 +70,8 @@ pub fn powershell_split_preserve_delimeter(
 
     let mut result = Vec::new();
     let mut last_end = 0;
-    let mut splits = 0;
 
-    for mat in re.find_iter(input) {
+    for (splits, mat) in re.find_iter(input).enumerate() {
         if let Some(limit) = max_splits {
             if splits >= limit {
                 break;
@@ -88,7 +87,6 @@ pub fn powershell_split_preserve_delimeter(
         result.push(mat.as_str().to_string());
 
         last_end = mat.end();
-        splits += 1;
     }
 
     // Push the remaining part of the string
@@ -115,7 +113,7 @@ pub fn split(input: Val, args: Val, case_insensitive: bool) -> Val {
     let mut pattern = None;
     let mut max_splits = None;
 
-    if args.len() > 0 {
+    if !args.is_empty() {
         pattern = Some(args[0].cast_to_string())
     }
 
@@ -138,12 +136,12 @@ pub fn split(input: Val, args: Val, case_insensitive: bool) -> Val {
             res.push(Val::String(v.join(" ").into()))
         }
     }
-    if res.len() == 0 {
+    if res.is_empty() {
         Val::Null
     } else if res.len() == 1 {
         res[0].clone()
     } else {
-        Val::Array(Box::new(res))
+        Val::Array(res)
     }
 }
 

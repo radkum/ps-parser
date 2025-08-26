@@ -1,4 +1,4 @@
-use super::{MethodError, MethodResult, PsString, RuntimeObject, StaticFnCallType, Val};
+use super::{MethodError, MethodResult, RuntimeObject, Val};
 use crate::parser::value::runtime_object::MethodCallType;
 
 #[derive(Debug, Clone)]
@@ -32,8 +32,6 @@ impl RuntimeObject for UnicodeEncoding {
 }
 
 fn get_string(_: Val, args: Vec<Val>) -> MethodResult<Val> {
-    use base64::prelude::*;
-
     if args.len() != 1 {
         //something wrong
         return Err(MethodError::new_incorrect_args("getstring", args));
@@ -72,5 +70,5 @@ fn string_from_vec(mut buf: Vec<u8>) -> String {
         res_string.pop();
     }
 
-    return res_string;
+    res_string
 }

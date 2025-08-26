@@ -5,13 +5,7 @@ mod system_convert;
 mod system_encoding;
 mod val_error;
 
-use std::{
-    cmp::Ordering,
-    collections::HashMap,
-    num::{ParseFloatError, ParseIntError},
-    ops::Neg,
-    sync::LazyLock,
-};
+use std::{collections::HashMap, ops::Neg, sync::LazyLock};
 
 pub(crate) use method_error::{MethodError, MethodResult};
 pub(crate) use ps_string::PsString;
@@ -73,7 +67,7 @@ impl ValType {
 }
 
 #[derive(Debug, SmartDefault)]
-pub enum Val {
+pub(crate) enum Val {
     #[default]
     Null,
     Bool(bool),
@@ -81,7 +75,7 @@ pub enum Val {
     Float(f64),
     Char(u32),
     String(PsString),
-    Array(Box<Vec<Val>>),
+    Array(Vec<Val>),
     RuntimeObject(Box<dyn RuntimeObject>),
 }
 
@@ -148,7 +142,7 @@ impl Val {
     pub fn gt(&self, val: Val, case_insensitive: bool) -> ValResult<bool> {
         Ok(match self {
             Val::Null => false,
-            Val::Bool(b) => *b > val.cast_to_bool(),
+            Val::Bool(b) => *b & !val.cast_to_bool(),
             Val::Char(c) => *c > val.cast_to_char()?,
             Val::Int(i) => *i > val.cast_to_int()?,
             Val::Float(f) => *f > val.cast_to_float()?,
@@ -164,7 +158,7 @@ impl Val {
     pub fn lt(&self, val: Val, case_insensitive: bool) -> ValResult<bool> {
         Ok(match self {
             Val::Null => false,
-            Val::Bool(b) => *b < val.cast_to_bool(),
+            Val::Bool(b) => !(*b) & val.cast_to_bool(),
             Val::Char(c) => *c < val.cast_to_char()?,
             Val::Int(i) => *i < val.cast_to_int()?,
             Val::Float(f) => *f < val.cast_to_float()?,
@@ -297,7 +291,7 @@ impl Val {
             Val::String(PsString(s)) => {
                 Val::String(PsString(s.repeat(val.cast_to_int()? as usize)))
             }
-            Val::Array(v) => Val::Array(Box::new(Self::repeat(v, val.cast_to_int()? as usize))),
+            Val::Array(v) => Val::Array(Self::repeat(v, val.cast_to_int()? as usize)),
             Val::RuntimeObject(_) => {
                 //error
                 Err(ValError::OperationNotDefined(
@@ -403,7 +397,7 @@ impl Val {
             ValType::Float => Val::Float(self.cast_to_float()?),
             ValType::Char => Val::Char(self.cast_to_char()?),
             ValType::String => Val::String(PsString(self.cast_to_string())),
-            ValType::Array => Val::Array(Box::new(self.cast_to_array())),
+            ValType::Array => Val::Array(self.cast_to_array()),
             ValType::RuntimeType(_) => todo!(),
         })
     }
@@ -416,7 +410,7 @@ impl Val {
             ValType::Float => Val::Float(0.),
             ValType::Char => Val::Char(0),
             ValType::String => Val::String(PsString::default()),
-            ValType::Array => Val::Array(Box::new(vec![])),
+            ValType::Array => Val::Array(Default::default()),
             ValType::RuntimeType(s) => {
                 if let Ok(runtime_object) = runtime_object::get_runtime_object(s.as_str()) {
                     Val::RuntimeObject(runtime_object)
@@ -502,7 +496,7 @@ impl Val {
             Val::Null => 0.,
             Val::Bool(b) => *b as i64 as f64,
             Val::Int(i) => *i as f64,
-            Val::Float(f) => *f as f64,
+            Val::Float(f) => *f,
             Val::Char(c) => *c as f64,
             Val::String(PsString(s)) => s.trim().parse::<f64>()?,
             Val::Array(_) => Err(ValError::InvalidCast(
@@ -544,15 +538,15 @@ impl Val {
             Val::Bool(_) | Val::Int(_) | Val::Float(_) | Val::Char(_) | Val::String(_) => {
                 vec![self.clone()]
             }
-            Val::Array(v) => *v.clone(),
+            Val::Array(v) => v.clone(),
             Val::RuntimeObject(_) => todo!(),
         }
     }
 
-    fn repeat(v: &Box<Vec<Val>>, amount: usize) -> Vec<Val> {
-        let mut res = *v.clone();
+    fn repeat(v: &[Val], amount: usize) -> Vec<Val> {
+        let mut res = v.to_owned();
         for _ in 1..amount {
-            res.append(&mut *v.clone());
+            res.append(&mut v.to_owned());
         }
         res
     }
@@ -626,15 +620,15 @@ mod tests {
         val.add(Val::String("bsef".into())).unwrap();
         assert_eq!(val, Val::String("absef".into()));
 
-        let mut val = Val::Array(Box::new(vec![Val::Int(7), Val::String(" adsf".into())]));
+        let mut val = Val::Array(vec![Val::Int(7), Val::String(" adsf".into())]);
         val.add(Val::Float(2.3)).unwrap();
         assert_eq!(
             val,
-            Val::Array(Box::new(vec![
+            Val::Array(vec![
                 Val::Int(7),
                 Val::String(" adsf".into()),
                 Val::Float(2.3)
-            ]))
+            ])
         );
     }
 
@@ -692,28 +686,28 @@ mod tests {
         val.mul(Val::Int(2)).unwrap();
         assert_eq!(val, Val::String(" 123 123".into()));
 
-        let mut val = Val::Array(Box::new(vec![Val::Int(7), Val::String(" adsf".into())]));
+        let mut val = Val::Array(vec![Val::Int(7), Val::String(" adsf".into())]);
         val.mul(Val::Int(2)).unwrap();
         assert_eq!(
             val,
-            Val::Array(Box::new(vec![
+            Val::Array(vec![
                 Val::Int(7),
                 Val::String(" adsf".into()),
                 Val::Int(7),
                 Val::String(" adsf".into())
-            ]))
+            ])
         );
 
-        let mut val = Val::Array(Box::new(vec![Val::Int(7), Val::String(" adsf".into())]));
+        let mut val = Val::Array(vec![Val::Int(7), Val::String(" adsf".into())]);
         val.mul(Val::Float(2.3)).unwrap();
         assert_eq!(
             val,
-            Val::Array(Box::new(vec![
+            Val::Array(vec![
                 Val::Int(7),
                 Val::String(" adsf".into()),
                 Val::Int(7),
                 Val::String(" adsf".into())
-            ]))
+            ])
         );
     }
 
@@ -733,8 +727,8 @@ mod tests {
         assert_eq!(Val::String("a".into()).cast_to_bool(), true);
         assert_eq!(Val::String("  888  a".into()).cast_to_bool(), true);
         assert_eq!(Val::String("".into()).cast_to_bool(), false);
-        assert_eq!(Val::Array(Box::new(vec![])).cast_to_bool(), false);
-        assert_eq!(Val::Array(Box::new(vec![Val::Int(7)])).cast_to_bool(), true);
+        assert_eq!(Val::Array(vec![]).cast_to_bool(), false);
+        assert_eq!(Val::Array(vec![Val::Int(7)]).cast_to_bool(), true);
     }
 
     #[test]
@@ -768,9 +762,7 @@ mod tests {
             )
         );
         assert_eq!(
-            Val::Array(Box::new(vec![Val::Char(7)]))
-                .cast_to_char()
-                .unwrap_err(),
+            Val::Array(vec![Val::Char(7)]).cast_to_char().unwrap_err(),
             ValError::InvalidCast("Array".to_string(), "Char".to_string())
         );
     }
@@ -792,9 +784,7 @@ mod tests {
             ValError::InvalidCast("String".to_string(), "Int".to_string())
         );
         assert_eq!(
-            Val::Array(Box::new(vec![Val::Int(7)]))
-                .cast_to_int()
-                .unwrap_err(),
+            Val::Array(vec![Val::Int(7)]).cast_to_int().unwrap_err(),
             ValError::InvalidCast("Array".to_string(), "Int".to_string())
         );
     }
@@ -823,7 +813,7 @@ mod tests {
             ValError::InvalidCast("String".to_string(), "Float".to_string())
         );
         assert_eq!(
-            Val::Array(Box::new(vec![Val::Float(7.)]))
+            Val::Array(vec![Val::Float(7.)])
                 .cast_to_float()
                 .unwrap_err(),
             ValError::InvalidCast("Array".to_string(), "Float".to_string())
@@ -846,12 +836,7 @@ mod tests {
         assert_eq!(Val::Char(97).cast_to_string(), "a".to_string());
         assert_eq!(Val::Char(9997).cast_to_string(), "\u{270D}".to_string());
         assert_eq!(
-            Val::Array(Box::new(vec![
-                Val::Int(7),
-                Val::Null,
-                Val::String(" adsf".into())
-            ]))
-            .cast_to_string(),
+            Val::Array(vec![Val::Int(7), Val::Null, Val::String(" adsf".into())]).cast_to_string(),
             "7   adsf".to_string()
         );
     }
@@ -870,7 +855,7 @@ mod tests {
             vec![Val::String("elo".into())]
         );
         assert_eq!(
-            Val::Array(Box::new(vec![Val::Int(7)])).cast_to_array(),
+            Val::Array(vec![Val::Int(7)]).cast_to_array(),
             vec![Val::Int(7)]
         );
     }

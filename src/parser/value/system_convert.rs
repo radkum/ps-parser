@@ -29,7 +29,5 @@ fn from_base_64_string(args: Vec<Val>) -> MethodResult<Val> {
         .decode(s)
         .map_err(|e| MethodError::RuntimeError(Box::new(e)))?;
 
-    Ok(Val::Array(Box::new(
-        x.iter().map(|b| Val::Char(*b as u32)).collect(),
-    )))
+    Ok(Val::Array(x.iter().map(|b| Val::Char(*b as u32)).collect()))
 }

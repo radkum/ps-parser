@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::LazyLock};
+use std::collections::HashMap;
 
 use thiserror_no_std::Error;
 
@@ -81,11 +81,7 @@ impl Variables {
         // if !Self::CONSTANTS_VAR_MAP.contains_key(name) {
         //     self.0.insert(name.to_ascii_lowercase(), val);
         // }
-        if let Some((prop, var)) = self
-            .map
-            .get_mut(name.to_ascii_lowercase().as_str())
-            .map(|v| v)
-        {
+        if let Some((prop, var)) = self.map.get_mut(name.to_ascii_lowercase().as_str()) {
             if let VarProp::ReadOnly = prop {
                 //todo
             } else {

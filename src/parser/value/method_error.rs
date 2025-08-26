@@ -44,7 +44,7 @@ impl PartialEq for MethodError {
 }
 
 impl MethodError {
-    pub fn new_incorrect_args(name: &str, args: Vec<Val>) -> Self {
+    pub(crate) fn new_incorrect_args(name: &str, args: Vec<Val>) -> Self {
         MethodError::IncorrectArgs(
             name.to_string(),
             args.iter().map(|v| format!("{:?}", v)).collect(),

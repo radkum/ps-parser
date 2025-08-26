@@ -1,11 +1,9 @@
 mod parser;
 
-pub(crate) use parser::PowerShellParser;
+pub use parser::PowerShellParser;
 
 #[cfg(test)]
 mod tests {
-    use pest::Parser;
-
     use super::*;
 
     #[test]

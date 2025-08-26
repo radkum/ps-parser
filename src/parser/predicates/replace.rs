@@ -19,7 +19,7 @@ impl ReplacePred {
         });
 
     pub(crate) fn get(name: &str) -> Option<ReplacePredType> {
-        Self::REPLACE_PRED_MAP.get(name).map(|elem| *elem)
+        Self::REPLACE_PRED_MAP.get(name).copied()
     }
 }
 
