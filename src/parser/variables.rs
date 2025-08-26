@@ -8,7 +8,11 @@ use super::Val;
 pub enum VariableError {
     #[error("Variable \"{0}\" is not defined")]
     NotDefined(String),
+    #[error("Cannot overwrite variable \"{0}\" because it is read-only or constant.")]
+    ReadOnly(String),
 }
+
+pub type VariableResult<T> = core::result::Result<T, VariableError>;
 
 enum VarProp {
     ReadOnly,
@@ -77,19 +81,22 @@ impl Variables {
         var
     }
 
-    pub(crate) fn set(&mut self, name: &str, val: Val) {
+    pub(crate) fn set(&mut self, name: &str, val: Val) -> VariableResult<()> {
         // if !Self::CONSTANTS_VAR_MAP.contains_key(name) {
         //     self.0.insert(name.to_ascii_lowercase(), val);
         // }
         if let Some((prop, var)) = self.map.get_mut(name.to_ascii_lowercase().as_str()) {
             if let VarProp::ReadOnly = prop {
-                //todo
+                log::error!("You couldn't modify a read-only variable");
+                Err(VariableError::ReadOnly(name.to_string()))
             } else {
                 *var = val;
+                Ok(())
             }
         } else {
             self.map
                 .insert(name.to_ascii_lowercase(), (VarProp::user_defined(), val));
+            Ok(())
         }
     }
 }

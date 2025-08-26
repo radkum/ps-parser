@@ -295,7 +295,7 @@ impl<'a> PowerShellSession {
                 let mut var = self.variables.get(&var_name).unwrap_or_default();
                 var.inc()?;
 
-                self.variables.set(&var_name, var.clone());
+                self.variables.set(&var_name, var.clone())?;
                 var
             }
             Rule::pre_dec_expression => {
@@ -304,7 +304,7 @@ impl<'a> PowerShellSession {
                 let mut var = self.variables.get(&var_name).unwrap_or_default();
                 var.dec()?;
 
-                self.variables.set(&var_name, var.clone());
+                self.variables.set(&var_name, var.clone())?;
                 var
             }
             Rule::cast_expression => self.eval_cast_expression(token)?,
@@ -319,8 +319,7 @@ impl<'a> PowerShellSession {
                 Val::Int(!unary.cast_to_int()?)
             }
             _ => {
-                println!("token.rule(): {:?}", token.as_rule());
-                panic!()
+                panic!("token.rule(): {:?}", token.as_rule());
             }
         };
 
@@ -490,7 +489,7 @@ impl<'a> PowerShellSession {
                 let var_to_return = var.clone();
 
                 var.inc()?;
-                self.variables.set(&var_name, var.clone());
+                self.variables.set(&var_name, var.clone())?;
 
                 //if var_to_return.ttype() ==
                 var_to_return
@@ -502,7 +501,7 @@ impl<'a> PowerShellSession {
                 let var_to_return = var.clone();
 
                 var.dec()?;
-                self.variables.set(&var_name, var.clone());
+                self.variables.set(&var_name, var.clone())?;
 
                 var_to_return
             }
@@ -917,7 +916,7 @@ impl<'a> PowerShellSession {
         let input_str = input.cast_to_string();
         let characters = input_str.chars();
         for ch in characters {
-            self.variables.set("$_", Val::String(ch.to_string().into()));
+            self.variables.set("$_", Val::String(ch.to_string().into()))?;
             let Ok(v) = self.eval_script_block_expression(token.clone()) else {
                 return Ok(vec![]);
             };
@@ -938,7 +937,7 @@ impl<'a> PowerShellSession {
             }
         }
 
-        self.variables.set("$_", Val::Null);
+        self.variables.set("$_", Val::Null)?;
         Ok(res_vec)
     }
     fn eval_comparison_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
@@ -1101,14 +1100,8 @@ impl<'a> PowerShellSession {
 
         let Some(pred) = pred else { panic!() };
 
-        // log::trace!(
-        //     "Assignment: var_name: {} var: {:?}, res: {:?}",
-        //     var_name,
-        //     var,
-        //     pred(var.clone(), expression_result.clone())
-        // );
         let right_operand = pred(var, expression_result);
-        self.variables.set(&var_name, right_operand.clone());
+        self.variables.set(&var_name, right_operand.clone())?;
         println!(
             "After Set: var_name: {} = {:?}",
             var_name,
