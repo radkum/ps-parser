@@ -30,12 +30,6 @@ macro_rules! check_rule {
     };
 }
 
-#[derive(SmartDefault)]
-pub struct PsParserOptions {
-    #[default(true)]
-    force_var_evaluation: bool,
-}
-
 #[derive(Parser)]
 #[grammar = "powershell.pest"]
 pub struct PowerShellSession {
@@ -50,19 +44,47 @@ impl Default for PowerShellSession {
     }
 }
 
+
 impl<'a> PowerShellSession {
     pub fn new() -> Self {
-        Self::new_with_options(None)
-    }
-
-    pub fn new_with_options(options: Option<PsParserOptions>) -> Self {
-        let opt = options.unwrap_or_default();
-
         Self {
-            variables: Variables::new(opt.force_var_evaluation),
-            tokens: Tokens::new(),
+            variables: Variables::new(),
+            tokens: Vec::new(),
             errors: Vec::new(),
         }
+    }
+
+    /// Create a new PowerShellSession with environment variables loaded
+    // pub fn new_with_env() -> Self {
+    //     Self {
+    //         variables: Variables::env(),
+    //         tokens: Vec::new(),
+    //         errors: Vec::new(),
+    //     }
+    // }
+
+    // /// Create a new PowerShellSession with variables loaded from an INI file
+    // pub fn new_with_ini(ini_path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
+    //     Ok(Self {
+    //         variables: Variables::from_ini(ini_path)?,
+    //         tokens: Vec::new(),
+    //         errors: Vec::new(),
+    //     })
+    // }
+
+    // /// Create a new PowerShellSession with both environment variables and INI file variables
+    // pub fn new_with_env_and_ini(ini_path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
+    //     Ok(Self {
+    //         variables: Variables::env_with_ini(ini_path)?,
+    //         tokens: Vec::new(),
+    //         errors: Vec::new(),
+    //     })
+    // }
+
+
+    pub fn with_variables(mut self, variables: Variables) -> Self {
+        self.variables = variables;
+        self
     }
 
     // pub fn errors(self) -> Vec<ParserError> {
