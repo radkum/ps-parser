@@ -31,11 +31,11 @@ pub fn xor(a: Val, b: Val) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::{PowerShellParser, parser::ParserError};
+    use crate::{PowerShellSession, parser::ParserError};
 
     #[test]
     fn test_and() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(
             p.safe_eval(r#" $true -AND $true "#).unwrap(),
             "True".to_string()
@@ -56,7 +56,7 @@ mod tests {
 
     #[test]
     fn test_or() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(
             p.safe_eval(r#" $true -oR $true "#).unwrap(),
             "True".to_string()
@@ -83,7 +83,7 @@ mod tests {
 
     #[test]
     fn test_xor() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(
             p.safe_eval(r#" $true -Xor $true "#).unwrap(),
             "False".to_string()
@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn test_not() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(p.safe_eval(r#" -Not 4 "#).unwrap(), "False".to_string());
         assert_eq!(p.safe_eval(r#" -nOt "" "#).unwrap(), "True".to_string());
         assert_eq!(p.safe_eval(r#" -not "asd" "#).unwrap(), "False".to_string());

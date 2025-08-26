@@ -96,11 +96,11 @@ impl Variables {
 
 #[cfg(test)]
 mod tests {
-    use crate::PowerShellParser;
+    use crate::PowerShellSession;
 
     #[test]
     fn test_variables() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(p.safe_eval(r#" $true "#).unwrap().as_str(), "True");
         assert_eq!(p.safe_eval(r#" $false "#).unwrap().as_str(), "False");
         assert_eq!(p.safe_eval(r#" $null "#).unwrap().as_str(), "");

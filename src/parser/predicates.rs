@@ -80,11 +80,11 @@ impl StringPred {
 
 #[cfg(test)]
 mod tests {
-    use crate::PowerShellParser;
+    use crate::PowerShellSession;
 
     #[test]
     fn test_obfuscation() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
 
         assert_eq!(p.safe_eval(r#" [CHAR](70+44-44)+[chaR](81+30)+[ChAR]([byTE]0x72)+[CHar]([byTE]0x6d)+[CHAR](68) "#).unwrap().as_str(), "FormD");
         assert_eq!(p.safe_eval(r#" [Char]([BYte]0x5c)+[ChAr](112)+[chAR]([bYTE]0x7b)+[ChAr]([BYtE]0x4d)+[Char](110)+[CHar]([bYte]0x7d) "#).unwrap().as_str(), "\\p{Mn}");
@@ -107,7 +107,7 @@ mod tests {
 
     #[test]
     fn test_range_with_float() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(p.safe_eval(r#" [string](1..1.3) "#).unwrap().as_str(), "1");
         assert_eq!(p.safe_eval(r#" [string](1...3) "#).unwrap().as_str(), "1 0");
         assert_eq!(p.safe_eval(r#" [string]1...3 "#).unwrap().as_str(), "1 0");
@@ -115,14 +115,14 @@ mod tests {
 
     #[test]
     fn test_unary() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(p.safe_eval(r#" +5 "#).unwrap().as_str(), "5");
         assert_eq!(p.safe_eval(r#" -5 "#).unwrap().as_str(), "-5");
     }
 
     #[test]
     fn test_format_operator() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(
             p.safe_eval(r#" "Hello, {0}!" -f "world" "#)
                 .unwrap()
@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn test_strings() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(
             p.safe_eval(r#" 'It''s fine' "#).unwrap().as_str(),
             "It''s fine"

@@ -158,11 +158,11 @@ pub fn csplit(input: Val, args: Val) -> Val {
 
 #[cfg(test)]
 mod tests {
-    use crate::PowerShellParser;
+    use crate::PowerShellSession;
 
     #[test]
     fn test_split() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(
             p.safe_eval(r#" -sPlit "red yellow blue green" "#).unwrap(),
             "red yellow blue green".to_string()
@@ -197,31 +197,31 @@ mod tests {
                 .unwrap(),
             "Lastname : FirstName : Address".to_string()
         );
-        assert_eq!(PowerShellParser::new().safe_eval(r#" $c = "Mercury,Venus,Earth,Mars,Jupiter,Saturn,Uranus,Neptune";$c -split ",", 5 "#).unwrap(),"Mercury Venus Earth Mars Jupiter,Saturn,Uranus,Neptune".to_string());
+        assert_eq!(PowerShellSession::new().safe_eval(r#" $c = "Mercury,Venus,Earth,Mars,Jupiter,Saturn,Uranus,Neptune";$c -split ",", 5 "#).unwrap(),"Mercury Venus Earth Mars Jupiter,Saturn,Uranus,Neptune".to_string());
         assert_eq!(
-            PowerShellParser::new()
+            PowerShellSession::new()
                 .safe_eval(r#" [string] (-isplit @('a,b c','1 2,3,4,5', '5,6,7,8')) "#)
                 .unwrap(),
             "a,b c 1 2,3,4,5 5,6,7,8".to_string()
         );
         assert_eq!(
-            PowerShellParser::new()
+            PowerShellSession::new()
                 .safe_eval(r#" $c = 'a,b,c','1,2,3,4,5', '5,6,7,8';[string]($c -split ',', 2) "#)
                 .unwrap(),
             "a b,c 1 2,3,4,5 5 6,7,8".to_string()
         );
         assert_eq!(
-            PowerShellParser::new()
+            PowerShellSession::new()
                 .safe_eval(r#" $c = 2121212, 1212;[string]($c -split '1', 2) "#)
                 .unwrap(),
             "2 21212  212".to_string()
         );
         assert_eq!(
-            PowerShellParser::new()
+            PowerShellSession::new()
                 .safe_eval(r#" [string]("Mercury,Venus,Earth" -split '[et]')  "#)
                 .unwrap(),
             "M rcury,V nus, ar h".to_string()
         );
-        assert_eq!(PowerShellParser::new().safe_eval(r#" $c = "Mercury,Venus,Earth,Mars,Jupiter,Saturn,Uranus,Neptune";[string]($c -split {$_ -eq "e" -or $_ -eq "p"}) "#).unwrap(),"M rcury,V nus, arth,Mars,Ju it r,Saturn,Uranus,N  tun".to_string());
+        assert_eq!(PowerShellSession::new().safe_eval(r#" $c = "Mercury,Venus,Earth,Mars,Jupiter,Saturn,Uranus,Neptune";[string]($c -split {$_ -eq "e" -or $_ -eq "p"}) "#).unwrap(),"M rcury,V nus, arth,Mars,Ju it r,Saturn,Uranus,N  tun".to_string());
     }
 }

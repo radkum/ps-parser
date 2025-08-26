@@ -82,11 +82,11 @@ pub fn shr(a: Val, b: Val) -> Val {
 
 #[cfg(test)]
 mod tests {
-    use crate::PowerShellParser;
+    use crate::PowerShellSession;
 
     #[test]
     fn test_band() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(p.safe_eval(r#" 5 -band 4 "#).unwrap(), "4".to_string());
         assert_eq!(p.safe_eval(r#" 5 -band 2 "#).unwrap(), "0".to_string());
         assert_eq!(p.safe_eval(r#" 5 -Band 9 "#).unwrap(), "1".to_string());
@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn test_bor() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(p.safe_eval(r#" 5 -bOr 4 "#).unwrap(), "5".to_string());
         assert_eq!(p.safe_eval(r#" 5 -bor 2 "#).unwrap(), "7".to_string());
         assert_eq!(p.safe_eval(r#" 5 -bor 9 "#).unwrap(), "13".to_string());
@@ -114,7 +114,7 @@ mod tests {
 
     #[test]
     fn test_bxor() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(p.safe_eval(r#" 5 -bxor 4 "#).unwrap(), "1".to_string());
         assert_eq!(p.safe_eval(r#" 5 -bxor 2 "#).unwrap(), "7".to_string());
         assert_eq!(p.safe_eval(r#" 5 -bxor 9 "#).unwrap(), "12".to_string());
@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn test_shl() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(p.safe_eval(r#" 5 -shl 4 "#).unwrap(), "80".to_string());
         assert_eq!(p.safe_eval(r#" -5 -shl 2 "#).unwrap(), "-20".to_string());
         assert_eq!(
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn test_shr() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(p.safe_eval(r#" 96 -shr 4 "#).unwrap(), "6".to_string());
         assert_eq!(p.safe_eval(r#" -96 -shr 2 "#).unwrap(), "-24".to_string());
         assert_eq!(
@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn test_bnot() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(p.safe_eval(r#" -bnot 4 "#).unwrap(), "-5".to_string());
         assert_eq!(p.safe_eval(r#" -bnot -95 "#).unwrap(), "94".to_string());
         assert_eq!(p.safe_eval(r#" [int] "96.5" "#).unwrap(), "96".to_string());

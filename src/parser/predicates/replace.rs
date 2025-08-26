@@ -50,11 +50,11 @@ fn creplace(input: Val, pattern: Val, replacement: Val) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::PowerShellParser;
+    use crate::PowerShellSession;
 
     #[test]
     fn test_replace() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(
             p.safe_eval(r#""Hello World" -replace "World", "PowerShell""#)
                 .unwrap(),

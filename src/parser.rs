@@ -1,5 +1,6 @@
 mod error;
 mod predicates;
+mod script_result;
 mod token;
 mod value;
 mod variables;
@@ -12,7 +13,8 @@ type PestError = pest::error::Error<Rule>;
 use pest::Parser;
 use pest_derive::Parser;
 use predicates::{ArithmeticPred, BitwisePred, LogicalPred, StringPred};
-use token::Tokens;
+pub use script_result::ScriptResult;
+use token::{Token, Tokens};
 use value::{Val, ValType};
 use variables::{VariableError, Variables};
 
@@ -36,18 +38,19 @@ pub struct PsParserOptions {
 
 #[derive(Parser)]
 #[grammar = "powershell.pest"]
-pub struct PowerShellParser {
+pub struct PowerShellSession {
     variables: Variables,
+    tokens: Tokens,
     errors: Vec<ParserError>,
 }
 
-impl Default for PowerShellParser {
+impl Default for PowerShellSession {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a> PowerShellParser {
+impl<'a> PowerShellSession {
     pub fn new() -> Self {
         Self::new_with_options(None)
     }
@@ -57,102 +60,62 @@ impl<'a> PowerShellParser {
 
         Self {
             variables: Variables::new(opt.force_var_evaluation),
-            errors: vec![],
+            ..Default::default()
         }
     }
 
-    pub fn errors(self) -> Vec<ParserError> {
-        self.errors
-    }
+    // pub fn errors(self) -> Vec<ParserError> {
+    //     self.errors
+    // }
 
-    pub fn parse_input(&mut self, input: &str) -> ParserResult<Tokens> {
-        let mut output_script = String::new();
-        let mut pairs = PowerShellParser::parse(Rule::program, input)?;
+    pub fn parse_input(&mut self, input: &str) -> ParserResult<ScriptResult> {
+        let mut pairs = PowerShellSession::parse(Rule::program, input)?;
         let program_token = pairs.next().expect("");
+
+        let mut deobfuscated = String::new();
+        let mut output = Val::default();
 
         if let Rule::program = program_token.as_rule() {
             let pairs = program_token.into_inner();
 
             for token in pairs {
-                let cloned_token = token.clone();
-                //self.parse_statement(pair)?;
                 let s = match token.as_rule() {
                     Rule::pipeline_statement => {
                         let token = token.into_inner().next().unwrap();
-                        self.eval_pipeline(token)?.cast_to_string()
+
+                        //first assign to output, later create from it script line
+                        output = self.eval_pipeline(token)?;
+                        output.cast_to_string()
                     }
                     Rule::EOI => {
                         break;
                     }
                     Rule::pipeline => {
-                        self.eval_pipeline(token)?.cast_to_string()
-                        //println!("safe_eval res: {:?}", res);
+                        //first assign to output, later create from it script line
+                        output = self.eval_pipeline(token)?;
+                        output.cast_to_string()
                     }
                     Rule::statement_terminator => continue,
                     _ => {
-                        println!("safe_eval not implemented: {:?}", token.as_rule());
+                        log::error!("safe_eval not implemented: {:?}", token.as_rule());
                         token.as_str().to_string()
                     }
                 };
-                println!(
-                    "rule: {:?} token: {:?}, statement res: {}",
-                    cloned_token.as_rule(),
-                    cloned_token.as_str(),
-                    &s
-                );
-                output_script.push_str(&s);
-                output_script.push_str(";\r\n");
+                deobfuscated.push_str(&s);
+                deobfuscated.push_str(";\r\n");
             }
         }
 
-        Ok(Tokens::new())
-    }
-
-    pub fn deobfuscate(&mut self, input: &str) -> ParserResult<String> {
-        let mut output_script = String::new();
-        let mut pairs = PowerShellParser::parse(Rule::program, input)?;
-        let program_token = pairs.next().expect("");
-
-        if let Rule::program = program_token.as_rule() {
-            let pairs = program_token.into_inner();
-
-            for token in pairs {
-                let cloned_token = token.clone();
-                //self.parse_statement(pair)?;
-                let s = match token.as_rule() {
-                    Rule::pipeline_statement => {
-                        let token = token.into_inner().next().unwrap();
-                        self.eval_pipeline(token)?.cast_to_string()
-                    }
-                    Rule::EOI => {
-                        break;
-                    }
-                    Rule::pipeline => {
-                        self.eval_pipeline(token)?.cast_to_string()
-                        //println!("safe_eval res: {:?}", res);
-                    }
-                    Rule::statement_terminator => continue,
-                    _ => {
-                        println!("safe_eval not implemented: {:?}", token.as_rule());
-                        token.as_str().to_string()
-                    }
-                };
-                println!(
-                    "rule: {:?} token: {:?}, statement res: {}",
-                    cloned_token.as_rule(),
-                    cloned_token.as_str(),
-                    &s
-                );
-                output_script.push_str(&s);
-                output_script.push_str(";\r\n");
-            }
-        }
-
-        Ok(output_script)
+        Ok(ScriptResult::new(
+            output,
+            deobfuscated,
+            std::mem::take(&mut self.tokens),
+            std::mem::take(&mut self.errors),
+        ))
     }
 
     pub fn safe_eval(&mut self, input: &str) -> ParserResult<String> {
-        let mut pairs = PowerShellParser::parse(Rule::program, input)?;
+        let mut pairs = PowerShellSession::parse(Rule::program, input)?;
         let program_token = pairs.next().expect("");
         let mut res = Val::default();
 
@@ -233,9 +196,14 @@ impl<'a> PowerShellParser {
         check_rule!(token, Rule::string_literal);
         let mut pair = token.into_inner();
         let token = pair.next().unwrap();
+        let cloned_token = token.clone();
 
+        let mut is_expandable = false;
         let res = match token.as_rule() {
-            Rule::doublequoted_string_literal => self.parse_dq(token)?,
+            Rule::doublequoted_string_literal | Rule::doublequoted_multiline_string_literal => {
+                is_expandable = true;
+                self.parse_dq(token)?
+            }
             Rule::singlequoted_string_literal => {
                 if let Some(stripped_prefix) = token.as_str().to_string().strip_prefix("'") {
                     if let Some(stripped_suffix) = stripped_prefix.to_string().strip_suffix("'") {
@@ -247,7 +215,6 @@ impl<'a> PowerShellParser {
                     panic!("no prefix")
                 }
             }
-            Rule::doublequoted_multiline_string_literal => self.parse_dq(token)?,
             Rule::singlequoted_multiline_string_literal => {
                 let mut res_str = String::new();
                 let pairs = token.into_inner();
@@ -257,10 +224,17 @@ impl<'a> PowerShellParser {
                 res_str
             }
             _ => {
-                println!("token.rule(): {:?}", token.as_rule());
+                log::error!("eval_string_literal - token.rule(): {:?}", token.as_rule());
                 panic!()
             }
         };
+        let ps_token = if is_expandable {
+            Token::StringExpandableToken(cloned_token.as_str().to_string(), res.clone())
+        } else {
+            Token::StringToken(cloned_token.as_str().to_string())
+        };
+        self.tokens.push(ps_token);
+
         Ok(Val::String(res.into()))
     }
 
@@ -387,6 +361,8 @@ impl<'a> PowerShellParser {
 
     fn eval_method_invokation(&mut self, token: Pair<'a>) -> ParserResult<(String, Vec<Val>)> {
         check_rule!(token, Rule::method_invocation);
+        let token_string = token.as_str().to_string();
+
         let mut pairs = token.into_inner();
 
         let access = pairs.next().unwrap();
@@ -400,6 +376,11 @@ impl<'a> PowerShellParser {
             Vec::new()
         };
 
+        self.tokens.push(Token::Function(
+            token_string,
+            method_name.clone(),
+            args.clone(),
+        ));
         Ok((method_name, args))
     }
 
@@ -1023,6 +1004,7 @@ impl<'a> PowerShellParser {
 
     fn eval_expression(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::expression);
+        let token_string = token.as_str().to_string();
 
         let mut pairs = token.into_inner();
         let mut res = self.eval_bitwise_exp(pairs.next().unwrap())?;
@@ -1036,6 +1018,8 @@ impl<'a> PowerShellParser {
             let right_op = self.eval_bitwise_exp(mult)?;
             res = Val::Bool(fun(res, right_op));
         }
+        self.tokens
+            .push(Token::Expression(token_string, res.clone()));
 
         Ok(res)
     }
@@ -1160,7 +1144,7 @@ Write-Output "Hello"  # Another comment
 #>
 "#;
 
-        let _ = PowerShellParser::parse(Rule::program, input).unwrap();
+        let _ = PowerShellSession::parse(Rule::program, input).unwrap();
     }
 
     #[test]
@@ -1174,7 +1158,7 @@ while ($true) {
 }
 "#;
 
-        let _ = PowerShellParser::parse(Rule::program, input).unwrap();
+        let _ = PowerShellSession::parse(Rule::program, input).unwrap();
     }
 
     #[test]
@@ -1185,7 +1169,7 @@ foreach ($n in $numbers) {
 }
 "#;
 
-        let _ = PowerShellParser::parse(Rule::program, input).unwrap();
+        let _ = PowerShellSession::parse(Rule::program, input).unwrap();
     }
 
     #[test]
@@ -1199,7 +1183,7 @@ for (($i = 0), ($j = 0); $i -lt 10; $i++)
 }
 "#;
 
-        let _ = PowerShellParser::parse(Rule::program, input).unwrap();
+        let _ = PowerShellSession::parse(Rule::program, input).unwrap();
     }
 
     #[test]
@@ -1212,7 +1196,7 @@ switch ($var) {
 }
 "#;
 
-        let _ = PowerShellParser::parse(Rule::program, input).unwrap();
+        let _ = PowerShellSession::parse(Rule::program, input).unwrap();
     }
 
     #[test]
@@ -1228,7 +1212,7 @@ function Say-Hello {
 }
 "#;
 
-        let _ = PowerShellParser::parse(Rule::program, input).unwrap();
+        let _ = PowerShellSession::parse(Rule::program, input).unwrap();
     }
 
     #[test]
@@ -1249,7 +1233,7 @@ if ($x -eq 1) {
 }
 "#;
 
-        let _ = PowerShellParser::parse(Rule::program, input).unwrap();
+        let _ = PowerShellSession::parse(Rule::program, input).unwrap();
     }
 
     #[test]
@@ -1258,7 +1242,7 @@ if ($x -eq 1) {
 Get-Process | Where-Object { $_.CPU -gt 100 }
 "#;
 
-        let _ = PowerShellParser::parse(Rule::program, input).unwrap();
+        let _ = PowerShellSession::parse(Rule::program, input).unwrap();
     }
 
     #[test]
@@ -1267,7 +1251,7 @@ Get-Process | Where-Object { $_.CPU -gt 100 }
 $numbers = 1..5
 "#;
 
-        let _ = PowerShellParser::parse(Rule::program, input).unwrap();
+        let _ = PowerShellSession::parse(Rule::program, input).unwrap();
     }
 
     #[test]
@@ -1281,7 +1265,7 @@ $escaped = "She said: `"Hi`""
 $literal = 'Hello, $name'
 "#;
 
-        let _ = PowerShellParser::parse(Rule::program, input).unwrap();
+        let _ = PowerShellSession::parse(Rule::program, input).unwrap();
     }
 
     #[test]
@@ -1291,7 +1275,7 @@ $literal = 'Hello, $name'
 $half = .5
 "#;
 
-        let _ = PowerShellParser::parse(Rule::program, input).unwrap();
+        let _ = PowerShellSession::parse(Rule::program, input).unwrap();
     }
 
     #[test]
@@ -1302,7 +1286,7 @@ $b = @("one", "two", "three")
 $c = @(1, 2, @(3, 4))
 "#;
 
-        let _ = PowerShellParser::parse(Rule::program, input).unwrap();
+        let _ = PowerShellSession::parse(Rule::program, input).unwrap();
     }
 
     #[test]
@@ -1311,7 +1295,7 @@ $c = @(1, 2, @(3, 4))
 [Threading.Thread]::Sleep(399)
 "#;
 
-        let _ = PowerShellParser::parse(Rule::program, input).unwrap();
+        let _ = PowerShellSession::parse(Rule::program, input).unwrap();
     }
 
     #[test]
@@ -1320,7 +1304,7 @@ $c = @(1, 2, @(3, 4))
 -not $input | Where-Object { $_ -gt 5 }
 "#;
 
-        let _ = PowerShellParser::parse(Rule::program, input).unwrap();
+        let _ = PowerShellSession::parse(Rule::program, input).unwrap();
     }
 
     #[test]
@@ -1332,6 +1316,6 @@ $ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([b
 
 "#;
 
-        let _ = PowerShellParser::parse(Rule::program, input).unwrap();
+        let _ = PowerShellSession::parse(Rule::program, input).unwrap();
     }
 }

@@ -39,11 +39,11 @@ pub fn join(input: Val, delimeter: Val) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::PowerShellParser;
+    use crate::PowerShellSession;
 
     #[test]
     fn test_join() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(
             p.safe_eval(r#" 1,2,3 -jOin ",,""#).unwrap(),
             "1,,2,,3".to_string()
@@ -100,7 +100,7 @@ mod tests {
         assert_eq!(p.safe_eval(r#" -join (1...6) "#).unwrap(), "1".to_string());
         assert_eq!(p.safe_eval(r#" -join (1..3) "#).unwrap(), "123".to_string());
         assert_eq!(
-            PowerShellParser::new()
+            PowerShellSession::new()
                 .safe_eval(r#" $arr = @('x','y'); -join $arr "#)
                 .unwrap(),
             "xy".to_string()

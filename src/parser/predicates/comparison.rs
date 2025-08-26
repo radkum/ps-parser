@@ -214,11 +214,11 @@ fn wildcard_to_regex(pattern: &str, case_insensitive: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::PowerShellParser;
+    use crate::PowerShellSession;
 
     #[test]
     fn test_eq() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(p.safe_eval("1 -eq 1").unwrap(), "True".to_string());
         assert_eq!(p.safe_eval("1 -eq 2").unwrap(), "False".to_string());
         assert_eq!(p.safe_eval("\"1\" -ieq 1").unwrap(), "True".to_string());
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn test_gt() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(p.safe_eval(r#"2 -gt 1"#).unwrap(), "True".to_string());
         assert_eq!(
             p.safe_eval(r#"[char]1 -le "b""#).unwrap(),
@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_match() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(
             p.safe_eval(r#" "Hello World" -Match "hello" "#).unwrap(),
             "True".to_string()
@@ -350,7 +350,7 @@ mod tests {
 
     #[test]
     fn test_like() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(
             p.safe_eval(r#" "Hello World" -like "hello*" "#).unwrap(),
             "True".to_string()

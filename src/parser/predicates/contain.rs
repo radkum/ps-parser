@@ -86,11 +86,11 @@ pub fn cnotcontains(a: Val, b: Val) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::PowerShellParser;
+    use crate::PowerShellSession;
 
     #[test]
     fn test_in() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(
             p.safe_eval(r#" ($true, 1) -in ("True 1", 2)  "#).unwrap(),
             "True".to_string()
@@ -117,7 +117,7 @@ mod tests {
 
     #[test]
     fn test_notin() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(
             p.safe_eval(r#" ($true, 1) -notin ("True 1", 2)  "#)
                 .unwrap(),
@@ -144,7 +144,7 @@ mod tests {
 
     #[test]
     fn test_constains() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(
             p.safe_eval(r#" ("True 1", 2) -Contains ($true, 1) "#)
                 .unwrap(),
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn test_notconstains() {
-        let mut p = PowerShellParser::new();
+        let mut p = PowerShellSession::new();
         assert_eq!(
             p.safe_eval(r#" ("True 1", 2) -notcontains ($true, 1) "#)
                 .unwrap(),
