@@ -60,7 +60,8 @@ impl<'a> PowerShellSession {
 
         Self {
             variables: Variables::new(opt.force_var_evaluation),
-            ..Default::default()
+            tokens: Tokens::new(),
+            errors: Vec::new(),
         }
     }
 
