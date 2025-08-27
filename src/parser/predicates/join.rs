@@ -10,7 +10,7 @@ impl JoinPred {
         LazyLock::new(|| HashMap::from([("-join", join as _)]));
 
     pub(crate) fn get(name: &str) -> Option<JoinPredType> {
-        Self::JOIN_PRED_MAP.get(name).map(|elem| *elem)
+        Self::JOIN_PRED_MAP.get(name).copied()
     }
 }
 

@@ -1,74 +1,54 @@
 use std::{collections::HashMap, sync::LazyLock};
 
-use super::Val;
+use super::{Val, ValResult};
 
-fn add(mut a: Val, b: Val) -> Val {
-    if let Err(err) = a.add(b) {
-        log::warn!("{err}");
-        Val::Null
-    } else {
-        a
-    }
+fn add(mut a: Val, b: Val) -> ValResult<Val> {
+    a.add(b)?;
+    Ok(a)
 }
 
-fn sub(mut a: Val, b: Val) -> Val {
-    if let Err(err) = a.sub(b) {
-        log::warn!("{err}");
-        Val::Null
-    } else {
-        a
-    }
+fn sub(mut a: Val, b: Val) -> ValResult<Val> {
+    a.sub(b)?;
+    Ok(a)
 }
 
-fn mul(mut a: Val, b: Val) -> Val {
-    if let Err(err) = a.mul(b) {
-        log::warn!("{err}");
-        Val::Null
-    } else {
-        a
-    }
+fn mul(mut a: Val, b: Val) -> ValResult<Val> {
+    a.mul(b)?;
+    Ok(a)
 }
 
-fn div(mut a: Val, b: Val) -> Val {
-    if let Err(err) = a.div(b) {
-        log::warn!("{err}");
-        Val::Null
-    } else {
-        a
-    }
+fn div(mut a: Val, b: Val) -> ValResult<Val> {
+    a.div(b)?;
+    Ok(a)
 }
 
-fn modulo(mut a: Val, b: Val) -> Val {
-    if let Err(err) = a.modulo(b) {
-        log::warn!("{err}");
-        Val::Null
-    } else {
-        a
-    }
+fn modulo(mut a: Val, b: Val) -> ValResult<Val> {
+    a.modulo(b)?;
+    Ok(a)
 }
 
-fn assign(_arg1: Val, arg2: Val) -> Val {
-    arg2
+fn assign(_arg1: Val, arg2: Val) -> ValResult<Val> {
+    Ok(arg2)
 }
 
-pub(crate) type PredType = fn(Val, Val) -> Val;
+pub(crate) type PredType = fn(Val, Val) -> ValResult<Val>;
 
 pub(crate) struct ArithmeticPred;
 
 impl ArithmeticPred {
     const ARYTHMETIC_PRED_MAP: LazyLock<HashMap<&'static str, PredType>> = LazyLock::new(|| {
         HashMap::from([
-            ("+", add as _),
-            ("-", sub as _),
-            ("*", mul as _),
-            ("/", div as _),
-            ("%", modulo as _),
-            ("=", assign as _),
+            ("+", add as PredType),
+            ("-", sub as PredType),
+            ("*", mul as PredType),
+            ("/", div as PredType),
+            ("%", modulo as PredType),
+            ("=", assign as PredType),
         ])
     });
 
     pub(crate) fn get(name: &str) -> Option<PredType> {
-        Self::ARYTHMETIC_PRED_MAP.get(name).map(|elem| *elem)
+        Self::ARYTHMETIC_PRED_MAP.get(name).copied()
     }
 }
 

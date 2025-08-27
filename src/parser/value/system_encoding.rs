@@ -6,7 +6,7 @@ pub(crate) struct Encoding {}
 
 impl RuntimeObject for Encoding {
     fn get_static_member(&self, name: &str) -> MethodResult<Val> {
-        println!("get_static_member called with name: {}", name);
+        log::debug!("get_static_member called with name: {}", name);
         match name.to_ascii_lowercase().as_str() {
             "unicode" => Ok(Val::RuntimeObject(Box::new(UnicodeEncoding {}))),
             _ => Err(MethodError::MemberNotFound(name.to_string())),
@@ -17,9 +17,9 @@ impl RuntimeObject for Encoding {
 #[derive(Debug, Clone)]
 pub(crate) struct UnicodeEncoding {}
 impl UnicodeEncoding {
-    pub fn name(&self) -> String {
-        "unicode".to_string()
-    }
+    // pub fn name(&self) -> String {
+    //     "unicode".to_string()
+    // }
 }
 
 impl RuntimeObject for UnicodeEncoding {

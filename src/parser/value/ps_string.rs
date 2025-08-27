@@ -70,11 +70,9 @@ const COLLATOR: LazyLock<icu::collator::Collator> = LazyLock::new(|| {
 pub fn str_cmp(s1: &str, s2: &str, case_insensitive: bool) -> Ordering {
     if case_insensitive {
         s1.to_ascii_lowercase().cmp(&s2.to_ascii_lowercase())
+    } else if cfg!(feature = "en-us") {
+        COLLATOR.compare(s1, s2)
     } else {
-        if cfg!(feature = "en-us") {
-            COLLATOR.compare(s1, s2)
-        } else {
-            s1.cmp(s2)
-        }
+        s1.cmp(s2)
     }
 }

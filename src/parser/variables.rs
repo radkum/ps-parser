@@ -1,10 +1,12 @@
+mod variable;
 use std::collections::HashMap;
 
 use thiserror_no_std::Error;
+pub(super) use variable::{Scope, VarName, VarProp, Variable};
 
-use super::Val;
+use crate::parser::Val;
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, Clone)]
 pub enum VariableError {
     #[error("Variable \"{0}\" is not defined")]
     NotDefined(String),
@@ -14,40 +16,44 @@ pub enum VariableError {
 
 pub type VariableResult<T> = core::result::Result<T, VariableError>;
 
-enum VarProp {
-    ReadOnly,
-    UserDefined,
-    Env,
-}
-
-impl VarProp {
-    pub(crate) fn read_only() -> Self {
-        Self::ReadOnly
-    }
-
-    pub(crate) fn user_defined() -> Self {
-        Self::UserDefined
-    }
-}
-
+#[derive(Default)]
 pub struct Variables {
-    map: HashMap<String, (VarProp, Val)>,
+    map: HashMap<VarName, Variable>,
     force_var_eval: bool,
+    //special variables
+    // status: bool, // $?
+    // first_token: Option<String>,
+    // last_token: Option<String>,
+    // current_pipeline: Option<String>,
 }
 
 impl Variables {
-    fn const_variables() -> HashMap<String, (VarProp, Val)> {
+    fn const_variables() -> HashMap<VarName, Variable> {
         HashMap::from([
             (
-                "true".to_ascii_lowercase(),
-                (VarProp::ReadOnly, Val::Bool(true)),
+                VarName::new(Scope::Global, "true".to_ascii_lowercase()),
+                Variable::new(VarProp::ReadOnly, Val::Bool(true)),
             ),
             (
-                "false".to_ascii_lowercase(),
-                (VarProp::ReadOnly, Val::Bool(false)),
+                VarName::new(Scope::Global, "false".to_ascii_lowercase()),
+                Variable::new(VarProp::ReadOnly, Val::Bool(false)),
             ),
-            ("null".to_ascii_lowercase(), (VarProp::ReadOnly, Val::Null)),
+            (
+                VarName::new(Scope::Global, "null".to_ascii_lowercase()),
+                Variable::new(VarProp::ReadOnly, Val::Null),
+            ),
         ])
+    }
+
+    pub fn set_status(&mut self, b: bool) {
+        let _ = self.set(&VarName::new(Scope::Special, "$?".into()), Val::Bool(b));
+    }
+
+    pub fn status(&mut self) -> bool {
+        let Some(Val::Bool(b)) = self.get(&VarName::new(Scope::Special, "$?".into())) else {
+            return false;
+        };
+        b
     }
 
     pub fn load(&mut self, path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -56,20 +62,21 @@ impl Variables {
             return Err("Invalid path".into());
         };
         let conf = ini::ini!(str_path);
-        
+
         for (section_name, properties) in &conf {
             for (key, value) in properties {
                 let Some(value) = value else {
                     continue;
                 };
 
-                // Create variable name with section prefix if not global
-                let var_name = if section_name == "global" {
-                    key.to_lowercase()
-                } else {
-                    format!("{}:{}", section_name.to_lowercase(), key.to_lowercase())
+                let var_name = match section_name.as_str() {
+                    "global" => VarName::new(Scope::Global, key.to_lowercase()),
+                    "local" => VarName::new(Scope::Local, key.to_lowercase()),
+                    _ => {
+                        continue;
+                    }
                 };
-                
+
                 // Try to parse the value as different types
                 let parsed_value = if let Ok(bool_val) = value.parse::<bool>() {
                     Val::Bool(bool_val)
@@ -82,35 +89,35 @@ impl Variables {
                 } else {
                     Val::String(value.clone().into())
                 };
-                
+
                 // Insert the variable (overwrite if it exists and is not read-only)
-                if let Some((prop, _)) = self.map.get(&var_name) {
-                    match prop {
-                        VarProp::ReadOnly => {
-                            log::warn!("Skipping read-only variable: {}", var_name);
-                            continue;
-                        }
-                        _ => {}
+                if let Some(variable) = self.map.get(&var_name) {
+                    if variable.prop == VarProp::ReadOnly {
+                        log::warn!("Skipping read-only variable: {:?}", var_name);
+                        continue;
                     }
                 }
-                
-                self.map.insert(var_name, (VarProp::UserDefined, parsed_value));
+
+                self.map
+                    .insert(var_name, Variable::new(VarProp::ReadWrite, parsed_value));
             }
         }
-        
         Ok(())
     }
 
-    pub(crate) fn env() -> Self {
+    pub fn env() -> Self {
         let mut map = Self::const_variables();
-        
+
         // Load all environment variables
         for (key, value) in std::env::vars() {
-            // Convert environment variable name to PowerShell convention (usually prefixed with $env:)
-            let ps_var_name = format!("env:{}", key.to_lowercase());
-            map.insert(ps_var_name, (VarProp::Env, Val::String(value.into())));
+            // Store environment variables with Env scope so they can be accessed via
+            // $env:variable_name
+            map.insert(
+                VarName::new(Scope::Env, key.to_lowercase()),
+                Variable::new(VarProp::ReadWrite, Val::String(value.into())),
+            );
         }
-        
+
         Self {
             map,
             force_var_eval: true,
@@ -127,51 +134,36 @@ impl Variables {
     }
 
     /// Create a new Variables instance with variables loaded from an INI file
-    pub(crate) fn from_ini(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_ini(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
         let mut variables = Self::new();
         variables.load(path)?;
         Ok(variables)
     }
 
-    /// Create a new Variables instance with both environment variables and INI file variables
-    pub(crate) fn env_with_ini(ini_path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
-        let mut variables = Self::env();
-        variables.load(ini_path)?;
-        Ok(variables)
-    }
-
-    pub(crate) fn get(&self, name: &str) -> Option<Val> {
+    pub(crate) fn get(&self, var_name: &VarName) -> Option<Val> {
         //todo: handle special variables and scopes
 
-        let mut var = self
-            .map
-            .get(name.to_ascii_lowercase().as_str())
-            .map(|v| v.1.clone());
+        let mut var = self.map.get(var_name).map(|v| v.value.clone());
 
-        if self.force_var_eval {
-            if var.is_none() {
-                var = Some(Val::Null);
-            }
+        if self.force_var_eval && var.is_none() {
+            var = Some(Val::Null);
         }
 
         var
     }
 
-    pub(crate) fn set(&mut self, name: &str, val: Val) -> VariableResult<()> {
-        // if !Self::CONSTANTS_VAR_MAP.contains_key(name) {
-        //     self.0.insert(name.to_ascii_lowercase(), val);
-        // }
-        if let Some((prop, var)) = self.map.get_mut(name.to_ascii_lowercase().as_str()) {
-            if let VarProp::ReadOnly = prop {
+    pub(crate) fn set(&mut self, var_name: &VarName, val: Val) -> VariableResult<()> {
+        if let Some(variable) = self.map.get_mut(var_name) {
+            if let VarProp::ReadOnly = variable.prop {
                 log::error!("You couldn't modify a read-only variable");
-                Err(VariableError::ReadOnly(name.to_string()))
+                Err(VariableError::ReadOnly(var_name.name.to_string()))
             } else {
-                *var = val;
+                variable.value = val;
                 Ok(())
             }
         } else {
             self.map
-                .insert(name.to_ascii_lowercase(), (VarProp::user_defined(), val));
+                .insert(var_name.clone(), Variable::new(VarProp::ReadWrite, val));
             Ok(())
         }
     }
@@ -179,13 +171,75 @@ impl Variables {
 
 #[cfg(test)]
 mod tests {
+    use super::Variables;
     use crate::PowerShellSession;
 
     #[test]
-    fn test_variables() {
+    fn test_builtin_variables() {
         let mut p = PowerShellSession::new();
         assert_eq!(p.safe_eval(r#" $true "#).unwrap().as_str(), "True");
         assert_eq!(p.safe_eval(r#" $false "#).unwrap().as_str(), "False");
         assert_eq!(p.safe_eval(r#" $null "#).unwrap().as_str(), "");
+    }
+
+    #[test]
+    fn test_env_variables() {
+        let v = Variables::env();
+        let mut p = PowerShellSession::new().with_variables(v);
+        assert_eq!(
+            p.safe_eval(r#" $env:path "#).unwrap().as_str(),
+            std::env::var("PATH").unwrap()
+        );
+        assert_eq!(
+            p.safe_eval(r#" $env:programfiles "#).unwrap().as_str(),
+            std::env::var("PROGRAMFILES").unwrap()
+        );
+        assert_eq!(
+            p.safe_eval(r#" $env:temp "#).unwrap().as_str(),
+            std::env::var("TEMP").unwrap()
+        );
+        assert_eq!(
+            p.safe_eval(r#" ${Env:ProgramFiles(x86)} "#)
+                .unwrap()
+                .as_str(),
+            std::env::var("ProgramFiles(x86)").unwrap()
+        );
+
+        p.safe_eval(r#" $global:program = $env:programfiles + "\program" "#)
+            .unwrap();
+        assert_eq!(
+            p.safe_eval(r#" $global:program "#).unwrap().as_str(),
+            format!("{}\\program", std::env::var("PROGRAMFILES").unwrap())
+        );
+        assert_eq!(
+            p.safe_eval(r#" $program "#).unwrap().as_str(),
+            format!("{}\\program", std::env::var("PROGRAMFILES").unwrap())
+        );
+
+        p.safe_eval(r#" ${Env:ProgramFiles(x86):adsf} = 5 "#)
+            .unwrap();
+        assert_eq!(
+            p.safe_eval(r#" ${Env:ProgramFiles(x86):adsf} "#)
+                .unwrap()
+                .as_str(),
+            5.to_string()
+        );
+        assert_eq!(
+            p.safe_eval(r#" ${Env:ProgramFiles(x86)} "#)
+                .unwrap()
+                .as_str(),
+            std::env::var("ProgramFiles(x86)").unwrap()
+        );
+    }
+
+    #[test]
+    fn special_last_error() {
+        let input = r#"3+"01234 ?";$a=5;$a;$?"#;
+
+        let mut p = PowerShellSession::new();
+        assert_eq!(p.safe_eval(input).unwrap().as_str(), "True");
+
+        let input = r#"3+"01234 ?";$?"#;
+        assert_eq!(p.safe_eval(input).unwrap().as_str(), "False");
     }
 }

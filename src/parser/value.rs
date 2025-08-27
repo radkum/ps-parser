@@ -16,7 +16,7 @@ use smart_default::SmartDefault;
 use system_convert::Convert;
 use system_encoding::Encoding;
 pub(crate) use val_error::ValError;
-type ValResult<T> = core::result::Result<T, ValError>;
+pub type ValResult<T> = core::result::Result<T, ValError>;
 
 #[derive(PartialEq, Debug)]
 pub enum ValType {
@@ -77,6 +77,12 @@ pub(crate) enum Val {
     String(PsString),
     Array(Vec<Val>),
     RuntimeObject(Box<dyn RuntimeObject>),
+}
+
+impl std::fmt::Display for Val {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.cast_to_string())
+    }
 }
 
 impl PartialEq for Val {
@@ -475,12 +481,10 @@ impl Val {
                 let s = s.to_ascii_lowercase();
                 if let Some(hex) = s.strip_prefix("0x") {
                     i64::from_str_radix(hex, 16)?
+                } else if let Ok(casted) = s.trim().parse::<f64>() {
+                    Self::round_bankers(casted) as i64
                 } else {
-                    if let Ok(casted) = s.trim().parse::<f64>() {
-                        Self::round_bankers(casted) as i64
-                    } else {
-                        s.trim().parse::<i64>()?
-                    }
+                    s.trim().parse::<i64>()?
                 }
             }
             Val::Array(_) => Err(ValError::InvalidCast(
@@ -567,12 +571,10 @@ impl Val {
             // exactly halfway: round to even
             if rounded as i64 % 2 == 0 {
                 rounded
+            } else if x.is_sign_positive() {
+                rounded + 1.0
             } else {
-                if x.is_sign_positive() {
-                    rounded + 1.0
-                } else {
-                    rounded - 1.0
-                }
+                rounded - 1.0
             }
         }
     }

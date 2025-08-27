@@ -2,7 +2,7 @@ use thiserror_no_std::Error;
 
 use super::Val;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum MethodError {
     #[error("Method \"{0}\" not found")]
     MethodNotFound(String),
@@ -17,13 +17,13 @@ pub enum MethodError {
     IncorrectArgs(String, Vec<String>),
 
     #[error("RuntimeError: {}", .0.to_string())]
-    RuntimeError(Box<dyn std::error::Error + Send + Sync>),
+    RuntimeError(String),
 }
 pub type MethodResult<T> = core::result::Result<T, MethodError>;
 
 impl From<Box<dyn std::error::Error + Send + Sync>> for MethodError {
     fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
-        MethodError::RuntimeError(err)
+        MethodError::RuntimeError(err.to_string())
     }
 }
 
@@ -35,9 +35,7 @@ impl PartialEq for MethodError {
             (MethodError::IncorrectArgs(a, b), MethodError::IncorrectArgs(c, d)) => {
                 a == c && b == d
             }
-            (MethodError::RuntimeError(a), MethodError::RuntimeError(b)) => {
-                a.to_string() == b.to_string()
-            }
+            (MethodError::RuntimeError(a), MethodError::RuntimeError(b)) => *a == *b,
             _ => false,
         }
     }

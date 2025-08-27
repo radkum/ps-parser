@@ -7,7 +7,7 @@ use super::{
     variables::VariableError,
 };
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, Clone)]
 pub enum ParserError {
     #[error("PestError: {0}")]
     PestError(PestError),

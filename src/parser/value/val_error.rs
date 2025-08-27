@@ -1,7 +1,7 @@
 use std::num::{ParseFloatError, ParseIntError};
 
 use thiserror_no_std::Error;
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, Clone)]
 pub enum ValError {
     #[error("Cannot convert value \"{0}\" to type \"{1}\"")]
     InvalidCast(String, String),

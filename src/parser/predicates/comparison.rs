@@ -45,7 +45,7 @@ impl ComparisonPred {
     });
 
     pub(crate) fn get(name: &str) -> Option<CompPredType> {
-        Self::COMP_PRED_MAP.get(name).map(|elem| *elem)
+        Self::COMP_PRED_MAP.get(name).copied()
     }
 }
 

@@ -26,7 +26,7 @@ impl ContainPred {
         });
 
     pub(crate) fn get(name: &str) -> Option<ContainPredType> {
-        Self::LOGICAL_PRED_MAP.get(name).map(|elem| *elem)
+        Self::LOGICAL_PRED_MAP.get(name).copied()
     }
 }
 

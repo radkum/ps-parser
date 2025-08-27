@@ -21,7 +21,7 @@ impl BitwisePred {
     pub(crate) fn get(name: &str) -> Option<BitwisePredType> {
         Self::BITWISE_PRED_MAP
             .get(name.to_ascii_lowercase().as_str())
-            .map(|elem| *elem)
+            .copied()
     }
 }
 

@@ -13,7 +13,7 @@ impl LogicalPred {
     pub(crate) fn get(name: &str) -> Option<LogicalPredType> {
         Self::LOGICAL_PRED_MAP
             .get(name.to_ascii_lowercase().as_str())
-            .map(|elem| *elem)
+            .copied()
     }
 }
 

@@ -19,9 +19,9 @@ pub(crate) use split::SplitPred;
 use thiserror_no_std::Error;
 pub(crate) use type_check::TypeCheckPred;
 
-use super::{Val, ValType};
+use super::{Val, ValResult, ValType};
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, Clone)]
 pub enum OpError {
     #[error("The -ireplace operator allows only two elements to follow it, not {0}")]
     ReplaceInvalidArgsNumber(usize),

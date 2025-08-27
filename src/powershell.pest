@@ -349,7 +349,7 @@ scoped_variable = { "$" ~ (scope_keyword ~ ":")? ~ var_name }
 braced_variable = { "${" ~ braced_variable_content ~ "}" }
 
 var_name = @{ identifier | "?" }
-scope_keyword = { ^"global" | ^"local" | ^"private" | ^"script" | ^"using" | ^"workflow" | ^"env" | ^"alias" | ^"fuction" | ^"variable" }
+scope_keyword = { ^"global" | ^"local" | ^"private" | ^"script" | ^"using" | ^"workflow" | ^"env" | ^"alias" | ^"function" | ^"variable" }
 braced_variable_content = @{ (!"}" ~ ANY)+ }
 
 member_suffix = _{

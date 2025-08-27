@@ -1,10 +1,11 @@
-use crate::parser::value::Val;
+use super::script_result::PsValue;
 
+#[derive(Clone)]
 pub enum Token {
-    StringExpandableToken(String, String),
-    StringToken(String),
-    Expression(String, Val),
-    Function(String, String, Vec<Val>),
+    StringExpandable(String, String),
+    String(String),
+    Expression(String, PsValue),
+    Function(String, String, Vec<PsValue>),
 }
 
 pub type Tokens = Vec<Token>;
