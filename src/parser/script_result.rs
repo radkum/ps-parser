@@ -3,7 +3,7 @@ use std::fmt::Display;
 use super::{ParserError, Tokens, Val as InternalVal};
 use crate::parser::value::PsString;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PsValue {
     Null,
     Bool(bool),
@@ -12,6 +12,12 @@ pub enum PsValue {
     Char(u32),
     String(String),
     Array(Vec<PsValue>),
+}
+
+impl From<char> for PsValue {
+    fn from(c: char) -> Self {
+        PsValue::Char(c as u32)
+    }
 }
 
 impl Display for PsValue {

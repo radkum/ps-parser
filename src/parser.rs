@@ -13,10 +13,11 @@ type PestError = pest::error::Error<Rule>;
 use pest::Parser;
 use pest_derive::Parser;
 use predicates::{ArithmeticPred, BitwisePred, LogicalPred, StringPred};
-pub use script_result::ScriptResult;
+pub use script_result::{ScriptResult, PsValue};
 use token::{Token, Tokens};
 pub(crate) use value::{Val, ValType};
-use variables::{VarName, VariableError, Variables};
+pub use variables::Variables;
+use variables::{VarName, VariableError};
 
 type Pair<'i> = ::pest::iterators::Pair<'i, Rule>;
 type Pairs<'i> = ::pest::iterators::Pairs<'i, Rule>;
@@ -66,40 +67,50 @@ impl<'a> PowerShellSession {
         let mut pairs = PowerShellSession::parse(Rule::program, input)?;
         let program_token = pairs.next().expect("");
 
-        let mut deobfuscated = String::new();
+        let mut script_statements = Vec::new();
         let mut statement_output = Val::default();
 
         if let Rule::program = program_token.as_rule() {
             let pairs = program_token.into_inner();
 
             for token in pairs {
+                let token_str = token.as_str();
                 let result = match token.as_rule() {
-                    Rule::pipeline_statement => self.eval_pipeline_statement(token),
+                    Rule::pipeline_statement => self.eval_pipeline_statement(token.clone()),
                     Rule::EOI => {
                         break;
                     }
                     Rule::pipeline => {
                         //first assign to output, later create from it script line
-                        self.eval_pipeline(token)
+                        self.eval_pipeline(token.clone())
                     }
                     Rule::statement_terminator => continue,
                     _ => {
                         log::error!("safe_eval not implemented: {:?}", token.as_rule());
-                        Ok(Val::String(token.as_str().into()))
+                        Ok(Val::String(token_str.into()))
                     }
                 };
 
                 self.variables.set_status(result.is_ok());
 
-                statement_output = result.unwrap_or_else(|e| {
-                    self.errors.push(e);
-                    Val::Null
-                });
-
-                deobfuscated.push_str(&statement_output.cast_to_string());
-                deobfuscated.push_str(";\r\n");
+                statement_output = match result {
+                    Ok(val) => {
+                        if val != Val::Null{
+                            script_statements.push(val.cast_to_string());
+                        }
+                        
+                        val
+                    },
+                    Err(e) => {
+                        self.errors.push(e);
+                        script_statements.push(token_str.into());
+                        Val::Null
+                    }
+                };
             }
         }
+
+        let deobfuscated = script_statements.join("\n\r");
 
         Ok(ScriptResult::new(
             statement_output,
@@ -984,6 +995,7 @@ impl<'a> PowerShellSession {
         match token.as_rule() {
             Rule::assignment_exp => self.eval_assigment_exp(token),
             Rule::expression => self.eval_expression(token),
+            Rule::command => self.eval_expression(token),
             _ => {
                 panic!("eval_pipeline not implemented: {:?}", token.as_rule());
             }
@@ -1044,25 +1056,21 @@ impl<'a> PowerShellSession {
         let op = assignement_op.into_inner().next().unwrap();
         let pred = ArithmeticPred::get(op.as_str());
 
-        let expression_token = pairs.next().unwrap();
-        let expression_result = self.eval_expression(expression_token.clone())?;
+        let right_token = pairs.next().unwrap();
+        let right_result = self.eval_expression(right_token.clone());
 
-        let Some(pred) = pred else { panic!() };
-
-        let right_operand = pred(var, expression_result)?;
-        self.variables.set(&var_name, right_operand.clone())?;
-        log::debug!(
-            "After Set: var_name: {} = {:?}",
-            var_name,
-            self.variables.get(&var_name).unwrap_or_default()
-        );
-
-        let right = if let Val::Null = right_operand {
-            expression_token.as_str().to_string()
-        } else {
-            right_operand.cast_to_string()
-        };
-        Ok(Val::String(format!("${} = {}", var_name, right).into()))
+        match right_result {
+            Ok(right_operand) => {
+                let Some(pred) = pred else { panic!() };
+                let op_result = pred(var, right_operand)?;
+                self.variables.set(&var_name, op_result.clone())?;
+                Ok(Val::Null)
+            }
+            Err(err) => {
+                self.errors.push(err);
+                Ok(Val::String(format!("{} = {}", var_name, right_token.as_str().to_string()).into()))
+            }
+        }
     }
 }
 

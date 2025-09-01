@@ -124,7 +124,16 @@ impl Variables {
         }
     }
 
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
+        let map = Self::const_variables();
+
+        Self {
+            map,
+            force_var_eval: false,
+        }
+    }
+
+    pub fn force_eval() -> Self {
         let map = Self::const_variables();
 
         Self {
