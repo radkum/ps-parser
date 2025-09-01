@@ -1,8 +1,6 @@
 mod parser;
 
-pub use parser::PowerShellSession;
-pub use parser::Variables;
-pub use parser::{PsValue, ScriptResult};
+pub use parser::{PowerShellSession, PsValue, ScriptResult, Variables};
 
 #[cfg(test)]
 mod tests {
@@ -52,30 +50,35 @@ $([cHar]([BYte]0x65)+[chAr]([bYTE]0x6d)+[CHaR]([ByTe]0x73)+[char](105)+[CHAR]([b
             r#"[char]([int]("9e4e" -replace "e")+3)"#
         );
     }
-    
+
     #[test]
     fn deobfuscation() {
         // assign variable and print it to screen
         let mut p = PowerShellSession::new();
         let input = r#" $global:var = [char]([int]("9e4e" -replace "e")+3); [int]'a';$var"#;
         let script_res = p.parse_input(input).unwrap();
-        assert_eq!(script_res.output(), 'a'.into());
+        assert_eq!(script_res.result(), 'a'.into());
         assert_eq!(script_res.deobfuscated(), "[int]'a'\n\ra");
         assert_eq!(script_res.errors().len(), 1);
-        assert_eq!(script_res.errors()[0].to_string(), "ValError: Cannot convert value \"String\" to type \"Int\"");
+        assert_eq!(
+            script_res.errors()[0].to_string(),
+            "ValError: Cannot convert value \"String\" to type \"Int\""
+        );
 
         // the same but do it in two parts
         let mut p = PowerShellSession::new();
         let input = r#" $global:var = [char]([int]("9e4e" -replace "e")+3) "#;
         let script_res = p.parse_input(input).unwrap();
-        
+
         assert_eq!(script_res.errors().len(), 0);
 
         let script_res = p.parse_input(" [int]'a';$var ").unwrap();
         assert_eq!(script_res.deobfuscated(), "[int]'a'\n\ra");
         assert_eq!(script_res.errors().len(), 1);
-        assert_eq!(script_res.errors()[0].to_string(), "ValError: Cannot convert value \"String\" to type \"Int\"");
-
+        assert_eq!(
+            script_res.errors()[0].to_string(),
+            "ValError: Cannot convert value \"String\" to type \"Int\""
+        );
     }
 
     #[test]
@@ -84,12 +87,24 @@ $([cHar]([BYte]0x65)+[chAr]([bYTE]0x6d)+[CHaR]([ByTe]0x73)+[char](105)+[CHAR]([b
         let mut p = PowerShellSession::new();
         let input = r#" $local:var = $env:programfiles;[int]'a';$var"#;
         let script_res = p.parse_input(input).unwrap();
-        assert_eq!(script_res.output(), PsValue::Null);
-        assert_eq!(script_res.deobfuscated(), "$local:var = $env:programfiles\n\r[int]'a'\n\r$var");
+        assert_eq!(script_res.result(), PsValue::Null);
+        assert_eq!(
+            script_res.deobfuscated(),
+            "$local:var = $env:programfiles\n\r[int]'a'\n\r$var"
+        );
         assert_eq!(script_res.errors().len(), 3);
-        assert_eq!(script_res.errors()[0].to_string(), "VariableError: Variable \"programfiles\" is not defined");
-        assert_eq!(script_res.errors()[1].to_string(), "ValError: Cannot convert value \"String\" to type \"Int\"");
-        assert_eq!(script_res.errors()[2].to_string(), "VariableError: Variable \"var\" is not defined");
+        assert_eq!(
+            script_res.errors()[0].to_string(),
+            "VariableError: Variable \"programfiles\" is not defined"
+        );
+        assert_eq!(
+            script_res.errors()[1].to_string(),
+            "ValError: Cannot convert value \"String\" to type \"Int\""
+        );
+        assert_eq!(
+            script_res.errors()[2].to_string(),
+            "VariableError: Variable \"var\" is not defined"
+        );
 
         // assign not existing value, forcing evaluation
         let mut p = PowerShellSession::new().with_variables(Variables::force_eval());
@@ -105,8 +120,14 @@ $([cHar]([BYte]0x65)+[chAr]([bYTE]0x6d)+[CHaR]([ByTe]0x73)+[char](105)+[CHAR]([b
         let mut p = PowerShellSession::new().with_variables(Variables::env());
         let input = r#" $global:var = $env:programfiles;$var"#;
         let script_res = p.parse_input(input).unwrap();
-        assert_eq!(script_res.output(), PsValue::String(std::env::var("PROGRAMFILES").unwrap()));
-        assert_eq!(script_res.deobfuscated(), std::env::var("PROGRAMFILES").unwrap());
+        assert_eq!(
+            script_res.result(),
+            PsValue::String(std::env::var("PROGRAMFILES").unwrap())
+        );
+        assert_eq!(
+            script_res.deobfuscated(),
+            std::env::var("PROGRAMFILES").unwrap()
+        );
         assert_eq!(script_res.errors().len(), 0);
     }
 
@@ -116,8 +137,14 @@ $([cHar]([BYte]0x65)+[chAr]([bYTE]0x6d)+[CHaR]([ByTe]0x73)+[char](105)+[CHAR]([b
         let mut p = PowerShellSession::new().with_variables(Variables::env());
         let input = r#" $global:var = $env:programfiles; Write-output $var"#;
         let script_res = p.parse_input(input).unwrap();
-        assert_eq!(script_res.output(), PsValue::String(std::env::var("PROGRAMFILES").unwrap()));
-        assert_eq!(script_res.deobfuscated(), std::env::var("PROGRAMFILES").unwrap());
+        assert_eq!(
+            script_res.result(),
+            PsValue::String(std::env::var("PROGRAMFILES").unwrap())
+        );
+        assert_eq!(
+            script_res.deobfuscated(),
+            std::env::var("PROGRAMFILES").unwrap()
+        );
         assert_eq!(script_res.errors().len(), 0);
     }
 }

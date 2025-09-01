@@ -239,7 +239,8 @@ method_invocation = { (member_access | static_access) ~ "(" ~ argument_list? ~ "
 
 // --------------- PIPELINE
 pipeline_statement = _{ pipeline ~ statement_terminator? }
-pipeline = { assignment_exp | (expression ~ redirections? ~ pipeline_tail?) | ( command ~ verbatim_command_arg? ~ pipeline_tail?) }
+pipeline = { assignment_exp | (redirected_expression ~ pipeline_tail?) | ( command ~ pipeline_tail?) }
+redirected_expression = { expression ~ redirection? }
 pipeline_tail = { ("|" ~ command)+ }
 
 assignment_exp = { variable ~ assignement_op ~ expression }
@@ -255,11 +256,11 @@ command = {
 }
 elements_command = _{ command_element+ }
 
-command_element = {
-    command_parameter
-    | command_argument ~ argument_list?
+command_element = _{
+    stop_parsing
+    | command_parameter
     | redirection
-    | stop_parsing
+    | command_argument ~ argument_list?
 }
 command_parameter = @{
     "-"+ ~ command_parameter_chars+
@@ -362,7 +363,7 @@ dot_member         = { "." ~ expression }
 static_member      = { "::" ~ identifier }
 index_access       = { "[" ~ expression ~ "]" }
 
-argument_list      = { expression ~ ("," ~ expression)* }
+argument_list      = { !redirection ~ expression ~ ("," ~ expression)* }
 command_ident = @{ ASCII_ALPHANUMERIC ~ (ASCII_ALPHANUMERIC | "-")* }
 identifier = @{ (ASCII_ALPHANUMERIC | "_")+ }
 qualified_ident = { identifier ~ ("." ~ identifier)* }
@@ -371,7 +372,7 @@ simple_name = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 
 redirections = { redirection+ }
 redirection = { merging_redirection_operator | (file_redirection_operator ~ redirected_file_name)}
-redirected_file_name = { command_argument | primary_expression }
+redirected_file_name = { primary_expression | command_argument }
 file_redirection_operator = { ">" | ">>" | "2>" | "2>>" | "3>" | "3>>" | "4>" | "4>>" | "5>" | "5>>" | "6>" | "6>>" | "*>" | "*>>" | "<" }
 merging_redirection_operator = { "*>&1" | "2>&1" | "3>&1" | "4>&1" | "5>&1" | "6>&1" | "*>&2" | "1>&2" | "3>&2" | "4>&2" | "5>&2" | "6>&2" }
 

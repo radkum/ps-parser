@@ -1,6 +1,6 @@
 use super::script_result::PsValue;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Token {
     StringExpandable(String, String),
     String(String),

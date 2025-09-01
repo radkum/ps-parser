@@ -1,10 +1,15 @@
+mod command;
 mod error;
 mod predicates;
 mod script_result;
+mod stream_message;
 mod token;
 mod value;
 mod variables;
 
+pub(crate) use command::CommandError;
+use command::{Command, CommandElem};
+pub(crate) use stream_message::StreamMessage;
 use value::{RuntimeObject, ValResult};
 use variables::Scope;
 type ParserResult<T> = core::result::Result<T, ParserError>;
@@ -13,11 +18,13 @@ type PestError = pest::error::Error<Rule>;
 use pest::Parser;
 use pest_derive::Parser;
 use predicates::{ArithmeticPred, BitwisePred, LogicalPred, StringPred};
-pub use script_result::{ScriptResult, PsValue};
+pub use script_result::{PsValue, ScriptResult};
 use token::{Token, Tokens};
 pub(crate) use value::{Val, ValType};
 pub use variables::Variables;
 use variables::{VarName, VariableError};
+
+use crate::parser::command::CommandOutput;
 
 type Pair<'i> = ::pest::iterators::Pair<'i, Rule>;
 type Pairs<'i> = ::pest::iterators::Pairs<'i, Rule>;
@@ -37,6 +44,7 @@ pub struct PowerShellSession {
     variables: Variables,
     tokens: Tokens,
     errors: Vec<ParserError>,
+    stream: Vec<StreamMessage>,
 }
 
 impl Default for PowerShellSession {
@@ -51,6 +59,7 @@ impl<'a> PowerShellSession {
             variables: Variables::new(),
             tokens: Vec::new(),
             errors: Vec::new(),
+            stream: Vec::new(),
         }
     }
 
@@ -68,7 +77,7 @@ impl<'a> PowerShellSession {
         let program_token = pairs.next().expect("");
 
         let mut script_statements = Vec::new();
-        let mut statement_output = Val::default();
+        let mut script_last_output = Val::default();
 
         if let Rule::program = program_token.as_rule() {
             let pairs = program_token.into_inner();
@@ -93,14 +102,14 @@ impl<'a> PowerShellSession {
 
                 self.variables.set_status(result.is_ok());
 
-                statement_output = match result {
+                script_last_output = match result {
                     Ok(val) => {
-                        if val != Val::Null{
+                        if val != Val::Null {
                             script_statements.push(val.cast_to_string());
                         }
-                        
+
                         val
-                    },
+                    }
                     Err(e) => {
                         self.errors.push(e);
                         script_statements.push(token_str.into());
@@ -113,7 +122,8 @@ impl<'a> PowerShellSession {
         let deobfuscated = script_statements.join("\n\r");
 
         Ok(ScriptResult::new(
-            statement_output,
+            script_last_output,
+            std::mem::take(&mut self.stream),
             deobfuscated,
             std::mem::take(&mut self.tokens),
             std::mem::take(&mut self.errors),
@@ -121,7 +131,7 @@ impl<'a> PowerShellSession {
     }
 
     pub fn safe_eval(&mut self, input: &str) -> ParserResult<String> {
-        Ok(self.parse_input(input)?.output().to_string())
+        Ok(self.parse_input(input)?.result().to_string())
     }
 
     fn eval_statements(&mut self, token: Pair<'a>) -> ParserResult<Vec<Val>> {
@@ -953,6 +963,66 @@ impl<'a> PowerShellSession {
         Ok(res)
     }
 
+    fn eval_command(&mut self, token: Pair<'a>, input: Option<Val>) -> ParserResult<Val> {
+        check_rule!(token, Rule::command);
+
+        let mut pairs = token.into_inner();
+        let command_name_token = pairs.next().unwrap();
+        let command_name = command_name_token.as_str();
+        let mut args = if let Some(v) = input {
+            vec![CommandElem::Argument(v)]
+        } else {
+            Vec::new()
+        };
+        for command_element_token in pairs {
+            let token_string = command_element_token.as_str().to_string();
+
+            match command_element_token.as_rule() {
+                Rule::command_argument => {
+                    let arg_token = command_element_token.into_inner().next().unwrap();
+                    let arg = match arg_token.as_rule() {
+                        Rule::array_literal_exp => self.eval_array_literal_exp(arg_token)?,
+                        Rule::parenthesized_expression => {
+                            let token = arg_token.into_inner().next().unwrap();
+                            self.eval_pipeline(token)?
+                        }
+                        _ => Val::String(arg_token.as_str().to_string().into()),
+                    };
+                    args.push(CommandElem::Argument(arg));
+                }
+                Rule::command_parameter => args.push(CommandElem::Parameter(token_string)),
+                Rule::argument_list => args.push(CommandElem::ArgList(token_string)),
+                Rule::redirection => { //todo: implement redirection
+                }
+                Rule::stop_parsing => { //todo: stop parsing
+                }
+                _ => panic!(
+                    "eval_command not implemented: {:?}",
+                    command_element_token.as_rule()
+                ),
+            }
+        }
+
+        let CommandOutput {
+            val,
+            stream_message,
+        } = Command::invoke(command_name, args)?;
+        if let Some(msg) = stream_message {
+            self.stream.push(msg);
+        }
+
+        Ok(val.unwrap_or_default())
+    }
+
+    fn eval_redirected_expression(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::redirected_expression);
+
+        let expression_token = token.into_inner().next().unwrap();
+        //todo: handle redirections
+
+        self.eval_expression(expression_token)
+    }
+
     fn eval_expression(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::expression);
         let token_string = token.as_str().to_string();
@@ -987,18 +1057,43 @@ impl<'a> PowerShellSession {
         self.eval_pipeline(token)
     }
 
+    fn eval_pipeline_tail(&mut self, token: Pair<'a>, input: Val) -> ParserResult<Val> {
+        check_rule!(token, Rule::pipeline);
+        let mut arg = input;
+        let mut pairs = token.into_inner();
+
+        while let Some(token) = pairs.next() {
+            arg = self.eval_command(token, Some(arg))?;
+        }
+
+        Ok(arg)
+    }
     fn eval_pipeline(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::pipeline);
         let mut pairs = token.into_inner();
         let token = pairs.next().unwrap();
 
-        match token.as_rule() {
-            Rule::assignment_exp => self.eval_assigment_exp(token),
-            Rule::expression => self.eval_expression(token),
-            Rule::command => self.eval_expression(token),
+        if let Rule::assignment_exp = token.as_rule() {
+            return self.eval_assigment_exp(token);
+        }
+
+        let result: Val = match token.as_rule() {
+            Rule::redirected_expression => self.eval_redirected_expression(token)?,
+            Rule::command => self.eval_command(token, None)?,
             _ => {
                 panic!("eval_pipeline not implemented: {:?}", token.as_rule());
             }
+        };
+
+        if let Some(token) = pairs.next() {
+            match token.as_rule() {
+                Rule::pipeline_tail => Ok(self.eval_pipeline_tail(token, result)?),
+                _ => {
+                    panic!("eval_pipeline not implemented: {:?}", token.as_rule());
+                }
+            }
+        } else {
+            Ok(result)
         }
     }
 
@@ -1068,7 +1163,9 @@ impl<'a> PowerShellSession {
             }
             Err(err) => {
                 self.errors.push(err);
-                Ok(Val::String(format!("{} = {}", var_name, right_token.as_str().to_string()).into()))
+                Ok(Val::String(
+                    format!("{} = {}", var_name, right_token.as_str()).into(),
+                ))
             }
         }
     }

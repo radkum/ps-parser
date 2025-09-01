@@ -65,13 +65,15 @@ mod tests {
             " 0123  True 0.1".to_string()
         );
         assert_eq!(
-            PowerShellSession::new().with_variables(Variables::force_eval())
+            PowerShellSession::new()
+                .with_variables(Variables::force_eval())
                 .safe_eval(r#" 1 + " 1" + "4  " + $asdf "#)
                 .unwrap(),
             "6".to_string()
         );
         assert_eq!(
-            PowerShellSession::new().with_variables(Variables::force_eval())
+            PowerShellSession::new()
+                .with_variables(Variables::force_eval())
                 .safe_eval(r#"$asdf += 1 + " 1" + "4  " + $asdf; $asdf"#)
                 .unwrap(),
             "6".to_string()
@@ -93,13 +95,15 @@ mod tests {
             "".to_string()
         );
         assert_eq!(
-            PowerShellSession::new().with_variables(Variables::force_eval())
+            PowerShellSession::new()
+                .with_variables(Variables::force_eval())
                 .safe_eval(r#" 1 - " 1" + "4  " - $asdf "#)
                 .unwrap(),
             "4".to_string()
         );
         assert_eq!(
-            PowerShellSession::new().with_variables(Variables::force_eval())
+            PowerShellSession::new()
+                .with_variables(Variables::force_eval())
                 .safe_eval(r#"$asdf -= 1 + " 1" - "4  " + $asdf; $asdf"#)
                 .unwrap(),
             "2".to_string()
@@ -139,7 +143,8 @@ mod tests {
             "".to_string()
         );
         assert_eq!(
-            PowerShellSession::new().with_variables(Variables::force_eval())
+            PowerShellSession::new()
+                .with_variables(Variables::force_eval())
                 .safe_eval(r#"$asdf = 1 + " 1" - "4  " + $asdf; $asdf*5"#)
                 .unwrap(),
             "-10".to_string()
@@ -179,7 +184,8 @@ mod tests {
             "".to_string()
         );
         assert_eq!(
-            PowerShellSession::new().with_variables(Variables::force_eval())
+            PowerShellSession::new()
+                .with_variables(Variables::force_eval())
                 .safe_eval(r#"$asdf = 1 + " 1" - "4  " + $asdf; $asdf/=5;$asdf"#)
                 .unwrap(),
             "-0.4".to_string()
@@ -227,7 +233,8 @@ mod tests {
             "".to_string()
         );
         assert_eq!(
-            PowerShellSession::new().with_variables(Variables::force_eval())
+            PowerShellSession::new()
+                .with_variables(Variables::force_eval())
                 .safe_eval(r#"$asdf = 1 + " 1" % "4  " + $asdf; $asdf%=5;$asdf"#)
                 .unwrap(),
             "2".to_string()

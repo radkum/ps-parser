@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use super::{ParserError, Tokens, Val as InternalVal};
-use crate::parser::value::PsString;
+use crate::parser::{StreamMessage, value::PsString};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PsValue {
@@ -60,8 +60,10 @@ impl From<InternalVal> for PsValue {
     }
 }
 
+#[derive(Debug)]
 pub struct ScriptResult {
-    output: PsValue,
+    result: PsValue,
+    stream: String,
     deobfuscated: String,
     tokens: Tokens,
     errors: Vec<ParserError>,
@@ -69,21 +71,28 @@ pub struct ScriptResult {
 
 impl ScriptResult {
     pub(crate) fn new(
-        output: InternalVal,
+        result: InternalVal,
+        stream: Vec<StreamMessage>,
         deobfuscated: String,
         tokens: Tokens,
         errors: Vec<ParserError>,
     ) -> Self {
         Self {
-            output: output.into(),
+            result: result.into(),
+            stream: stream
+                .iter()
+                .cloned()
+                .map(|msg| msg.to_string())
+                .collect::<Vec<String>>()
+                .join("\n"),
             deobfuscated,
             tokens,
             errors,
         }
     }
 
-    pub fn output(&self) -> PsValue {
-        self.output.clone()
+    pub fn result(&self) -> PsValue {
+        self.result.clone()
     }
 
     pub fn deobfuscated(&self) -> String {
@@ -96,5 +105,9 @@ impl ScriptResult {
 
     pub fn errors(&self) -> Vec<ParserError> {
         self.errors.clone()
+    }
+
+    pub fn stream(&self) -> String {
+        self.stream.clone()
     }
 }

@@ -1,7 +1,7 @@
 use thiserror_no_std::Error;
 
 use super::{
-    PestError,
+    CommandError, PestError,
     predicates::OpError,
     value::{MethodError, ValError},
     variables::VariableError,
@@ -23,6 +23,9 @@ pub enum ParserError {
 
     #[error("MethodError: {0}")]
     MethodError(MethodError),
+
+    #[error("CommandError: {0}")]
+    CommandError(CommandError),
 }
 
 impl From<PestError> for ParserError {
@@ -52,6 +55,12 @@ impl From<OpError> for ParserError {
 impl From<MethodError> for ParserError {
     fn from(value: MethodError) -> Self {
         Self::MethodError(value)
+    }
+}
+
+impl From<CommandError> for ParserError {
+    fn from(value: CommandError) -> Self {
+        Self::CommandError(value)
     }
 }
 
