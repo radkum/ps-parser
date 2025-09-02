@@ -12,7 +12,7 @@ impl TypeCheckPred {
         LazyLock::new(|| HashMap::from([("-is", is as _), ("-isnot", isnot as _)]));
 
     pub(crate) fn get(name: &str) -> Option<TypeCheckPredType> {
-        Self::TYPECHECK_PRED_MAP.get(name).map(|elem| *elem)
+        Self::TYPECHECK_PRED_MAP.get(name).copied()
     }
 }
 

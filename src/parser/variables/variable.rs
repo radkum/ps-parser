@@ -42,6 +42,7 @@ pub(crate) enum Scope {
     Local,
     Env,
 }
+
 impl From<&str> for Scope {
     fn from(s: &str) -> Self {
         match s {

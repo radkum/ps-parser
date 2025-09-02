@@ -243,21 +243,26 @@ pipeline = { assignment_exp | (redirected_expression ~ pipeline_tail?) | ( comma
 redirected_expression = { expression ~ redirection? }
 pipeline_tail = { ("|" ~ command)+ }
 
-assignment_exp = { variable ~ assignement_op ~ expression }
+assignment_exp = { variable ~ assignement_op ~ pipeline }
 prefix_assign_op = { (additive_op | multiplicative_op) }
 assign_op = { "=" }
 assignement_op = {prefix_assign_op? ~ assign_op }
 
 // ---------------- COMMAND
 command = {
-    ( command_name ~ elements_command? )
+    script_block_command
+  | long_command
   | foreach_command
-  | ( command_invokation_operator ~ command_name_expr ~ elements_command? )
+  | invocation_command
 }
-elements_command = _{ command_element+ }
-
-command_element = _{
-    stop_parsing
+foreach_command = { ("%" | ^"foreach-object") ~ script_block_expression+ }
+long_command = ${ command_name ~ command_element* }
+script_block_command = { command_name ~ script_block_expression }
+invocation_command = { command_invokation_operator ~ command_name_expr ~ command_element* }
+BREAK = _{ " " | "\t" }
+command_element = _{ 
+    BREAK 
+    | stop_parsing
     | command_parameter
     | redirection
     | command_argument ~ argument_list?
@@ -277,7 +282,7 @@ command_argument = {
     | command_argument_sep ~ generic_token?
 }
 
-foreach_command = { ("%" | ^"foreach-object") ~ script_block_expression+ }
+
 command_name_expr = { command_name | path_command_name | primary_expression }
 command_invokation_operator = {"." | "&"}
 command_call = { command_ident ~ expression* }
@@ -285,7 +290,7 @@ command_name = { command_name_base  ~ extra_command_token? }
 command_name_base = @{ (!FORBIDDEN_CHARS ~ ANY)+ }
 FORBIDDEN_CHARS = _{
       "{" | "}" | "(" | ")" | ";" | "," | "|" | "&" | "`" | "\"" | "'" | WHITESPACE | NEWLINE
-    | "[" | "]" | "+" | "-" | "*" | "/" | "@" | "<" | "!" | "%"
+    | "[" | "]" | "+" | "-" | "*" | "/" | "@" | "<" | "!" | "%" | "="
 }
 
 SECOND_FORBIDDEN_CHARS = _{
@@ -335,7 +340,7 @@ script_block_expression = { "{" ~ param_block? ~ script_block ~ "}" }
 
 hash_literal_expression = { "@{" ~ hash_literal_body? ~ "}" }
 hash_literal_body = { hash_entry* }
-hash_entry = { key_expression ~ "=" ~ statement ~ statement_terminator ~ ";"*}
+hash_entry = { key_expression ~ "=" ~ statement ~ ";"*}
 key_expression = { simple_name | unary_exp }
 
 variable = {

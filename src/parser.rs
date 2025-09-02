@@ -6,11 +6,10 @@ mod stream_message;
 mod token;
 mod value;
 mod variables;
-
 pub(crate) use command::CommandError;
 use command::{Command, CommandElem};
 pub(crate) use stream_message::StreamMessage;
-use value::{RuntimeObject, ValResult};
+use value::{RuntimeObject, ScriptBlock, ValResult};
 use variables::Scope;
 type ParserResult<T> = core::result::Result<T, ParserError>;
 use error::ParserError;
@@ -128,6 +127,17 @@ impl<'a> PowerShellSession {
             std::mem::take(&mut self.tokens),
             std::mem::take(&mut self.errors),
         ))
+    }
+
+    pub(crate) fn eval_script_block(
+        &mut self,
+        input: &ScriptBlock,
+        ps_item: &Val,
+    ) -> ParserResult<bool> {
+        self.variables.set_ps_item(ps_item.clone());
+        let res = self.parse_input(input.0.as_str())?.result().is_true();
+        self.variables.reset_ps_item();
+        Ok(res)
     }
 
     pub fn safe_eval(&mut self, input: &str) -> ParserResult<String> {
@@ -504,35 +514,7 @@ impl<'a> PowerShellSession {
         Ok(ValType::cast(token.as_str())?)
     }
 
-    fn eval_script_block_body(&mut self, token: Pair<'a>) -> ParserResult<Vec<Val>> {
-        check_rule!(token, Rule::script_block_body);
-
-        let mut pairs = token.into_inner();
-        let token = pairs.next().unwrap();
-
-        Ok(match token.as_rule() {
-            Rule::statements_block => self.eval_statements(token)?,
-            _ => {
-                panic!("eval_script_block token.rule(): {:?}", token.as_rule());
-            }
-        })
-    }
-
-    fn eval_script_block(&mut self, token: Pair<'a>) -> ParserResult<Vec<Val>> {
-        check_rule!(token, Rule::script_block);
-
-        let mut pairs = token.into_inner();
-        let token = pairs.next().unwrap();
-
-        Ok(match token.as_rule() {
-            Rule::script_block_body => self.eval_script_block_body(token)?,
-            _ => {
-                panic!("eval_script_block token.rule(): {:?}", token.as_rule());
-            }
-        })
-    }
-
-    fn eval_script_block_expression(&mut self, token: Pair<'a>) -> ParserResult<Vec<Val>> {
+    fn parse_script_block_expression(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::script_block_expression);
 
         let mut pairs = token.into_inner();
@@ -543,7 +525,10 @@ impl<'a> PowerShellSession {
         }
 
         check_rule!(token, Rule::script_block);
-        self.eval_script_block(token)
+
+        // Store the script block text for later evaluation
+        let script_text = token.as_str().to_string();
+        Ok(Val::ScriptBlock(ScriptBlock(script_text)))
     }
 
     fn eval_value(&mut self, token: Pair<'a>) -> ParserResult<Val> {
@@ -568,6 +553,7 @@ impl<'a> PowerShellSession {
                     Val::Array(v)
                 }
             }
+            Rule::script_block_expression => self.parse_script_block_expression(token)?,
             _ => {
                 panic!("token.rule(): {:?}", token.as_rule());
             }
@@ -874,21 +860,22 @@ impl<'a> PowerShellSession {
         let mut parts = String::new();
         let input_str = input.cast_to_string();
         let characters = input_str.chars();
+
+
+        // filtered_elements.join("")
         for ch in characters {
-            self.variables.set(
-                &VarName::new(Scope::Special, "$_".into()),
-                Val::String(ch.to_string().into()),
-            )?;
-            let Ok(v) = self.eval_script_block_expression(token.clone()) else {
-                return Ok(vec![]);
-            };
+            self.variables
+                .set_ps_item(Val::String(ch.to_string().into()));
 
-            if v.len() != 1 || v[0].ttype() != ValType::Bool {
-                return Ok(vec![]);
-            }
-
-            let Val::Bool(b) = v[0] else {
-                return Ok(vec![]);
+            let b = match self.eval_script_block(
+                &ScriptBlock(token.as_str().to_string()),
+                &Val::String(ch.to_string().into()),
+            ) {
+                Err(er) => {
+                    self.errors.push(er);
+                    false
+                }
+                Ok(b) => b,
             };
 
             if b {
@@ -898,9 +885,7 @@ impl<'a> PowerShellSession {
                 parts.push(ch);
             }
         }
-
-        self.variables
-            .set(&VarName::new(Scope::Special, "$_".into()), Val::Null)?;
+        self.variables.reset_ps_item();
         Ok(res_vec)
     }
     fn eval_comparison_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
@@ -924,6 +909,13 @@ impl<'a> PowerShellSession {
             let token = pairs.next().unwrap();
             let right_op = match token.as_rule() {
                 Rule::script_block_expression => {
+                    let mut pairs = token.into_inner();
+                    let mut token = pairs.next().unwrap();
+                    if token.as_rule() == Rule::param_block {
+                        //skip for now
+                        token = pairs.next().unwrap();
+                    }
+                    check_rule!(token, Rule::script_block);
                     return Ok(Val::Array(
                         self.eval_split_special_case(token, res)?
                             .into_iter()
@@ -963,20 +955,16 @@ impl<'a> PowerShellSession {
         Ok(res)
     }
 
-    fn eval_command(&mut self, token: Pair<'a>, input: Option<Val>) -> ParserResult<Val> {
-        check_rule!(token, Rule::command);
+    fn parse_long_command(&mut self, token: Pair<'a>) -> ParserResult<(String, Vec<CommandElem>)> {
+        check_rule!(token, Rule::long_command);
 
         let mut pairs = token.into_inner();
         let command_name_token = pairs.next().unwrap();
         let command_name = command_name_token.as_str();
-        let mut args = if let Some(v) = input {
-            vec![CommandElem::Argument(v)]
-        } else {
-            Vec::new()
-        };
+
+        let mut args = vec![];
         for command_element_token in pairs {
             let token_string = command_element_token.as_str().to_string();
-
             match command_element_token.as_rule() {
                 Rule::command_argument => {
                     let arg_token = command_element_token.into_inner().next().unwrap();
@@ -996,17 +984,66 @@ impl<'a> PowerShellSession {
                 }
                 Rule::stop_parsing => { //todo: stop parsing
                 }
+                Rule::script_block_expression => args.push(CommandElem::Argument(
+                    self.parse_script_block_expression(command_element_token)?,
+                )),
                 _ => panic!(
                     "eval_command not implemented: {:?}",
                     command_element_token.as_rule()
                 ),
             }
         }
+        Ok((command_name.to_string(), args))
+    }
+
+    fn parse_script_block_command(
+        &mut self,
+        token: Pair<'a>,
+    ) -> ParserResult<(String, Vec<CommandElem>)> {
+        check_rule!(token, Rule::script_block_command);
+
+        let mut pairs = token.into_inner();
+        let command_name_token = pairs.next().unwrap();
+        let command_name = command_name_token.as_str();
+        let command_element_token = pairs.next().unwrap();
+
+        check_rule!(command_element_token, Rule::script_block_expression);
+        let script_block = self.parse_script_block_expression(command_element_token)?;
+        Ok((
+            command_name.to_string(),
+            vec![CommandElem::Argument(script_block)],
+        ))
+    }
+
+    fn eval_command(&mut self, token: Pair<'a>, input: Option<Val>) -> ParserResult<Val> {
+        check_rule!(token, Rule::command);
+
+        let mut pairs = token.into_inner();
+        //unfortunately I can't make long_command silent
+
+        let mut args = if let Some(v) = input {
+            vec![CommandElem::Argument(v)]
+        } else {
+            Vec::new()
+        };
+
+        let command = pairs.next().unwrap();
+        let (command_name, mut command_args) = match command.as_rule() {
+            Rule::script_block_command => self.parse_script_block_command(command)?,
+            Rule::foreach_command => Err(ParserError::NotImplemented("foreach_command".into()))?,
+            Rule::long_command => self.parse_long_command(command)?,
+            Rule::invocation_command => {
+                Err(ParserError::NotImplemented("invocation_command".into()))?
+            }
+            _ => panic!("eval_command not implemented: {:?}", command.as_rule()),
+        };
+        args.append(&mut command_args);
 
         let CommandOutput {
             val,
             stream_message,
-        } = Command::invoke(command_name, args)?;
+        } = Command::execute(self, command_name.as_str(), args)?;
+
         if let Some(msg) = stream_message {
             self.stream.push(msg);
         }
@@ -1058,7 +1095,7 @@ impl<'a> PowerShellSession {
     }
 
     fn eval_pipeline_tail(&mut self, token: Pair<'a>, input: Val) -> ParserResult<Val> {
-        check_rule!(token, Rule::pipeline);
+        check_rule!(token, Rule::pipeline_tail);
         let mut arg = input;
         let mut pairs = token.into_inner();
 
@@ -1152,7 +1189,7 @@ impl<'a> PowerShellSession {
         let pred = ArithmeticPred::get(op.as_str());
 
         let right_token = pairs.next().unwrap();
-        let right_result = self.eval_expression(right_token.clone());
+        let right_result = self.eval_pipeline(right_token.clone());
 
         match right_result {
             Ok(right_operand) => {

@@ -31,7 +31,7 @@ pub struct StreamMessage {
 impl Display for StreamMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         if self.stream == PowerShellStream::Success {
-            return write!(f, "{}", self.content);
+            write!(f, "{}", self.content)
         } else {
             write!(
                 f,
@@ -48,6 +48,10 @@ impl Display for StreamMessage {
 }
 
 impl StreamMessage {
+    pub fn is_empty(&self) -> bool {
+        self.content.is_empty()
+    }
+
     pub fn success(content: String) -> Self {
         StreamMessage {
             content,

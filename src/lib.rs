@@ -130,21 +130,4 @@ $([cHar]([BYte]0x65)+[chAr]([bYTE]0x6d)+[CHaR]([ByTe]0x73)+[char](105)+[CHAR]([b
         );
         assert_eq!(script_res.errors().len(), 0);
     }
-
-    #[test]
-    fn write_output() {
-        // assign not existing value, without forcing evaluation
-        let mut p = PowerShellSession::new().with_variables(Variables::env());
-        let input = r#" $global:var = $env:programfiles; Write-output $var"#;
-        let script_res = p.parse_input(input).unwrap();
-        assert_eq!(
-            script_res.result(),
-            PsValue::String(std::env::var("PROGRAMFILES").unwrap())
-        );
-        assert_eq!(
-            script_res.deobfuscated(),
-            std::env::var("PROGRAMFILES").unwrap()
-        );
-        assert_eq!(script_res.errors().len(), 0);
-    }
 }

@@ -14,6 +14,19 @@ pub enum PsValue {
     Array(Vec<PsValue>),
 }
 
+impl PsValue {
+    pub fn is_true(&self) -> bool {
+        match self {
+            PsValue::Bool(b) => *b,
+            PsValue::Int(i) => *i != 0,
+            PsValue::Float(f) => *f != 0.0,
+            PsValue::Char(c) => *c != 0,
+            PsValue::String(s) => !s.is_empty(),
+            PsValue::Array(arr) => !arr.is_empty(),
+            PsValue::Null => false,
+        }
+    }
+}
 impl From<char> for PsValue {
     fn from(c: char) -> Self {
         PsValue::Char(c as u32)
@@ -56,6 +69,7 @@ impl From<InternalVal> for PsValue {
                 PsValue::Array(arr.iter().map(|v| v.clone().into()).collect())
             }
             InternalVal::RuntimeObject(obj) => PsValue::String(obj.name()),
+            InternalVal::ScriptBlock(obj) => PsValue::String(obj.0.clone()),
         }
     }
 }

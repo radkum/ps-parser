@@ -5,7 +5,7 @@ mod system_convert;
 mod system_encoding;
 mod val_error;
 
-use std::{collections::HashMap, ops::Neg, sync::LazyLock};
+use std::{collections::HashMap, fmt::Debug, ops::Neg, sync::LazyLock};
 
 pub(crate) use method_error::{MethodError, MethodResult};
 pub(crate) use ps_string::PsString;
@@ -27,6 +27,7 @@ pub enum ValType {
     Char,
     String,
     Array,
+    ScriptBlock,
     RuntimeType(String),
 }
 
@@ -77,7 +78,11 @@ pub(crate) enum Val {
     String(PsString),
     Array(Vec<Val>),
     RuntimeObject(Box<dyn RuntimeObject>),
+    ScriptBlock(ScriptBlock),
 }
+
+#[derive(Debug, Clone)]
+pub struct ScriptBlock(pub String);
 
 impl std::fmt::Display for Val {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -118,6 +123,7 @@ impl Clone for Val {
                     Val::Null
                 }
             }
+            Val::ScriptBlock(a) => Val::ScriptBlock(a.clone()),
         }
     }
 }
@@ -142,6 +148,13 @@ impl Val {
                     false
                 }
             }
+            Val::ScriptBlock(sb1) => {
+                if let Val::ScriptBlock(sb2) = val {
+                    str_cmp(&sb1.0, &sb2.0, case_insensitive) == std::cmp::Ordering::Equal
+                } else {
+                    false
+                }
+            }
         })
     }
 
@@ -158,6 +171,7 @@ impl Val {
             }
             Val::Array(_) => todo!(),
             Val::RuntimeObject(_) => todo!(),
+            Val::ScriptBlock(_) => false, // ScriptBlocks can't be compared
         })
     }
 
@@ -174,6 +188,7 @@ impl Val {
             }
             Val::Array(_) => todo!(),
             Val::RuntimeObject(_) => todo!(),
+            Val::ScriptBlock(_) => false, // ScriptBlocks can't be compared
         })
     }
 
@@ -186,6 +201,7 @@ impl Val {
             Val::Char(_) => ValType::Char,
             Val::String(_) => ValType::String,
             Val::Array(_) => ValType::Array,
+            Val::ScriptBlock(_) => ValType::ScriptBlock,
             Val::RuntimeObject(_) => todo!(),
         }
     }
@@ -207,6 +223,13 @@ impl Val {
             }
             Val::Array(arr) => arr.push(val),
             Val::RuntimeObject(_) => todo!(),
+            Val::ScriptBlock(_) => {
+                return Err(ValError::OperationNotDefined(
+                    "add".to_string(),
+                    self.ttype().to_string(),
+                    val.ttype().to_string(),
+                ));
+            }
         }
         Ok(())
     }
@@ -220,7 +243,8 @@ impl Val {
             | Val::Char(_)
             | Val::String(_)
             | Val::Array(_)
-            | Val::RuntimeObject(_) => {
+            | Val::RuntimeObject(_)
+            | Val::ScriptBlock(_) => {
                 //error
                 Err(ValError::OperationNotDefined(
                     op,
@@ -258,6 +282,14 @@ impl Val {
         }
 
         if self.ttype() == ValType::Array || val.ttype() == ValType::Array {
+            Err(ValError::OperationNotDefined(
+                "-".to_string(),
+                self.ttype().to_string(),
+                val.ttype().to_string(),
+            ))?
+        }
+
+        if self.ttype() == ValType::ScriptBlock || val.ttype() == ValType::ScriptBlock {
             Err(ValError::OperationNotDefined(
                 "-".to_string(),
                 self.ttype().to_string(),
@@ -306,6 +338,11 @@ impl Val {
                     self.ttype().to_string(),
                 ))?
             }
+            Val::ScriptBlock(_) => Err(ValError::OperationNotDefined(
+                "*".to_string(),
+                self.ttype().to_string(),
+                val.ttype().to_string(),
+            ))?,
         };
         Ok(())
     }
@@ -341,6 +378,11 @@ impl Val {
             Val::Float(_) => Val::Float(self.cast_to_float()? / self.cast_to_float()?),
             Val::Array(_) => todo!(),
             Val::RuntimeObject(_) => todo!(),
+            Val::ScriptBlock(_) => Err(ValError::OperationNotDefined(
+                "/".to_string(),
+                self.ttype().to_string(),
+                val.ttype().to_string(),
+            ))?,
         };
         Ok(())
     }
@@ -375,6 +417,11 @@ impl Val {
             Val::Float(_) => Val::Float(self.cast_to_float()? % self.cast_to_float()?),
             Val::Array(_) => todo!(),
             Val::RuntimeObject(_) => todo!(),
+            Val::ScriptBlock(_) => Err(ValError::OperationNotDefined(
+                "%".to_string(),
+                self.ttype().to_string(),
+                val.ttype().to_string(),
+            ))?,
         };
         Ok(())
     }
@@ -391,6 +438,11 @@ impl Val {
                 self.ttype().to_string(),
             ))?,
             Val::RuntimeObject(_) => todo!(),
+            Val::ScriptBlock(_) => Err(ValError::OperationNotDefined(
+                "-".to_string(),
+                self.ttype().to_string(),
+                self.ttype().to_string(),
+            ))?,
         }
         Ok(())
     }
@@ -404,6 +456,7 @@ impl Val {
             ValType::Char => Val::Char(self.cast_to_char()?),
             ValType::String => Val::String(PsString(self.cast_to_string())),
             ValType::Array => Val::Array(self.cast_to_array()),
+            ValType::ScriptBlock => Err(ValError::UnknownType("ScriptBlock".to_string()))?,
             ValType::RuntimeType(_) => todo!(),
         })
     }
@@ -417,6 +470,7 @@ impl Val {
             ValType::Char => Val::Char(0),
             ValType::String => Val::String(PsString::default()),
             ValType::Array => Val::Array(Default::default()),
+            ValType::ScriptBlock => Val::ScriptBlock(ScriptBlock("".to_string())),
             ValType::RuntimeType(s) => {
                 if let Ok(runtime_object) = runtime_object::get_runtime_object(s.as_str()) {
                     Val::RuntimeObject(runtime_object)
@@ -437,6 +491,7 @@ impl Val {
             Val::String(PsString(s)) => !s.is_empty(),
             Val::Array(v) => !v.is_empty(),
             Val::RuntimeObject(_) => todo!(),
+            Val::ScriptBlock(sb) => !sb.0.is_empty(),
         }
     }
 
@@ -466,6 +521,10 @@ impl Val {
                 "Char".to_string(),
             ))?,
             Val::RuntimeObject(_) => todo!(),
+            Val::ScriptBlock(_) => Err(ValError::InvalidCast(
+                "ScriptBlock".to_string(),
+                "Char".to_string(),
+            ))?,
         };
         Ok(res)
     }
@@ -492,6 +551,10 @@ impl Val {
                 "Int".to_string(),
             ))?,
             Val::RuntimeObject(_) => todo!(),
+            Val::ScriptBlock(_) => Err(ValError::InvalidCast(
+                "ScriptBlock".to_string(),
+                "Int".to_string(),
+            ))?,
         })
     }
 
@@ -508,6 +571,10 @@ impl Val {
                 "Float".to_string(),
             ))?,
             Val::RuntimeObject(_) => todo!(),
+            Val::ScriptBlock(_) => Err(ValError::InvalidCast(
+                "ScriptBlock".to_string(),
+                "Float".to_string(),
+            ))?,
         })
     }
 
@@ -525,6 +592,7 @@ impl Val {
                 .collect::<Vec<String>>()
                 .join(" "),
             Val::RuntimeObject(s) => s.name(),
+            Val::ScriptBlock(sb) => sb.0.clone(),
         }
     }
 
@@ -544,6 +612,7 @@ impl Val {
             }
             Val::Array(v) => v.clone(),
             Val::RuntimeObject(_) => todo!(),
+            Val::ScriptBlock(_) => vec![self.clone()],
         }
     }
 

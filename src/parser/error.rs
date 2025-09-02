@@ -26,6 +26,9 @@ pub enum ParserError {
 
     #[error("CommandError: {0}")]
     CommandError(CommandError),
+
+    #[error("NotImplementedError: {0}")]
+    NotImplemented(String),
 }
 
 impl From<PestError> for ParserError {

@@ -45,6 +45,19 @@ impl Variables {
         ])
     }
 
+    pub(crate) fn set_ps_item(&mut self, ps_item: Val) {
+        let _ = self.set(
+            &VarName::new(Scope::Special, "$PSItem".into()),
+            ps_item.clone(),
+        );
+        let _ = self.set(&VarName::new(Scope::Special, "$_".into()), ps_item);
+    }
+
+    pub(crate) fn reset_ps_item(&mut self) {
+        let _ = self.set(&VarName::new(Scope::Special, "$PSItem".into()), Val::Null);
+        let _ = self.set(&VarName::new(Scope::Special, "$_".into()), Val::Null);
+    }
+
     pub fn set_status(&mut self, b: bool) {
         let _ = self.set(&VarName::new(Scope::Special, "$?".into()), Val::Bool(b));
     }
@@ -153,7 +166,6 @@ impl Variables {
         //todo: handle special variables and scopes
 
         let mut var = self.map.get(var_name).map(|v| v.value.clone());
-
         if self.force_var_eval && var.is_none() {
             var = Some(Val::Null);
         }
