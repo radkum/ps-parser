@@ -6,6 +6,8 @@ mod stream_message;
 mod token;
 mod value;
 mod variables;
+
+use std::collections::HashMap;
 pub(crate) use command::CommandError;
 use command::{Command, CommandElem};
 pub(crate) use stream_message::StreamMessage;
@@ -144,24 +146,30 @@ impl<'a> PowerShellSession {
         Ok(self.parse_input(input)?.result().to_string())
     }
 
+    fn eval_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        Ok(match token.as_rule() {
+            Rule::pipeline_statement => {
+                self.safe_eval_pipeline_statement(token)?
+            }
+            Rule::pipeline => {
+                self.safe_eval_pipeline(token)?
+            }
+            _ => {
+                panic!("eval statements not implemented: {:?}", token.as_rule());
+            }
+        })
+    }
+
     fn eval_statements(&mut self, token: Pair<'a>) -> ParserResult<Vec<Val>> {
+        //check_rule!(token, Rule::statements);
         let pairs = token.into_inner();
-        let mut v = vec![];
+        let mut statements = vec![];
 
         for token in pairs {
-            match token.as_rule() {
-                Rule::pipeline_statement => {
-                    v.push(self.safe_eval_pipeline_statement(token)?);
-                }
-                Rule::pipeline => {
-                    v.push(self.safe_eval_pipeline(token)?);
-                }
-                _ => {
-                    panic!("eval statements not implemented: {:?}", token.as_rule());
-                }
-            }
+            let s = self.eval_statement(token)?;
+            statements.push(s);
         }
-        Ok(v)
+        Ok(statements)
     }
 
     fn parse_dq(&mut self, token: Pair<'a>) -> ParserResult<String> {
@@ -411,6 +419,13 @@ impl<'a> PowerShellSession {
                         call(object, args)?
                     };
                 }
+                Rule::element_access => {
+                    let mut pairs = token.into_inner();
+                    let index_token = pairs.next().unwrap();
+                    check_rule!(index_token, Rule::expression);
+                    let index = self.eval_expression(index_token)?;
+                    object = object.get_index(index)?;
+                }
                 _ => {
                     panic!("token.rule(): {:?}", token.as_rule());
                 }
@@ -448,6 +463,17 @@ impl<'a> PowerShellSession {
                         method_name.to_ascii_lowercase(),
                         args
                     )
+                }
+                Rule::element_access => {
+                    let mut pairs = token.into_inner();
+                    let index_token = pairs.next().unwrap();
+                    check_rule!(index_token, Rule::expression);
+                    let index = self.eval_expression(index_token)?;
+                    object = format!(
+                        "{}[{}]",
+                        object,
+                        index
+                    );
                 }
                 _ => {
                     panic!("parse_access token.rule(): {:?}", token.as_rule());
@@ -531,6 +557,42 @@ impl<'a> PowerShellSession {
         Ok(Val::ScriptBlock(ScriptBlock(script_text)))
     }
 
+    fn eval_hash_key(&mut self, token: Pair<'a>) -> ParserResult<String> {
+        check_rule!(token, Rule::key_expression);
+        let mut pairs = token.into_inner();
+        let key_token = pairs.next().unwrap();
+
+        Ok(match key_token.as_rule() {
+            Rule::simple_name => key_token.as_str().to_ascii_lowercase(),
+            Rule::unary_exp => self.eval_unary_exp(key_token)?.cast_to_string().to_ascii_lowercase(),
+            _ => {
+                panic!("key_token.rule(): {:?}", key_token.as_rule());
+            }
+        })
+    }
+
+    fn eval_hash_entry(&mut self, token: Pair<'a>) -> ParserResult<(String,Val)> {
+        check_rule!(token, Rule::hash_entry);
+
+        let mut pairs = token.into_inner();
+        let token_key = pairs.next().unwrap();
+        let token_value = pairs.next().unwrap();
+
+        Ok((self.eval_hash_key(token_key)?, self.eval_statement(token_value)?))
+    }
+
+    fn eval_hash_literal(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::hash_literal_expression);
+        let pairs = token.into_inner();
+        let mut hash = HashMap::new();
+        for token in pairs {
+            let (key, value) = self.eval_hash_entry(token)?;
+            hash.insert(key, value);
+        }
+
+        Ok(Val::HashTable(hash))
+    }
+    
     fn eval_value(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::value);
         let mut pair = token.into_inner();
@@ -541,19 +603,20 @@ impl<'a> PowerShellSession {
                 let token = token.into_inner().next().unwrap();
                 self.safe_eval_pipeline(token)?
             }
+            Rule::sub_expression | Rule::array_expression => {
+                let statements = self.eval_statements(token)?;
+                if statements.len() == 1 && statements[0].ttype() == ValType::Array {
+                    statements[0].clone()
+                } else {
+                    Val::Array(statements)
+                }
+            }
+            Rule::script_block_expression => self.parse_script_block_expression(token)?,
+            Rule::hash_literal_expression => self.eval_hash_literal(token)?,
             Rule::string_literal => self.eval_string_literal(token)?,
             Rule::number_literal => self.eval_number_literal(token)?,
             Rule::type_literal => Val::init(self.eval_type_literal(token)?)?,
             Rule::variable => self.get_variable(token)?,
-            Rule::sub_expression | Rule::array_expression => {
-                let v = self.eval_statements(token)?;
-                if v.len() == 1 && v[0].ttype() == ValType::Array {
-                    v[0].clone()
-                } else {
-                    Val::Array(v)
-                }
-            }
-            Rule::script_block_expression => self.parse_script_block_expression(token)?,
             _ => {
                 panic!("token.rule(): {:?}", token.as_rule());
             }
@@ -611,7 +674,17 @@ impl<'a> PowerShellSession {
                 Val::Int(i64::from_str_radix(int_val.as_str(), 16).unwrap())
             }
             //todo: parse float in proper way
-            Rule::float => Val::Float(token.as_str().trim().parse::<f64>().unwrap()),
+            Rule::float => {
+                let float_str = token.as_str().trim();
+
+                match float_str.parse::<f64>() {
+                    Ok(float_val) => Val::Float(float_val),
+                    Err(err) => {
+                        println!("eval_number - invalid float: {}: asd {}", float_str, err);
+                        panic!("eval_number - invalid float: {}: {}", float_str, err);
+                    }
+                }
+            }
             _ => {
                 panic!("eval_number - token.rule(): {:?}", token.as_rule());
             }

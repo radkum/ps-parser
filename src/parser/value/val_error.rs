@@ -3,6 +3,9 @@ use std::num::{ParseFloatError, ParseIntError};
 use thiserror_no_std::Error;
 #[derive(Error, Debug, PartialEq, Clone)]
 pub enum ValError {
+    #[error("Specified argument was out of the range of valid values. Operation \"{0}\", Argument: {1}")]
+    ArgumentOutOfRange(String, i64),
+
     #[error("Cannot convert value \"{0}\" to type \"{1}\"")]
     InvalidCast(String, String),
 
@@ -14,6 +17,9 @@ pub enum ValError {
 
     #[error("Can't divide by zero")]
     DividingByZero,
+
+    #[error("Cannot index into a null array")]
+    IndexedNullArray,
 }
 
 impl From<ParseFloatError> for ValError {

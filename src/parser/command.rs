@@ -66,7 +66,7 @@ fn where_object(
     args: Vec<CommandElem>,
     ps: Option<&mut PowerShellSession>,
 ) -> CommandResult<CommandOutput> {
-    println!("args: {:?}", args);
+    log::debug!("args: {:?}", args);
     if args.len() != 2 {
         return Err(CommandError::IncorrectArgs(
             "Where-Object requires exactly two arguments".into(),

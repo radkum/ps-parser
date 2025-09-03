@@ -339,7 +339,7 @@ array_expression = { "@(" ~ statements? ~ ")" }
 script_block_expression = { "{" ~ param_block? ~ script_block ~ "}" }
 
 hash_literal_expression = { "@{" ~ hash_literal_body? ~ "}" }
-hash_literal_body = { hash_entry* }
+hash_literal_body = _{ hash_entry* }
 hash_entry = { key_expression ~ "=" ~ statement ~ ";"*}
 key_expression = { simple_name | unary_exp }
 
@@ -457,7 +457,7 @@ literal = _{
 number_literal = { additive_op? ~ number ~ (unit ~ ("b"|"B"))? }
 unit = { ^"k" | ^"m" | ^"g" | ^"t" | ^"p"}
 
-number = { float | hex_integer| decimal_integer }
+number = ${ float | hex_integer| decimal_integer }
 
 decimal_int = @{ ASCII_DIGIT+}
 hex_int = @{HEX_DIGIT+}

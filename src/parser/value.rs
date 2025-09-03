@@ -27,6 +27,7 @@ pub enum ValType {
     Char,
     String,
     Array,
+    HashTable,
     ScriptBlock,
     RuntimeType(String),
 }
@@ -77,6 +78,7 @@ pub(crate) enum Val {
     Char(u32),
     String(PsString),
     Array(Vec<Val>),
+    HashTable(HashMap<String, Val>),
     RuntimeObject(Box<dyn RuntimeObject>),
     ScriptBlock(ScriptBlock),
 }
@@ -116,6 +118,7 @@ impl Clone for Val {
             Val::Char(a) => Val::Char(*a),
             Val::String(a) => Val::String(a.clone()),
             Val::Array(a) => Val::Array(a.clone()),
+            Val::HashTable(a) => Val::HashTable(a.clone()),
             Val::RuntimeObject(a) => {
                 if let Ok(runtime_object) = runtime_object::get_runtime_object(a.name().as_str()) {
                     Val::RuntimeObject(runtime_object)
@@ -141,6 +144,14 @@ impl Val {
                 str_cmp(s1, &s2, case_insensitive) == std::cmp::Ordering::Equal
             }
             Val::Array(_) => todo!(),
+            Val::HashTable(_) => {
+                // HashTables can only be equal to other HashTables
+                if let Val::HashTable(_) = val {
+                    todo!() // TODO: implement hashtable comparison
+                } else {
+                    false
+                }
+            }
             Val::RuntimeObject(s) => {
                 if let Val::RuntimeObject(s2) = val {
                     str_cmp(&s.name(), &s2.name(), case_insensitive) == std::cmp::Ordering::Equal
@@ -170,6 +181,7 @@ impl Val {
                 str_cmp(s1, &s2, case_insensitive) == std::cmp::Ordering::Greater
             }
             Val::Array(_) => todo!(),
+            Val::HashTable(_) => false, // HashTables can't be compared with >
             Val::RuntimeObject(_) => todo!(),
             Val::ScriptBlock(_) => false, // ScriptBlocks can't be compared
         })
@@ -187,6 +199,7 @@ impl Val {
                 str_cmp(s1, &s2, case_insensitive) == std::cmp::Ordering::Less
             }
             Val::Array(_) => todo!(),
+            Val::HashTable(_) => false, // HashTables can't be compared with <
             Val::RuntimeObject(_) => todo!(),
             Val::ScriptBlock(_) => false, // ScriptBlocks can't be compared
         })
@@ -201,6 +214,7 @@ impl Val {
             Val::Char(_) => ValType::Char,
             Val::String(_) => ValType::String,
             Val::Array(_) => ValType::Array,
+            Val::HashTable(_) => ValType::HashTable,
             Val::ScriptBlock(_) => ValType::ScriptBlock,
             Val::RuntimeObject(_) => todo!(),
         }
@@ -222,6 +236,13 @@ impl Val {
                 ))
             }
             Val::Array(arr) => arr.push(val),
+            Val::HashTable(_) => {
+                return Err(ValError::OperationNotDefined(
+                    "add".to_string(),
+                    self.ttype().to_string(),
+                    val.ttype().to_string(),
+                ));
+            }
             Val::RuntimeObject(_) => todo!(),
             Val::ScriptBlock(_) => {
                 return Err(ValError::OperationNotDefined(
@@ -243,6 +264,7 @@ impl Val {
             | Val::Char(_)
             | Val::String(_)
             | Val::Array(_)
+            | Val::HashTable(_)
             | Val::RuntimeObject(_)
             | Val::ScriptBlock(_) => {
                 //error
@@ -327,9 +349,32 @@ impl Val {
                 val.ttype().to_string(),
             ))?,
             Val::String(PsString(s)) => {
-                Val::String(PsString(s.repeat(val.cast_to_int()? as usize)))
+                let repeat_count = val.cast_to_int()?;
+                if repeat_count < 0 {
+                    Err(ValError::ArgumentOutOfRange(
+                        "*".to_string(),
+                        repeat_count,
+                    ))?
+                }
+                Val::String(PsString(s.repeat(repeat_count as usize)))
             }
-            Val::Array(v) => Val::Array(Self::repeat(v, val.cast_to_int()? as usize)),
+            Val::Array(v) => {
+                let repeat_count = val.cast_to_int()?;
+                if repeat_count < 0 {
+                    Err(ValError::ArgumentOutOfRange(
+                        "*".to_string(),
+                        repeat_count,
+                    ))?
+                }
+                Val::Array(Self::repeat(v, repeat_count as usize))
+            }
+            Val::HashTable(_) => {
+                Err(ValError::OperationNotDefined(
+                    "*".to_string(),
+                    self.ttype().to_string(),
+                    val.ttype().to_string(),
+                ))?
+            }
             Val::RuntimeObject(_) => {
                 //error
                 Err(ValError::OperationNotDefined(
@@ -377,6 +422,11 @@ impl Val {
             }
             Val::Float(_) => Val::Float(self.cast_to_float()? / self.cast_to_float()?),
             Val::Array(_) => todo!(),
+            Val::HashTable(_) => Err(ValError::OperationNotDefined(
+                "/".to_string(),
+                self.ttype().to_string(),
+                val.ttype().to_string(),
+            ))?,
             Val::RuntimeObject(_) => todo!(),
             Val::ScriptBlock(_) => Err(ValError::OperationNotDefined(
                 "/".to_string(),
@@ -416,6 +466,11 @@ impl Val {
             }
             Val::Float(_) => Val::Float(self.cast_to_float()? % self.cast_to_float()?),
             Val::Array(_) => todo!(),
+            Val::HashTable(_) => Err(ValError::OperationNotDefined(
+                "%".to_string(),
+                self.ttype().to_string(),
+                val.ttype().to_string(),
+            ))?,
             Val::RuntimeObject(_) => todo!(),
             Val::ScriptBlock(_) => Err(ValError::OperationNotDefined(
                 "%".to_string(),
@@ -433,6 +488,11 @@ impl Val {
                 *self = Val::Int(self.cast_to_int()?.neg())
             }
             Val::Array(_) => Err(ValError::OperationNotDefined(
+                "-".to_string(),
+                self.ttype().to_string(),
+                self.ttype().to_string(),
+            ))?,
+            Val::HashTable(_) => Err(ValError::OperationNotDefined(
                 "-".to_string(),
                 self.ttype().to_string(),
                 self.ttype().to_string(),
@@ -456,6 +516,7 @@ impl Val {
             ValType::Char => Val::Char(self.cast_to_char()?),
             ValType::String => Val::String(PsString(self.cast_to_string())),
             ValType::Array => Val::Array(self.cast_to_array()),
+            ValType::HashTable => Err(ValError::UnknownType("HashTable".to_string()))?,
             ValType::ScriptBlock => Err(ValError::UnknownType("ScriptBlock".to_string()))?,
             ValType::RuntimeType(_) => todo!(),
         })
@@ -470,6 +531,7 @@ impl Val {
             ValType::Char => Val::Char(0),
             ValType::String => Val::String(PsString::default()),
             ValType::Array => Val::Array(Default::default()),
+            ValType::HashTable => Val::HashTable(HashMap::new()),
             ValType::ScriptBlock => Val::ScriptBlock(ScriptBlock("".to_string())),
             ValType::RuntimeType(s) => {
                 if let Ok(runtime_object) = runtime_object::get_runtime_object(s.as_str()) {
@@ -490,6 +552,7 @@ impl Val {
             Val::Float(f) => *f != 0.,
             Val::String(PsString(s)) => !s.is_empty(),
             Val::Array(v) => !v.is_empty(),
+            Val::HashTable(h) => !h.is_empty(),
             Val::RuntimeObject(_) => todo!(),
             Val::ScriptBlock(sb) => !sb.0.is_empty(),
         }
@@ -518,6 +581,10 @@ impl Val {
             }
             Val::Array(_) => Err(ValError::InvalidCast(
                 "Array".to_string(),
+                "Char".to_string(),
+            ))?,
+            Val::HashTable(_) => Err(ValError::InvalidCast(
+                "HashTable".to_string(),
                 "Char".to_string(),
             ))?,
             Val::RuntimeObject(_) => todo!(),
@@ -550,6 +617,10 @@ impl Val {
                 "Array".to_string(),
                 "Int".to_string(),
             ))?,
+            Val::HashTable(_) => Err(ValError::InvalidCast(
+                "HashTable".to_string(),
+                "Int".to_string(),
+            ))?,
             Val::RuntimeObject(_) => todo!(),
             Val::ScriptBlock(_) => Err(ValError::InvalidCast(
                 "ScriptBlock".to_string(),
@@ -568,6 +639,10 @@ impl Val {
             Val::String(PsString(s)) => s.trim().parse::<f64>()?,
             Val::Array(_) => Err(ValError::InvalidCast(
                 "Array".to_string(),
+                "Float".to_string(),
+            ))?,
+            Val::HashTable(_) => Err(ValError::InvalidCast(
+                "HashTable".to_string(),
                 "Float".to_string(),
             ))?,
             Val::RuntimeObject(_) => todo!(),
@@ -591,6 +666,7 @@ impl Val {
                 .map(|val| val.cast_to_string())
                 .collect::<Vec<String>>()
                 .join(" "),
+            Val::HashTable(_) => "System.Collections.Hashtable".to_string(),
             Val::RuntimeObject(s) => s.name(),
             Val::ScriptBlock(sb) => sb.0.clone(),
         }
@@ -611,6 +687,7 @@ impl Val {
                 vec![self.clone()]
             }
             Val::Array(v) => v.clone(),
+            Val::HashTable(_) => vec![self.clone()],
             Val::RuntimeObject(_) => todo!(),
             Val::ScriptBlock(_) => vec![self.clone()],
         }
@@ -646,6 +723,33 @@ impl Val {
                 rounded - 1.0
             }
         }
+    }
+
+    pub fn get_index(&self, index: Val) -> ValResult<Val> {
+        Ok(match self {
+            Val::Null => Err(ValError::IndexedNullArray)?,
+            Val::Array(v) => {
+                if v.len() > index.cast_to_int()? as usize {
+                    v[index.cast_to_int()?  as usize].clone()
+                } else {
+                    Val::Null
+                }
+            }
+            Val::HashTable(v) => {
+                v.get(&index.cast_to_string()).cloned().unwrap_or_default()
+            }
+            _ => {
+                if let Ok(i) = index.cast_to_int() {
+                    if i == 0 {
+                        self.clone()
+                    } else {
+                        Val::Null
+                    }
+                } else {
+                    Val::Null
+                }
+            }
+        })
     }
 }
 

@@ -21,7 +21,7 @@ fn main() {
             println!("✅ File loaded successfully ({} bytes)", content.len());
 
             match ps_parser::PowerShellSession::new().parse_input(&content) {
-                Ok(result) => println!("✅ Parsing successful: {:?}", result),
+                Ok(result) => println!("✅ Parsing successful: {:?}", result.result()),
                 Err(error) => println!("❌ Parsing failed: {:?}", error),
             }
 

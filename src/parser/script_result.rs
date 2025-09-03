@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
 use super::{ParserError, Tokens, Val as InternalVal};
 use crate::parser::{StreamMessage, value::PsString};
@@ -12,6 +12,7 @@ pub enum PsValue {
     Char(u32),
     String(String),
     Array(Vec<PsValue>),
+    HashTable(HashMap<String, PsValue>),
 }
 
 impl PsValue {
@@ -23,6 +24,7 @@ impl PsValue {
             PsValue::Char(c) => *c != 0,
             PsValue::String(s) => !s.is_empty(),
             PsValue::Array(arr) => !arr.is_empty(),
+            PsValue::HashTable(hash) => !hash.is_empty(),
             PsValue::Null => false,
         }
     }
@@ -52,6 +54,9 @@ impl From<PsValue> for InternalVal {
             PsValue::Array(arr) => {
                 InternalVal::Array(arr.iter().map(|v| v.clone().into()).collect())
             }
+            PsValue::HashTable(hash) => {
+                InternalVal::HashTable(hash.iter().map(|(k, v)| (k.clone(), v.clone().into())).collect())
+            }
         }
     }
 }
@@ -67,6 +72,9 @@ impl From<InternalVal> for PsValue {
             InternalVal::String(PsString(s)) => PsValue::String(s),
             InternalVal::Array(arr) => {
                 PsValue::Array(arr.iter().map(|v| v.clone().into()).collect())
+            }
+            InternalVal::HashTable(hash) => {
+                PsValue::HashTable(hash.iter().map(|(k, v)| (k.clone(), v.clone().into())).collect())
             }
             InternalVal::RuntimeObject(obj) => PsValue::String(obj.name()),
             InternalVal::ScriptBlock(obj) => PsValue::String(obj.0.clone()),
