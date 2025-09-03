@@ -33,8 +33,7 @@ type Pairs<'i> = ::pest::iterators::Pairs<'i, Rule>;
 macro_rules! check_rule {
     ($pair:expr, $rule:pat) => {
         if !matches!($pair.as_rule(), $rule) {
-            println!("rule: {:?}", $pair.as_rule());
-            panic!()
+            panic!("rule: {:?}", $pair.as_rule());
         }
     };
 }
@@ -106,7 +105,7 @@ impl<'a> PowerShellSession {
                 script_last_output = match result {
                     Ok(val) => {
                         if val != Val::Null {
-                            script_statements.push(val.cast_to_string());
+                            script_statements.push(val.display());
                         }
 
                         val
@@ -224,8 +223,7 @@ impl<'a> PowerShellSession {
                 res_str
             }
             _ => {
-                log::error!("eval_string_literal - token.rule(): {:?}", token.as_rule());
-                panic!()
+                panic!("eval_string_literal - token.rule(): {:?}", token.as_rule());
             }
         };
         let ps_token = if is_expandable {
@@ -449,7 +447,7 @@ impl<'a> PowerShellSession {
                     object.push_str(token.as_str());
                 }
                 Rule::member_access => {
-                    object.push('.');
+                    //object.push('.');
                     object.push_str(token.as_str());
                 }
                 Rule::method_invocation => {
@@ -589,7 +587,6 @@ impl<'a> PowerShellSession {
             let (key, value) = self.eval_hash_entry(token)?;
             hash.insert(key, value);
         }
-
         Ok(Val::HashTable(hash))
     }
     
@@ -933,7 +930,6 @@ impl<'a> PowerShellSession {
         let mut parts = String::new();
         let input_str = input.cast_to_string();
         let characters = input_str.chars();
-
 
         // filtered_elements.join("")
         for ch in characters {

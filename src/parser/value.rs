@@ -18,8 +18,9 @@ use system_encoding::Encoding;
 pub(crate) use val_error::ValError;
 pub type ValResult<T> = core::result::Result<T, ValError>;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, SmartDefault)]
 pub enum ValType {
+    #[default]
     Null,
     Bool,
     Int,
@@ -88,7 +89,30 @@ pub struct ScriptBlock(pub String);
 
 impl std::fmt::Display for Val {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.cast_to_string())
+        let str = match self {
+            Val::Null | Val::Char(_) | Val::Bool(_) | Val::Int(_) | Val::Float(_) | Val::String(_) | Val::ScriptBlock(_)=> self.cast_to_string(),
+            Val::HashTable(h)  => {
+                let mut s = vec![String::from("----                           -----")];
+                for (k, v) in h {
+                    s.push(format!("{:<30} {}", k, v.cast_to_string()));
+                }
+                s.join("\r\n")
+            },
+            Val::Array(ar) => ar.iter().map(|v| v.to_string()).collect::<Vec<String>>().join("\r\n"),
+            Val::RuntimeObject(rt) => {
+                let v = Val::init(ValType::cast(rt.name().as_str()).unwrap_or_default()).unwrap_or_default();
+                if let Ok(t_info) = v.type_info() {
+                    let mut first_line = format!("{:<8} {:<8} {:<30} {}", "IsPublic", "IsSerial", "Name", "BaseType");
+                    first_line.push_str("\r\n");
+                    let second_line = format!("{:<8} {:<8} {:<30} {}", t_info.is_public, t_info.is_serial, t_info.name, t_info.base_type);
+                    first_line.push_str(&second_line);
+                    first_line
+                } else {
+                    String::new()
+                }
+            },
+        };
+        write!(f, "{}", str)
     }
 }
 
@@ -132,6 +156,10 @@ impl Clone for Val {
 }
 
 impl Val {
+    pub fn display(&self) -> String {
+        format!("{}", self)
+    }
+
     pub fn eq(&self, val: Val, case_insensitive: bool) -> ValResult<bool> {
         Ok(match self {
             Val::Null => val.ttype() == ValType::Null,
@@ -736,7 +764,9 @@ impl Val {
                 }
             }
             Val::HashTable(v) => {
-                v.get(&index.cast_to_string()).cloned().unwrap_or_default()
+                println!("HashTable get_index: {:?}", index);
+                println!("HashTable v: {:?}", v);
+                v.get(&index.cast_to_string().to_ascii_lowercase()).cloned().unwrap_or_default()
             }
             _ => {
                 if let Ok(i) = index.cast_to_int() {
@@ -750,6 +780,58 @@ impl Val {
                 }
             }
         })
+    }
+}
+
+pub(crate) trait TypeInfoTrait {
+    fn type_info(&self) -> MethodResult<TypeInfo>;
+}
+pub(crate) struct TypeInfo {
+    pub is_public: bool,
+    pub is_serial: bool,
+    pub name: String,
+    pub base_type: String,
+}
+
+impl TypeInfoTrait for Val {
+    fn type_info(&self) -> MethodResult<TypeInfo> {
+        let (is_public, is_serial, base_type) = match self {
+            Val::Null => Err(MethodError::NullExpression("GetType".to_string()))?,
+            Val::Char(_) | Val::Bool(_) | Val::Int(_) | Val::Float(_) | Val::String(_) | Val::HashTable(_) | Val::ScriptBlock(_) => (true, true, "System.Object"),
+            Val::Array(_) => (true, true, "System.Array"),
+            Val::RuntimeObject(_) => (false, true, "System.Reflection.TypeInfo"),
+        };
+
+        let name = match self {
+            Val::Null => Err(MethodError::NullExpression("GetType".to_string()))?,
+            Val::Char(_) => "Char",
+            Val::Bool(_) => "Boolean",
+            Val::Int(_) => "Int32",
+            Val::Float(_) => "Double",
+            Val::String(_) => "String",
+            Val::HashTable(_) => "Hashtable",
+            Val::ScriptBlock(_) => "ScriptBlock",
+            Val::Array(_) => "Object[]",
+            Val::RuntimeObject(_) => "RuntimeType",
+        };
+
+        Ok(TypeInfo {
+            is_public,
+            is_serial,
+            name: name.to_string(),
+            base_type: base_type.to_string(),
+        })
+    }
+}
+
+impl From<TypeInfo> for Val {
+    fn from(info: TypeInfo) -> Self {
+        let mut table = HashMap::new();
+        table.insert("IsPublic".to_ascii_lowercase().into(), Val::Bool(info.is_public));
+        table.insert("IsSerial".to_ascii_lowercase().into(), Val::Bool(info.is_serial));
+        table.insert("Name".to_ascii_lowercase().into(), Val::String(info.name.into()));
+        table.insert("BaseType".to_ascii_lowercase().into(), Val::String(info.base_type.into()));
+        Val::HashTable(table)
     }
 }
 

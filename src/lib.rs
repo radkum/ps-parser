@@ -130,4 +130,28 @@ $([cHar]([BYte]0x65)+[chAr]([bYTE]0x6d)+[CHaR]([ByTe]0x73)+[char](105)+[CHAR]([b
         );
         assert_eq!(script_res.errors().len(), 0);
     }
+
+    #[test]
+    fn hash_table() {
+        // assign not existing value, without forcing evaluation
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+        let input = r#" 
+$nestedData = @{
+    Users = @(
+        @{ Name = "Alice"; Age = 30; Skills = @("PowerShell", "Python") }
+        @{ Name = "Bob"; Age = 25; Skills = @("Java", "C#") }
+    )
+    Settings = @{
+        Theme = "Dark"
+        Language = "en-US"
+    }
+}
+$nestedData
+        "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::String(std::env::var("PROGRAMFILES").unwrap())
+        );
+    }
 }

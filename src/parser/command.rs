@@ -122,7 +122,7 @@ fn extract_message(args: &[CommandElem]) -> String {
     args.iter()
         .filter_map(|arg| match arg {
             CommandElem::Parameter(s) | CommandElem::ArgList(s) => Some(s.clone()),
-            CommandElem::Argument(val) => Some(val.cast_to_string()),
+            CommandElem::Argument(val) => Some(val.display()),
         })
         .collect::<Vec<String>>()
         .join(" ")

@@ -10,6 +10,9 @@ pub enum MethodError {
     #[error("Member \"{0}\" not found")]
     MemberNotFound(String),
 
+    #[error("Method \"{0}\" not implemented")]
+    NotImplemented(String),
+
     #[error("Object \"{0}\" not found")]
     ObjectNotFound(String),
 
@@ -18,6 +21,9 @@ pub enum MethodError {
 
     #[error("RuntimeError: {}", .0.to_string())]
     RuntimeError(String),
+
+    #[error("You cannot call a method \"{0}\" on a null-valued expression.")]
+    NullExpression(String),
 }
 pub type MethodResult<T> = core::result::Result<T, MethodError>;
 
