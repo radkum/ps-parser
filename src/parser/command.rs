@@ -58,6 +58,7 @@ impl Command {
 pub(crate) enum CommandElem {
     Parameter(String),
     Argument(Val),
+    #[allow(dead_code)]
     ArgList(String),
 }
 
@@ -119,15 +120,26 @@ fn where_object(
 
 // Helper function to extract message from command arguments
 fn extract_message(args: &[CommandElem]) -> String {
-    args.iter()
-        .filter_map(|arg| match arg {
-            CommandElem::Parameter(s) | CommandElem::ArgList(s) => Some(s.clone()),
-            CommandElem::Argument(val) => Some(val.display()),
-        })
-        .collect::<Vec<String>>()
-        .join(" ")
+    let mut output = Vec::new();
+    let mut skip = 0;
+    for i in args.iter() {
+        if skip > 0 {
+            skip -= 1;
+            continue;
+        }
+        match i {
+            CommandElem::Parameter(s) => match s.to_ascii_lowercase().as_str() {
+                "-foregroundcolor" => skip = 1,
+                _ => {}
+            },
+            CommandElem::Argument(val) => {
+                output.push(val.display());
+            }
+            CommandElem::ArgList(_) => {}
+        }
+    }
+    output.join(" ")
 }
-
 // Write-Host cmdlet implementation (goes directly to console, not capturable)
 fn write_host(
     args: Vec<CommandElem>,

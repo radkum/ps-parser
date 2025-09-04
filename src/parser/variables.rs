@@ -212,6 +212,22 @@ mod tests {
             std::env::var("PATH").unwrap()
         );
         assert_eq!(
+            p.safe_eval(r#" $env:username "#).unwrap().as_str(),
+            std::env::var("USERNAME").unwrap()
+        );
+        assert_eq!(
+            p.safe_eval(r#" $env:tEMp "#).unwrap().as_str(),
+            std::env::var("TEMP").unwrap()
+        );
+        assert_eq!(
+            p.safe_eval(r#" $env:tMp "#).unwrap().as_str(),
+            std::env::var("TMP").unwrap()
+        );
+        assert_eq!(
+            p.safe_eval(r#" $env:cOmputername "#).unwrap().as_str(),
+            std::env::var("COMPUTERNAME").unwrap()
+        );
+        assert_eq!(
             p.safe_eval(r#" $env:programfiles "#).unwrap().as_str(),
             std::env::var("PROGRAMFILES").unwrap()
         );

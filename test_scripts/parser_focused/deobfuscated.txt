@@ -1,0 +1,51 @@
+$error_test = 3 + "invalid"
+
+if ($true) {
+    $if_result = "condition true"
+}
+
+
+if ($false) {
+    $else_result = "false branch"
+} else {
+    $else_result = "true branch"
+}
+if ($score -ge 90) {
+    $grade = "A"
+} elseif ($score -ge 80) {
+    $grade = "B"
+} else {
+    $grade = "C"
+}
+for ($i = 1; $i -le 3; $i++) {
+    $for_result = "iteration " + $i
+}
+while ($counter -le 3) {
+    $while_result = "count " + $counter
+    $counter++
+}
+foreach ($item in $items) {
+    $foreach_result = "item: " + $item
+}
+switch ($day) {
+    "Monday" { $switch_result = "Start of week" }
+    "Friday" { $switch_result = "TGIF" }
+    default { $switch_result = "Regular day" }
+}
+function Get-Double($x) {
+    return $x * 2
+}
+function Get-Sum($a, $b) {
+    return $a + $b
+}
+$double_result = Get-Double 5
+
+$sum_result = Get-Sum 3 7
+
+# Test 16: String Matching
+
+5
+7
+10
+8
+$error1 = 1 + "bad"

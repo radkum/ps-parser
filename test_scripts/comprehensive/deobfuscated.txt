@@ -1,0 +1,110 @@
+Simple: Hello World
+Number: 42
+Float: 3.14159
+Boolean: True
+Null: 
+Mixed types: 
+Concatenation: Hello World
+String multiplication: HelloHelloHello
+String interpolation: Hello, World!
+Equal: False
+Not Equal: True
+Greater Than: False
+Less Than: True
+Greater or Equal: False
+Less or Equal: True
+AND: False
+OR: True
+NOT: False
+XOR: True
+Number array: 1 2 3 4 5
+String array: apple banana cherry
+Mixed array: 1 two 3 True 
+Array length: 5
+First element: 1
+Ascending range: 1 2 3 4 5
+Descending range: 10 9 8 7 6 5 4 3 2 1
+Hash table: System.Collections.Hashtable
+Name: John
+Age: 30
+if ($score -ge 90) {
+    Write-Output "Grade: A"
+} elseif ($score -ge 80) {
+    Write-Output "Grade: B"
+} elseif ($score -ge 70) {
+    Write-Output "Grade: C"
+} else {
+    Write-Output "Grade: F"
+}
+switch ($day) {
+    "Monday" { Write-Output "Start of work week" }
+    "Friday" { Write-Output "TGIF!" }
+    "Saturday" { Write-Output "Weekend!" }
+    "Sunday" { Write-Output "Weekend!" }
+    default { Write-Output "Regular day" }
+}
+for ($i = 1; $i -le 5; $i++) {
+    Write-Output "For loop iteration: $i"
+}
+while ($counter -le 3) {
+    Write-Output "While loop iteration: $counter"
+    $counter++
+}
+foreach ($fruit in $fruits) {
+    Write-Output "Fruit: $fruit"
+}
+function Get-Square($number) {
+    return $number * $number
+}
+function Get-Greeting($name = "World") {
+    return "Hello, $name!"
+}
+Square of 5: 
+Greeting: 
+Greeting with name: 
+function Test-Parameters {
+    param(
+        [string]$Name,
+        [int]$Age = 25,
+        [switch]$Verbose
+    )
+    
+    $result = "Name: $Name, Age: $Age"
+    if ($Verbose) {
+        $result += " (Verbose mode)"
+    }
+    return $result
+}
+
+
+
+Contains 'Shell': True
+Starts with 'Power': True
+Matches regex: True
+String: 123 (Type: String)
+String: 123 (Type: String)
+Int: 123 (Type: Int32)
+Float: 123 (Type: Double)
+Successful operation result: 2
+Last operation success: True
+$failed = 3 + "invalid string"
+
+Failed operation result: 
+Last operation success after error: True
+Complex arithmetic: 10
+Complex logical: True
+Even numbers: 2 4 6 8 10
+PowerShell Version: $PSVersionTable.PSVersion
+Execution Policy: 
+Current Location: 
+First user: Alice
+First user skills: PowerShell, Python
+First user skills: , 
+Theme setting: Dark
+Single line comment test
+Multi-line comment test
+$result = & $scriptBlock 10 20
+Write-Output "Script block result: $result"
+
+Write-Host "=== All Tests Completed ===" -ForegroundColor Cyan
+Write-Output "Test script execution finished. Check results above for any parsing issues."

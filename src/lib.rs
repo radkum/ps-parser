@@ -1,6 +1,7 @@
 mod parser;
 
 pub(crate) use parser::NEWLINE;
+use parser::Token;
 pub use parser::{PowerShellSession, PsValue, ScriptResult, Variables};
 
 #[cfg(test)]
@@ -8,6 +9,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
+    use crate::Token;
 
     #[test]
     fn obfuscation_1() {
@@ -200,5 +202,80 @@ $nestedData = @{
             p.safe_eval("$nesteddata.users[0].NAME").unwrap(),
             "Alice".to_string()
         );
+    }
+
+    #[test]
+    fn test_simple_arithmetic() {
+        let input = r#"
+Write-Host "=== Test 3: Arithmetic Operations ===" -ForegroundColor Green
+$a = 10
+$b = 5
+Write-Output "Addition: $(($a + $b))"
+Write-Output "Subtraction: $(($a - $b))"
+Write-Output "Multiplication: $(($a * $b))"
+Write-Output "Division: $(($a / $b))"
+Write-Output "Modulo: $(($a % $b))"
+"#;
+
+        let script_result = PowerShellSession::new().parse_input(input).unwrap();
+
+        assert_eq!(script_result.result(), PsValue::String("Modulo: 0".into()));
+        assert_eq!(
+            script_result.stream(),
+            vec![
+                r#"=== Test 3: Arithmetic Operations ==="#,
+                r#"Addition: 15"#,
+                r#"Subtraction: 5"#,
+                r#"Multiplication: 50"#,
+                r#"Division: 2"#,
+                r#"Modulo: 0"#
+            ]
+            .join(NEWLINE)
+        );
+        assert_eq!(script_result.errors().len(), 0);
+        assert_eq!(script_result.tokens().strings(), vec![]);
+        assert_eq!(script_result.tokens().expandable_strings().len(), 6);
+        assert_eq!(
+            script_result.tokens().expandable_strings()[1],
+            Token::StringExpandable(
+                "\"Addition: $(($a + $b))\"".to_string(),
+                "Addition: 15".to_string()
+            )
+        );
+        assert_eq!(script_result.tokens().expression().len(), 12);
+        assert_eq!(
+            script_result.tokens().expression()[2],
+            Token::Expression("$a + $b".to_string(), PsValue::Int(15))
+        );
+    }
+
+    #[test]
+    fn test_comprehensive() {
+        use std::fs;
+        let Ok(entries) = fs::read_dir("test_scripts") else {
+            panic!("Failed to read test files");
+        };
+        for entry in entries {
+            let dir_entry = entry.unwrap();
+            if std::fs::FileType::is_dir(&dir_entry.file_type().unwrap()) {
+                // If it's a directory, we can read the files inside it
+                let input_script = dir_entry.path().join("input.ps1");
+                let deobfuscated = dir_entry.path().join("deobfuscated.txt");
+
+                let Ok(content) = fs::read_to_string(&input_script) else {
+                    panic!("Failed to read test files");
+                };
+
+                let Ok(deobfuscated) = fs::read_to_string(&deobfuscated) else {
+                    panic!("Failed to read test files");
+                };
+                let script_result = PowerShellSession::new()
+                    .with_variables(Variables::env())
+                    .parse_input(&content)
+                    .unwrap();
+
+                assert_eq!(deobfuscated, script_result.deobfuscated());
+            }
+        }
     }
 }

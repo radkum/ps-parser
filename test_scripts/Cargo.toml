@@ -1,7 +1,0 @@
-[package]
-name = "test_scripts"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-ps-parser = { path = "../", features = ["en-us"] }

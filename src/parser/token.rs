@@ -1,6 +1,6 @@
 use super::script_result::PsValue;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     StringExpandable(String, String),
     String(String),
@@ -8,4 +8,50 @@ pub enum Token {
     Function(String, String, Vec<PsValue>),
 }
 
-pub type Tokens = Vec<Token>;
+#[derive(Default, Debug, Clone, PartialEq)]
+pub struct Tokens(Vec<Token>);
+impl Tokens {
+    pub fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    pub fn push(&mut self, token: Token) {
+        self.0.push(token)
+    }
+
+    pub fn all(&self) -> Vec<Token> {
+        self.0.clone()
+    }
+
+    pub fn strings(&self) -> Vec<Token> {
+        self.0
+            .iter()
+            .filter(|token| matches!(token, Token::String(..)))
+            .cloned()
+            .collect()
+    }
+
+    pub fn expandable_strings(&self) -> Vec<Token> {
+        self.0
+            .iter()
+            .filter(|token| matches!(token, Token::StringExpandable(..)))
+            .cloned()
+            .collect()
+    }
+
+    pub fn expression(&self) -> Vec<Token> {
+        self.0
+            .iter()
+            .filter(|token| matches!(token, Token::Expression(..)))
+            .cloned()
+            .collect()
+    }
+
+    pub fn function(&self) -> Vec<Token> {
+        self.0
+            .iter()
+            .filter(|token| matches!(token, Token::Function(..)))
+            .cloned()
+            .collect()
+    }
+}

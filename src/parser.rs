@@ -21,7 +21,7 @@ use pest::Parser;
 use pest_derive::Parser;
 use predicates::{ArithmeticPred, BitwisePred, LogicalPred, StringPred};
 pub use script_result::{PsValue, ScriptResult};
-use token::{Token, Tokens};
+pub use token::{Token, Tokens};
 pub(crate) use value::{Val, ValType};
 pub use variables::Variables;
 use variables::{VarName, VariableError};
@@ -60,7 +60,7 @@ impl<'a> PowerShellSession {
     pub fn new() -> Self {
         Self {
             variables: Variables::new(),
-            tokens: Vec::new(),
+            tokens: Tokens::new(),
             errors: Vec::new(),
             stream: Vec::new(),
         }
@@ -1128,7 +1128,7 @@ impl<'a> PowerShellSession {
 
     fn eval_expression(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::expression);
-        let token_string = token.as_str().to_string();
+        let token_string = token.as_str().trim().to_string();
 
         let mut pairs = token.into_inner();
         let mut res = self.eval_bitwise_exp(pairs.next().unwrap())?;

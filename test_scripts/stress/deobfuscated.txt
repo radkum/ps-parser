@@ -1,0 +1,69 @@
+$div_by_zero = 10 / 0
+
+$invalid_int = [int]"not_a_number"
+
+$seq_error = 2 + "bad"
+$repeat_negative = "test" * -1  # Should handle gracefully
+
+# Test 19: Modulo with Different Types
+
+.-1     # Negative range
+
+# Test 25: Function Edge Cases
+
+function Test-Empty() {
+    # Empty function
+}
+function Test-OneParam($p) {
+    return $p * 2
+}
+function Test-MultiParam($a, $b, $c) {
+    return $a + $b + $c
+}
+$empty_result = Test-Empty
+
+$one_param_result = Test-OneParam 5
+
+$multi_param_result = Test-MultiParam 1 2 3
+
+# Test 26: Nested Function Calls
+
+function Inner($x) { return $x + 1 }
+function Outer($y) { return Inner($y * 2) }
+$nested_func_result = Outer 5
+
+# Test 27: Variable Scoping in Blocks
+
+if ($true) {
+    $block_var = "block"
+    $scope_test = $global_var + $block_var
+}
+
+# Test 28: Switch with Edge Cases
+
+switch ($switch_var) {
+    $null { $switch_null_result = "matched null" }
+    "" { $switch_empty_result = "matched empty" }
+    0 { $switch_zero_result = "matched zero" }
+    default { $switch_default_result = "default case" }
+}
+for ($i = 10; $i -gt 10; $i--) {
+    $never_executed = "should not run"
+}
+while ($countdown -le 0) {
+    $while_never = "should not run"
+}
+foreach ($item in @()) {
+    $foreach_empty = "should not run"
+}
+$cascade_error = 2 + "bad"  # Error
+
+for ($i = 0; $i -lt $perf_array.Length; $i++) {
+    $perf_sum += $perf_array[$i]
+}
+$complex_if = if 
+True
+"complex true" 
+else { "complex false" }
+
+# Test 33: String Escape Sequences

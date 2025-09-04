@@ -1,7 +1,10 @@
 use std::{collections::HashMap, fmt::Display};
 
 use super::{ParserError, Tokens, Val as InternalVal};
-use crate::parser::{StreamMessage, value::PsString};
+use crate::{
+    NEWLINE,
+    parser::{StreamMessage, value::PsString},
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PsValue {
@@ -110,7 +113,7 @@ impl ScriptResult {
                 .cloned()
                 .map(|msg| msg.to_string())
                 .collect::<Vec<String>>()
-                .join("\n"),
+                .join(NEWLINE),
             deobfuscated,
             tokens,
             errors,

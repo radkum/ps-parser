@@ -17,23 +17,6 @@ Write-Output "Float: $floatVar"
 Write-Output "Boolean: $boolVar"
 Write-Output "Null: $nullVar"
 
-# Test 2: Environment Variables
-Write-Host "=== Test 2: Environment Variables ===" -ForegroundColor Green
-Write-Output "PATH: $env:PATH"
-Write-Output "TEMP: $env:TEMP"
-Write-Output "USERNAME: $env:USERNAME"
-Write-Output "COMPUTERNAME: $env:COMPUTERNAME"
-
-# Test 3: Arithmetic Operations
-Write-Host "=== Test 3: Arithmetic Operations ===" -ForegroundColor Green
-$a = 10
-$b = 5
-Write-Output "Addition: $(($a + $b))"
-Write-Output "Subtraction: $(($a - $b))"
-Write-Output "Multiplication: $(($a * $b))"
-Write-Output "Division: $(($a / $b))"
-Write-Output "Modulo: $(($a % $b))"
-
 # Test mixed type arithmetic (should trigger error handling)
 Write-Output "Mixed types: $(3 + "invalid")"
 
@@ -186,6 +169,7 @@ $stringNumber = "123"
 $intNumber = [int]$stringNumber
 $floatNumber = [double]$stringNumber
 Write-Output "String: $stringNumber (Type: $($stringNumber.GetType().Name))"
+Write-Output "String: $stringNumber (Type: $($stringNumber.GetType()['Name']))"
 Write-Output "Int: $intNumber (Type: $($intNumber.GetType().Name))"
 Write-Output "Float: $floatNumber (Type: $($floatNumber.GetType().Name))"
 
@@ -235,6 +219,7 @@ $nestedData = @{
 
 Write-Output "First user: $($nestedData.Users[0].Name)"
 Write-Output "First user skills: $($nestedData.Users[0].Skills -join ', ')"
+Write-Output "First user skills: $($nestedData.Users[0].SkillsUnknonw -join ', ')"
 Write-Output "Theme setting: $($nestedData.Settings.Theme)"
 
 # Test 24: Comments and Documentation
@@ -252,8 +237,7 @@ Write-Output "Multi-line comment test"
 # Test 25: Script Blocks
 Write-Host "=== Test 25: Script Blocks ===" -ForegroundColor Green
 $scriptBlock = {
-    param($x, $y)
-    return $x + $y
+    param($x, $y) return $x + $y
 }
 
 $result = & $scriptBlock 10 20
