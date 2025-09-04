@@ -69,12 +69,9 @@ impl Variables {
         b
     }
 
-    pub fn load(&mut self, path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
-        // Load variables from an INI file
-        let Some(str_path) = path.to_str() else {
-            return Err("Invalid path".into());
-        };
-        let conf = ini::ini!(str_path);
+    pub fn load<R: std::io::Read>(&mut self, reader: R) -> Result<(), Box<dyn std::error::Error>> {
+        let mut config_parser = configparser::ini::Ini::new();
+        let conf = config_parser.load_from_stream(reader)?;
 
         for (section_name, properties) in &conf {
             for (key, value) in properties {
@@ -156,9 +153,18 @@ impl Variables {
     }
 
     /// Create a new Variables instance with variables loaded from an INI file
-    pub fn from_ini(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_ini_file(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
         let mut variables = Self::new();
-        variables.load(path)?;
+        let mut file = std::fs::File::open(path)?;
+        variables.load(&mut file)?;
+        Ok(variables)
+    }
+
+    /// Create a new Variables instance with variables loaded from an INI file
+    pub fn from_ini_string(ini_string: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut variables = Self::new();
+        let mut reader = std::io::Cursor::new(ini_string);
+        variables.load(&mut reader)?;
         Ok(variables)
     }
 
@@ -193,7 +199,7 @@ impl Variables {
 #[cfg(test)]
 mod tests {
     use super::Variables;
-    use crate::PowerShellSession;
+    use crate::{PowerShellSession, PsValue};
 
     #[test]
     fn test_builtin_variables() {
@@ -278,5 +284,69 @@ mod tests {
 
         let input = r#"3+"01234 ?";$?"#;
         assert_eq!(p.safe_eval(input).unwrap().as_str(), "False");
+    }
+
+    #[test]
+    fn test_from_ini() {
+        let input = r#"[global]
+name = radek
+age = 30
+is_admin = true
+height = 5.9
+empty_value =
+
+[local]
+local_var = "local_value"
+        "#;
+        let mut variables = Variables::new();
+        variables.load(input.as_bytes()).unwrap();
+        let mut p = PowerShellSession::new().with_variables(variables);
+
+        assert_eq!(
+            p.parse_input(r#" $global:name "#).unwrap().result(),
+            PsValue::String("radek".into())
+        );
+        assert_eq!(
+            p.parse_input(r#" $global:age "#).unwrap().result(),
+            PsValue::Int(30)
+        );
+        assert_eq!(p.safe_eval(r#" $false "#).unwrap().as_str(), "False");
+        assert_eq!(p.safe_eval(r#" $null "#).unwrap().as_str(), "");
+        assert_eq!(
+            p.safe_eval(r#" $local:local_var "#).unwrap().as_str(),
+            "\"local_value\""
+        );
+    }
+
+    #[test]
+    fn test_from_ini_string() {
+        let input = r#"[global]
+name = radek
+age = 30
+is_admin = true
+height = 5.9
+empty_value =
+
+[local]
+local_var = "local_value"
+        "#;
+
+        let variables = Variables::from_ini_string(input).unwrap();
+        let mut p = PowerShellSession::new().with_variables(variables);
+
+        assert_eq!(
+            p.parse_input(r#" $global:name "#).unwrap().result(),
+            PsValue::String("radek".into())
+        );
+        assert_eq!(
+            p.parse_input(r#" $global:age "#).unwrap().result(),
+            PsValue::Int(30)
+        );
+        assert_eq!(p.safe_eval(r#" $false "#).unwrap().as_str(), "False");
+        assert_eq!(p.safe_eval(r#" $null "#).unwrap().as_str(), "");
+        assert_eq!(
+            p.safe_eval(r#" $local:local_var "#).unwrap().as_str(),
+            "\"local_value\""
+        );
     }
 }

@@ -1,8 +1,7 @@
 mod parser;
 
 pub(crate) use parser::NEWLINE;
-use parser::Token;
-pub use parser::{PowerShellSession, PsValue, ScriptResult, Variables};
+pub use parser::{PowerShellSession, PsValue, ScriptResult, Token, Variables};
 
 #[cfg(test)]
 mod tests {
