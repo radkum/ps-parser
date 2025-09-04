@@ -336,7 +336,8 @@ value = {
 parenthesized_expression = { "(" ~ pipeline ~ ")"}
 sub_expression = !{ "$(" ~ statements? ~ ")" }
 array_expression = { "@(" ~ statements? ~ ")" }
-script_block_expression = { "{" ~ param_block? ~ script_block ~ "}" }
+script_block_expression = { "{" ~ script_block_inner ~ "}" }
+script_block_inner = { param_block? ~ script_block }
 
 hash_literal_expression = { "@{" ~ hash_literal_body? ~ "}" }
 hash_literal_body = _{ hash_entry* }

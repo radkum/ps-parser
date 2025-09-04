@@ -18,6 +18,8 @@ use system_encoding::Encoding;
 pub(crate) use val_error::ValError;
 pub type ValResult<T> = core::result::Result<T, ValError>;
 
+use crate::NEWLINE;
+
 #[derive(PartialEq, Debug, SmartDefault)]
 pub enum ValType {
     #[default]
@@ -90,27 +92,44 @@ pub struct ScriptBlock(pub String);
 impl std::fmt::Display for Val {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str = match self {
-            Val::Null | Val::Char(_) | Val::Bool(_) | Val::Int(_) | Val::Float(_) | Val::String(_) | Val::ScriptBlock(_)=> self.cast_to_string(),
-            Val::HashTable(h)  => {
+            Val::Null
+            | Val::Char(_)
+            | Val::Bool(_)
+            | Val::Int(_)
+            | Val::Float(_)
+            | Val::String(_)
+            | Val::ScriptBlock(_) => self.cast_to_string(),
+            Val::HashTable(h) => {
                 let mut s = vec![String::from("----                           -----")];
                 for (k, v) in h {
                     s.push(format!("{:<30} {}", k, v.cast_to_string()));
                 }
-                s.join("\r\n")
-            },
-            Val::Array(ar) => ar.iter().map(|v| v.to_string()).collect::<Vec<String>>().join("\r\n"),
+                s.join(NEWLINE)
+            }
+            Val::Array(ar) => ar
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<String>>()
+                .join(NEWLINE),
             Val::RuntimeObject(rt) => {
-                let v = Val::init(ValType::cast(rt.name().as_str()).unwrap_or_default()).unwrap_or_default();
+                let v = Val::init(ValType::cast(rt.name().as_str()).unwrap_or_default())
+                    .unwrap_or_default();
                 if let Ok(t_info) = v.type_info() {
-                    let mut first_line = format!("{:<8} {:<8} {:<30} {}", "IsPublic", "IsSerial", "Name", "BaseType");
-                    first_line.push_str("\r\n");
-                    let second_line = format!("{:<8} {:<8} {:<30} {}", t_info.is_public, t_info.is_serial, t_info.name, t_info.base_type);
+                    let mut first_line = format!(
+                        "{:<8} {:<8} {:<30} {}",
+                        "IsPublic", "IsSerial", "Name", "BaseType"
+                    );
+                    first_line.push_str(NEWLINE);
+                    let second_line = format!(
+                        "{:<8} {:<8} {:<30} {}",
+                        t_info.is_public, t_info.is_serial, t_info.name, t_info.base_type
+                    );
                     first_line.push_str(&second_line);
                     first_line
                 } else {
                     String::new()
                 }
-            },
+            }
         };
         write!(f, "{}", str)
     }
@@ -379,30 +398,22 @@ impl Val {
             Val::String(PsString(s)) => {
                 let repeat_count = val.cast_to_int()?;
                 if repeat_count < 0 {
-                    Err(ValError::ArgumentOutOfRange(
-                        "*".to_string(),
-                        repeat_count,
-                    ))?
+                    Err(ValError::ArgumentOutOfRange("*".to_string(), repeat_count))?
                 }
                 Val::String(PsString(s.repeat(repeat_count as usize)))
             }
             Val::Array(v) => {
                 let repeat_count = val.cast_to_int()?;
                 if repeat_count < 0 {
-                    Err(ValError::ArgumentOutOfRange(
-                        "*".to_string(),
-                        repeat_count,
-                    ))?
+                    Err(ValError::ArgumentOutOfRange("*".to_string(), repeat_count))?
                 }
                 Val::Array(Self::repeat(v, repeat_count as usize))
             }
-            Val::HashTable(_) => {
-                Err(ValError::OperationNotDefined(
-                    "*".to_string(),
-                    self.ttype().to_string(),
-                    val.ttype().to_string(),
-                ))?
-            }
+            Val::HashTable(_) => Err(ValError::OperationNotDefined(
+                "*".to_string(),
+                self.ttype().to_string(),
+                val.ttype().to_string(),
+            ))?,
             Val::RuntimeObject(_) => {
                 //error
                 Err(ValError::OperationNotDefined(
@@ -716,8 +727,8 @@ impl Val {
             }
             Val::Array(v) => v.clone(),
             Val::HashTable(_) => vec![self.clone()],
-            Val::RuntimeObject(_) => todo!(),
-            Val::ScriptBlock(_) => vec![self.clone()],
+            Val::RuntimeObject(a) => vec![Val::String(a.name().into())],
+            Val::ScriptBlock(s) => vec![Val::String(s.0.clone().into())],
         }
     }
 
@@ -758,28 +769,37 @@ impl Val {
             Val::Null => Err(ValError::IndexedNullArray)?,
             Val::Array(v) => {
                 if v.len() > index.cast_to_int()? as usize {
-                    v[index.cast_to_int()?  as usize].clone()
+                    v[index.cast_to_int()? as usize].clone()
                 } else {
                     Val::Null
                 }
             }
-            Val::HashTable(v) => {
-                println!("HashTable get_index: {:?}", index);
-                println!("HashTable v: {:?}", v);
-                v.get(&index.cast_to_string().to_ascii_lowercase()).cloned().unwrap_or_default()
-            }
+            Val::HashTable(v) => v
+                .get(&index.cast_to_string().to_ascii_lowercase())
+                .cloned()
+                .unwrap_or_default(),
             _ => {
                 if let Ok(i) = index.cast_to_int() {
-                    if i == 0 {
-                        self.clone()
-                    } else {
-                        Val::Null
-                    }
+                    if i == 0 { self.clone() } else { Val::Null }
                 } else {
                     Val::Null
                 }
             }
         })
+    }
+
+    pub fn flatten(&self) -> Vec<Self> {
+        match self {
+            Val::Array(v) => {
+                let mut res = vec![];
+                for item in v {
+                    res.append(&mut item.flatten());
+                }
+                res
+            }
+            Val::HashTable(_) => vec![Val::String(self.cast_to_string().into())],
+            _ => self.cast_to_array(),
+        }
     }
 }
 
@@ -793,11 +813,35 @@ pub(crate) struct TypeInfo {
     pub base_type: String,
 }
 
+impl From<&str> for Val {
+    fn from(value: &str) -> Self {
+        Self::String(PsString(value.into()))
+    }
+}
+
+impl From<String> for Val {
+    fn from(value: String) -> Self {
+        value.as_str().into()
+    }
+}
+
+impl From<&String> for Val {
+    fn from(value: &String) -> Self {
+        value.as_str().into()
+    }
+}
+
 impl TypeInfoTrait for Val {
     fn type_info(&self) -> MethodResult<TypeInfo> {
         let (is_public, is_serial, base_type) = match self {
             Val::Null => Err(MethodError::NullExpression("GetType".to_string()))?,
-            Val::Char(_) | Val::Bool(_) | Val::Int(_) | Val::Float(_) | Val::String(_) | Val::HashTable(_) | Val::ScriptBlock(_) => (true, true, "System.Object"),
+            Val::Char(_)
+            | Val::Bool(_)
+            | Val::Int(_)
+            | Val::Float(_)
+            | Val::String(_)
+            | Val::HashTable(_)
+            | Val::ScriptBlock(_) => (true, true, "System.Object"),
             Val::Array(_) => (true, true, "System.Array"),
             Val::RuntimeObject(_) => (false, true, "System.Reflection.TypeInfo"),
         };
@@ -827,10 +871,22 @@ impl TypeInfoTrait for Val {
 impl From<TypeInfo> for Val {
     fn from(info: TypeInfo) -> Self {
         let mut table = HashMap::new();
-        table.insert("IsPublic".to_ascii_lowercase().into(), Val::Bool(info.is_public));
-        table.insert("IsSerial".to_ascii_lowercase().into(), Val::Bool(info.is_serial));
-        table.insert("Name".to_ascii_lowercase().into(), Val::String(info.name.into()));
-        table.insert("BaseType".to_ascii_lowercase().into(), Val::String(info.base_type.into()));
+        table.insert(
+            "IsPublic".to_ascii_lowercase().into(),
+            Val::Bool(info.is_public),
+        );
+        table.insert(
+            "IsSerial".to_ascii_lowercase().into(),
+            Val::Bool(info.is_serial),
+        );
+        table.insert(
+            "Name".to_ascii_lowercase().into(),
+            Val::String(info.name.into()),
+        );
+        table.insert(
+            "BaseType".to_ascii_lowercase().into(),
+            Val::String(info.base_type.into()),
+        );
         Val::HashTable(table)
     }
 }

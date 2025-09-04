@@ -1,8 +1,5 @@
+use super::{MethodResult, TypeInfoTrait, Val};
 use crate::parser::value::{MethodError, PsString};
-use super::TypeInfoTrait;
-
-
-use super::{MethodResult, Val};
 pub type MethodCallType = fn(Val, Vec<Val>) -> MethodResult<Val>;
 pub type StaticFnCallType = fn(Vec<Val>) -> MethodResult<Val>;
 
@@ -41,7 +38,7 @@ impl RuntimeObject for Val {
     fn get_method(&self, name: &str) -> MethodResult<MethodCallType> {
         match name {
             "gettype" => return Ok(get_type),
-            _ => {},
+            _ => {}
         }
         match self {
             Val::String(ps) => ps.get_method(name),
@@ -59,12 +56,17 @@ impl RuntimeObject for Val {
         // first check the members
         match self {
             //Val::String(ps) => ps.get_member(name),
-            Val::HashTable(ps) => return Ok(ps.get(&name.to_ascii_lowercase()).cloned().unwrap_or_default()),
-            _ => {},
+            Val::HashTable(ps) => {
+                return Ok(ps
+                    .get(&name.to_ascii_lowercase())
+                    .cloned()
+                    .unwrap_or_default());
+            }
+            _ => {}
         }
 
         // then check the length property
-        if name.eq_ignore_ascii_case("length"){
+        if name.eq_ignore_ascii_case("length") {
             return Ok(Val::Int(match self {
                 Val::Null => 0,
                 Val::String(PsString(s)) => s.len() as i64,
@@ -73,7 +75,7 @@ impl RuntimeObject for Val {
                 _ => 1,
             }));
         }
-        
+
         Err(super::MethodError::MemberNotFound(name.to_string()))
     }
     fn get_static_member(&self, name: &str) -> MethodResult<Val> {

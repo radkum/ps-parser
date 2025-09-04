@@ -194,7 +194,7 @@ fn write_verbose(
 
 #[cfg(test)]
 mod tests {
-    use crate::{PowerShellSession, PsValue, Variables};
+    use crate::{NEWLINE, PowerShellSession, PsValue, Variables};
 
     #[test]
     fn test_where_object() {
@@ -202,7 +202,10 @@ mod tests {
         let input = r#"$numbers = 1..10;$evenNumbers = $numbers | Where-Object { $_ % 2 -eq 0 };$evenNumbers"#;
         let s = p.parse_input(input).unwrap();
         println!("s: {:?}", s);
-        assert_eq!(s.result().to_string(), "2 4 6 8 10".to_string());
+        assert_eq!(
+            s.result().to_string(),
+            vec!["2", "4", "6", "8", "10"].join(NEWLINE)
+        );
     }
 
     #[test]

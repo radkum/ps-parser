@@ -8,6 +8,7 @@ mod value;
 mod variables;
 
 use std::collections::HashMap;
+
 pub(crate) use command::CommandError;
 use command::{Command, CommandElem};
 pub(crate) use stream_message::StreamMessage;
@@ -29,6 +30,8 @@ use crate::parser::command::CommandOutput;
 
 type Pair<'i> = ::pest::iterators::Pair<'i, Rule>;
 type Pairs<'i> = ::pest::iterators::Pairs<'i, Rule>;
+
+pub(crate) const NEWLINE: &str = "\r\n";
 
 macro_rules! check_rule {
     ($pair:expr, $rule:pat) => {
@@ -119,7 +122,7 @@ impl<'a> PowerShellSession {
             }
         }
 
-        let deobfuscated = script_statements.join("\n\r");
+        let deobfuscated = script_statements.join(NEWLINE);
 
         Ok(ScriptResult::new(
             script_last_output,
@@ -147,12 +150,8 @@ impl<'a> PowerShellSession {
 
     fn eval_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         Ok(match token.as_rule() {
-            Rule::pipeline_statement => {
-                self.safe_eval_pipeline_statement(token)?
-            }
-            Rule::pipeline => {
-                self.safe_eval_pipeline(token)?
-            }
+            Rule::pipeline_statement => self.safe_eval_pipeline_statement(token)?,
+            Rule::pipeline => self.safe_eval_pipeline(token)?,
             _ => {
                 panic!("eval statements not implemented: {:?}", token.as_rule());
             }
@@ -467,11 +466,7 @@ impl<'a> PowerShellSession {
                     let index_token = pairs.next().unwrap();
                     check_rule!(index_token, Rule::expression);
                     let index = self.eval_expression(index_token)?;
-                    object = format!(
-                        "{}[{}]",
-                        object,
-                        index
-                    );
+                    object = format!("{}[{}]", object, index);
                 }
                 _ => {
                     panic!("parse_access token.rule(): {:?}", token.as_rule());
@@ -542,17 +537,9 @@ impl<'a> PowerShellSession {
         check_rule!(token, Rule::script_block_expression);
 
         let mut pairs = token.into_inner();
-        let mut token = pairs.next().unwrap();
-        if token.as_rule() == Rule::param_block {
-            //todo parse param block
-            token = pairs.next().unwrap();
-        }
+        let token = pairs.next().unwrap();
 
-        check_rule!(token, Rule::script_block);
-
-        // Store the script block text for later evaluation
-        let script_text = token.as_str().to_string();
-        Ok(Val::ScriptBlock(ScriptBlock(script_text)))
+        Ok(Val::ScriptBlock(ScriptBlock(token.as_str().to_string())))
     }
 
     fn eval_hash_key(&mut self, token: Pair<'a>) -> ParserResult<String> {
@@ -562,21 +549,27 @@ impl<'a> PowerShellSession {
 
         Ok(match key_token.as_rule() {
             Rule::simple_name => key_token.as_str().to_ascii_lowercase(),
-            Rule::unary_exp => self.eval_unary_exp(key_token)?.cast_to_string().to_ascii_lowercase(),
+            Rule::unary_exp => self
+                .eval_unary_exp(key_token)?
+                .cast_to_string()
+                .to_ascii_lowercase(),
             _ => {
                 panic!("key_token.rule(): {:?}", key_token.as_rule());
             }
         })
     }
 
-    fn eval_hash_entry(&mut self, token: Pair<'a>) -> ParserResult<(String,Val)> {
+    fn eval_hash_entry(&mut self, token: Pair<'a>) -> ParserResult<(String, Val)> {
         check_rule!(token, Rule::hash_entry);
 
         let mut pairs = token.into_inner();
         let token_key = pairs.next().unwrap();
         let token_value = pairs.next().unwrap();
 
-        Ok((self.eval_hash_key(token_key)?, self.eval_statement(token_value)?))
+        Ok((
+            self.eval_hash_key(token_key)?,
+            self.eval_statement(token_value)?,
+        ))
     }
 
     fn eval_hash_literal(&mut self, token: Pair<'a>) -> ParserResult<Val> {
@@ -589,7 +582,7 @@ impl<'a> PowerShellSession {
         }
         Ok(Val::HashTable(hash))
     }
-    
+
     fn eval_value(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::value);
         let mut pair = token.into_inner();
@@ -978,6 +971,10 @@ impl<'a> PowerShellSession {
             let token = pairs.next().unwrap();
             let right_op = match token.as_rule() {
                 Rule::script_block_expression => {
+                    let mut pairs = token.into_inner();
+                    let token = pairs.next().unwrap();
+                    check_rule!(token, Rule::script_block_inner);
+
                     let mut pairs = token.into_inner();
                     let mut token = pairs.next().unwrap();
                     if token.as_rule() == Rule::param_block {

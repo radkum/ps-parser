@@ -97,19 +97,24 @@ pub fn powershell_split_preserve_delimeter(
     Ok(result)
 }
 
+pub fn split_input_is_null(input: Vec<Val>) -> Val {
+    let mut res = vec![];
+    for i in input.into_iter() {
+        let s = i.cast_to_string();
+        res.extend(s.split_whitespace().map(|word| Val::String(word.into())));
+    }
+    Val::Array(res)
+}
+
 /// -split operator (case-sensitive)
 pub fn split(input: Val, args: Val, case_insensitive: bool) -> Val {
     //special case when, input is Val::Null, eg. "-split 'ad fa'"
-    let (input, args) = if input.ttype() == ValType::Null {
-        // let Val::Array(box_vec) = args else {
-        //     return Val::Null
-        // };
-        (args, vec![])
-    } else {
-        (input, args.cast_to_array())
-    };
+    if input.ttype() == ValType::Null {
+        return split_input_is_null(args.flatten());
+    }
 
-    log::trace!("input: {:?}", input);
+    let args = args.cast_to_array();
+
     let mut pattern = None;
     let mut max_splits = None;
 
@@ -133,7 +138,7 @@ pub fn split(input: Val, args: Val, case_insensitive: bool) -> Val {
             max_splits,
             case_insensitive,
         ) {
-            res.push(Val::String(v.join(" ").into()))
+            res.append(&mut v.iter().map(Val::from).collect::<Vec<_>>());
         }
     }
     if res.is_empty() {
@@ -158,46 +163,103 @@ pub fn csplit(input: Val, args: Val) -> Val {
 
 #[cfg(test)]
 mod tests {
-    use crate::PowerShellSession;
+    use crate::{NEWLINE, PowerShellSession};
 
     #[test]
-    fn test_split() {
+    fn test_split_empty_input() {
         let mut p = PowerShellSession::new();
+
         assert_eq!(
             p.safe_eval(r#" -sPlit "red yellow blue green" "#).unwrap(),
-            "red yellow blue green".to_string()
+            vec!["red", "yellow", "blue", "green"].join(NEWLINE)
         );
         assert_eq!(
             p.safe_eval(r#" -split ("red", "yellow blue green") "#)
                 .unwrap(),
-            "red yellow blue green".to_string()
+            vec!["red", "yellow", "blue", "green"].join(NEWLINE)
         );
         assert_eq!(
             p.safe_eval(r#" -split ("red", "yellow blue green"), 2 "#)
                 .unwrap(),
-            "red yellow blue green 2".to_string()
+            vec!["red", "yellow", "blue", "green", "2"].join(NEWLINE)
         );
         assert_eq!(
             p.safe_eval(r#" -split @("red", "yellow blue green") "#)
                 .unwrap(),
-            "red yellow blue green".to_string()
+            vec!["red", "yellow", "blue", "green"].join(NEWLINE)
         );
         assert_eq!(
             p.safe_eval(r#" -split @("red", "yellow blue green"), 2 "#)
                 .unwrap(),
-            "red yellow blue green 2".to_string()
+            vec!["red", "yellow", "blue", "green", "2"].join(NEWLINE)
         );
+
+        let input = r#"
+$nestedData = @{
+    Users = @(
+        @{ Name = "Alice"; Age = 30; Skills = @("PowerShell", "Python") }
+        @{ Name = "Bob"; Age = 25; Skills = @("Java", "C#") }
+    )
+    Settings = @{
+        Theme = "Dark"
+        Language = "en-US"
+    }
+}
+
+$scriptBlock = {
+    param($x, $y)
+    return $x + $y
+}
+        "#;
+
+        p.parse_input(input).unwrap();
+
         assert_eq!(
-            p.safe_eval(r#" "Lastname:FirstName:Address" -split ":" "#)
+            p.safe_eval(r#" -split ("red", ("yellow blue green", 1, $scriptblock, $nesteddata)) "#)
                 .unwrap(),
-            "Lastname FirstName Address".to_string()
+            vec![
+                "red",
+                "yellow",
+                "blue",
+                "green",
+                "1",
+                "param($x,",
+                "$y)",
+                "return",
+                "$x",
+                "+",
+                "$y",
+                "System.Collections.Hashtable"
+            ]
+            .join(NEWLINE)
         );
+    }
+
+    #[test]
+    fn test_split_typical() {
         assert_eq!(
-            p.safe_eval(r#" "Lastname:FirstName:Address" -split "(:)" "#)
+            PowerShellSession::new()
+                .safe_eval(r#" ("rredd", ("yellow blue green", 1)) -split "e" "#)
                 .unwrap(),
-            "Lastname : FirstName : Address".to_string()
+            vec!["rr", "dd", "y", "llow blu", " gr", "", "n 1"].join(NEWLINE)
         );
-        assert_eq!(PowerShellSession::new().safe_eval(r#" $c = "Mercury,Venus,Earth,Mars,Jupiter,Saturn,Uranus,Neptune";$c -split ",", 5 "#).unwrap(),"Mercury Venus Earth Mars Jupiter,Saturn,Uranus,Neptune".to_string());
+        assert_eq!(PowerShellSession::new().safe_eval(r#" $c = "Mercury,Venus,Earth,Mars,Jupiter,Saturn,Uranus,Neptune";$c -split ",", 5 "#).unwrap(),
+        vec!["Mercury", "Venus", "Earth", "Mars", "Jupiter,Saturn,Uranus,Neptune"].join(NEWLINE));
+
+        assert_eq!(
+            PowerShellSession::new()
+                .safe_eval(r#" "Lastname:FirstName:Address" -split ":" "#)
+                .unwrap(),
+            vec!["Lastname", "FirstName", "Address"].join(NEWLINE)
+        );
+
+        assert_eq!(
+            PowerShellSession::new()
+                .safe_eval(r#" "Lastname:FirstName:Address" -split "(:)" "#)
+                .unwrap(),
+            vec!["Lastname", ":", "FirstName", ":", "Address"].join(NEWLINE)
+        );
+
         assert_eq!(
             PowerShellSession::new()
                 .safe_eval(r#" [string] (-isplit @('a,b c','1 2,3,4,5', '5,6,7,8')) "#)
@@ -222,6 +284,10 @@ mod tests {
                 .unwrap(),
             "M rcury,V nus, ar h".to_string()
         );
+    }
+
+    #[test]
+    fn test_strange_case_with_script_block() {
         assert_eq!(PowerShellSession::new().safe_eval(r#" $c = "Mercury,Venus,Earth,Mars,Jupiter,Saturn,Uranus,Neptune";[string]($c -split {$_ -eq "e" -or $_ -eq "p"}) "#).unwrap(),"M rcury,V nus, arth,Mars,Ju it r,Saturn,Uranus,N  tun".to_string());
     }
 }

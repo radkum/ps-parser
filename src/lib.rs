@@ -1,9 +1,12 @@
 mod parser;
 
+pub(crate) use parser::NEWLINE;
 pub use parser::{PowerShellSession, PsValue, ScriptResult, Variables};
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
 
     #[test]
@@ -58,7 +61,10 @@ $([cHar]([BYte]0x65)+[chAr]([bYTE]0x6d)+[CHaR]([ByTe]0x73)+[char](105)+[CHAR]([b
         let input = r#" $global:var = [char]([int]("9e4e" -replace "e")+3); [int]'a';$var"#;
         let script_res = p.parse_input(input).unwrap();
         assert_eq!(script_res.result(), 'a'.into());
-        assert_eq!(script_res.deobfuscated(), "[int]'a'\n\ra");
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec!["[int]'a'", "a"].join(NEWLINE)
+        );
         assert_eq!(script_res.errors().len(), 1);
         assert_eq!(
             script_res.errors()[0].to_string(),
@@ -73,7 +79,10 @@ $([cHar]([BYte]0x65)+[chAr]([bYTE]0x6d)+[CHaR]([ByTe]0x73)+[char](105)+[CHAR]([b
         assert_eq!(script_res.errors().len(), 0);
 
         let script_res = p.parse_input(" [int]'a';$var ").unwrap();
-        assert_eq!(script_res.deobfuscated(), "[int]'a'\n\ra");
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec!["[int]'a'", "a"].join(NEWLINE)
+        );
         assert_eq!(script_res.errors().len(), 1);
         assert_eq!(
             script_res.errors()[0].to_string(),
@@ -90,7 +99,7 @@ $([cHar]([BYte]0x65)+[chAr]([bYTE]0x6d)+[CHaR]([ByTe]0x73)+[char](105)+[CHAR]([b
         assert_eq!(script_res.result(), PsValue::Null);
         assert_eq!(
             script_res.deobfuscated(),
-            "$local:var = $env:programfiles\n\r[int]'a'\n\r$var"
+            vec!["$local:var = $env:programfiles", "[int]'a'", "$var"].join(NEWLINE)
         );
         assert_eq!(script_res.errors().len(), 3);
         assert_eq!(
@@ -146,12 +155,50 @@ $nestedData = @{
         Language = "en-US"
     }
 }
-$nestedData
+"$nestedData"
         "#;
         let script_res = p.parse_input(input).unwrap();
         assert_eq!(
             script_res.result(),
-            PsValue::String(std::env::var("PROGRAMFILES").unwrap())
+            PsValue::String("System.Collections.Hashtable".to_string())
+        );
+
+        assert_eq!(
+            p.parse_input("$nesteddata.settings").unwrap().result(),
+            PsValue::HashTable(HashMap::from([
+                ("language".to_string(), PsValue::String("en-US".to_string())),
+                ("theme".to_string(), PsValue::String("Dark".to_string())),
+            ]))
+        );
+
+        assert_eq!(
+            p.safe_eval("$nesteddata.settings.theme").unwrap(),
+            "Dark".to_string()
+        );
+
+        assert_eq!(
+            p.parse_input("$nesteddata.users[0]").unwrap().result(),
+            PsValue::HashTable(HashMap::from([
+                (
+                    "skills".to_string(),
+                    PsValue::Array(vec![
+                        PsValue::String("PowerShell".to_string()),
+                        PsValue::String("Python".to_string().into())
+                    ])
+                ),
+                ("name".to_string(), PsValue::String("Alice".to_string())),
+                ("age".to_string(), PsValue::Int(30)),
+            ]))
+        );
+
+        assert_eq!(
+            p.safe_eval("$nesteddata.users[0]['name']").unwrap(),
+            "Alice".to_string()
+        );
+
+        assert_eq!(
+            p.safe_eval("$nesteddata.users[0].NAME").unwrap(),
+            "Alice".to_string()
         );
     }
 }

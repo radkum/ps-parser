@@ -54,9 +54,11 @@ impl From<PsValue> for InternalVal {
             PsValue::Array(arr) => {
                 InternalVal::Array(arr.iter().map(|v| v.clone().into()).collect())
             }
-            PsValue::HashTable(hash) => {
-                InternalVal::HashTable(hash.iter().map(|(k, v)| (k.clone(), v.clone().into())).collect())
-            }
+            PsValue::HashTable(hash) => InternalVal::HashTable(
+                hash.iter()
+                    .map(|(k, v)| (k.clone(), v.clone().into()))
+                    .collect(),
+            ),
         }
     }
 }
@@ -73,9 +75,11 @@ impl From<InternalVal> for PsValue {
             InternalVal::Array(arr) => {
                 PsValue::Array(arr.iter().map(|v| v.clone().into()).collect())
             }
-            InternalVal::HashTable(hash) => {
-                PsValue::HashTable(hash.iter().map(|(k, v)| (k.clone(), v.clone().into())).collect())
-            }
+            InternalVal::HashTable(hash) => PsValue::HashTable(
+                hash.iter()
+                    .map(|(k, v)| (k.clone(), v.clone().into()))
+                    .collect(),
+            ),
             InternalVal::RuntimeObject(obj) => PsValue::String(obj.name()),
             InternalVal::ScriptBlock(obj) => PsValue::String(obj.0.clone()),
         }

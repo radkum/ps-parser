@@ -54,7 +54,7 @@ impl ArithmeticPred {
 
 #[cfg(test)]
 mod tests {
-    use crate::{PowerShellSession, Variables};
+    use crate::{NEWLINE, PowerShellSession, Variables};
 
     #[test]
     fn test_add() {
@@ -380,21 +380,21 @@ mod tests {
                 .safe_eval(r#" [arraY] @(1,2.3) "#)
                 .unwrap()
                 .as_str(),
-            "1 2.3"
+            vec!["1", "2.3"].join(NEWLINE)
         );
         assert_eq!(
             PowerShellSession::new()
                 .safe_eval(r#" [arraY] (1,2.3) "#)
                 .unwrap()
                 .as_str(),
-            "1 2.3"
+            vec!["1", "2.3"].join(NEWLINE)
         );
         assert_eq!(
             PowerShellSession::new()
                 .safe_eval(r#" (1,2.3) "#)
                 .unwrap()
                 .as_str(),
-            "1 2.3"
+            vec!["1", "2.3"].join(NEWLINE)
         );
     }
 
