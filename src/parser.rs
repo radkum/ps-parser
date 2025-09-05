@@ -1282,7 +1282,6 @@ impl<'a> PowerShellSession {
         let op_result = pred(var, right_op)?;
         self.variables.set(&var_name, op_result.clone())?;
 
-        println!("{} = {}", var_name, op_result.cast_to_script());
         //we want save each assignment statement
         self.deobfuscated_statements
             .push(format!("{} = {}", var_name, op_result.cast_to_script()));

@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use super::script_result::PsValue;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -6,6 +8,12 @@ pub enum Token {
     String(String),
     Expression(String, PsValue),
     Function(String, String, Vec<PsValue>),
+}
+
+impl Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
