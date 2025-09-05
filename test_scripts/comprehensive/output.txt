@@ -1,0 +1,79 @@
+=== Test 1: Variables and Assignment ===
+Simple: Hello World
+Number: 42
+Float: 3.14159
+Boolean: True
+Null: 
+Mixed types: 
+=== Test 4: String Operations ===
+Concatenation: Hello World
+String multiplication: HelloHelloHello
+String interpolation: Hello, World!
+=== Test 5: Comparison Operators ===
+Equal: False
+Not Equal: True
+Greater Than: False
+Less Than: True
+Greater or Equal: False
+Less or Equal: True
+=== Test 6: Logical Operators ===
+AND: False
+OR: True
+NOT: False
+XOR: True
+=== Test 7: Arrays ===
+Number array: 1 2 3 4 5
+String array: apple banana cherry
+Mixed array: 1 two 3 True 
+Array length: 5
+First element: 1
+=== Test 8: Ranges ===
+Ascending range: 1 2 3 4 5
+Descending range: 10 9 8 7 6 5 4 3 2 1
+=== Test 9: Hash Tables ===
+Hash table: System.Collections.Hashtable
+Name: John
+Age: 30
+=== Test 10: Conditional Statements ===
+=== Test 11: Switch Statements ===
+=== Test 12: For Loop ===
+=== Test 13: While Loop ===
+=== Test 14: ForEach Loop ===
+=== Test 15: Functions ===
+Square of 5: 
+Greeting: 
+Greeting with name: 
+=== Test 16: Advanced Function ===
+
+=== Test 17: String Matching ===
+Contains 'Shell': True
+Starts with 'Power': True
+Matches regex: True
+=== Test 18: Type Casting ===
+String: 123 (Type: String)
+String: 123 (Type: String)
+Int: 123 (Type: Int32)
+Float: 123 (Type: Double)
+=== Test 19: Error Handling ===
+Successful operation result: 2
+Last operation success: True
+Failed operation result: 
+Last operation success after error: True
+=== Test 20: Complex Expressions ===
+Complex arithmetic: 10
+Complex logical: True
+=== Test 21: Pipeline Operations === 
+Even numbers: 2 4 6 8 10
+=== Test 22: Special Variables ===
+PowerShell Version: $PSVersionTable.PSVersion
+Execution Policy: 
+Current Location: 
+=== Test 23: Nested Structures ===
+First user: Alice
+First user skills: PowerShell, Python
+First user skills: , 
+Theme setting: Dark
+=== Test 24: Comments ===
+Single line comment test
+Multi-line comment test
+=== Test 25: Script Blocks ===

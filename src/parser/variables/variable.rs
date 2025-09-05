@@ -1,6 +1,6 @@
 use crate::parser::Val;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub(crate) struct Variable {
     pub value: Val,
     pub prop: VarProp,
@@ -54,7 +54,7 @@ impl From<&str> for Scope {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub(crate) enum VarProp {
     ReadOnly,
     ReadWrite,

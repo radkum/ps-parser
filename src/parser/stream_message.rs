@@ -28,6 +28,18 @@ pub struct StreamMessage {
     pub timestamp: std::time::SystemTime,
 }
 
+impl From<String> for StreamMessage {
+    fn from(content: String) -> Self {
+        StreamMessage::success(content)
+    }
+}
+
+impl From<StreamMessage> for String {
+    fn from(content: StreamMessage) -> Self {
+        content.content
+    }
+}
+
 impl Display for StreamMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         if self.stream == PowerShellStream::Success {

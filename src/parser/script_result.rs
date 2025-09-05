@@ -85,6 +85,7 @@ impl From<InternalVal> for PsValue {
             ),
             InternalVal::RuntimeObject(obj) => PsValue::String(obj.name()),
             InternalVal::ScriptBlock(obj) => PsValue::String(obj.0.clone()),
+            InternalVal::ScriptText(st) => PsValue::String(st.clone()),
         }
     }
 }
@@ -92,8 +93,8 @@ impl From<InternalVal> for PsValue {
 #[derive(Debug)]
 pub struct ScriptResult {
     result: PsValue,
-    stream: String,
-    deobfuscated: String,
+    stream: Vec<String>,
+    evaluated_statements: Vec<String>,
     tokens: Tokens,
     errors: Vec<ParserError>,
 }
@@ -102,7 +103,7 @@ impl ScriptResult {
     pub(crate) fn new(
         result: InternalVal,
         stream: Vec<StreamMessage>,
-        deobfuscated: String,
+        evaluated_statements: Vec<String>,
         tokens: Tokens,
         errors: Vec<ParserError>,
     ) -> Self {
@@ -112,9 +113,8 @@ impl ScriptResult {
                 .iter()
                 .cloned()
                 .map(|msg| msg.to_string())
-                .collect::<Vec<String>>()
-                .join(NEWLINE),
-            deobfuscated,
+                .collect::<Vec<String>>(),
+            evaluated_statements,
             tokens,
             errors,
         }
@@ -124,8 +124,12 @@ impl ScriptResult {
         self.result.clone()
     }
 
+    pub fn deobfuscated_lines(&self) -> Vec<String> {
+        self.evaluated_statements.clone()
+    }
+
     pub fn deobfuscated(&self) -> String {
-        self.deobfuscated.clone()
+        self.evaluated_statements.join(NEWLINE)
     }
 
     pub fn tokens(&self) -> Tokens {
@@ -136,7 +140,11 @@ impl ScriptResult {
         self.errors.clone()
     }
 
-    pub fn stream(&self) -> String {
+    pub fn output(&self) -> String {
+        self.stream.join(NEWLINE)
+    }
+
+    pub fn output_lines(&self) -> Vec<String> {
         self.stream.clone()
     }
 }

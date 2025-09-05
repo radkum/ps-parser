@@ -64,7 +64,7 @@ $([cHar]([BYte]0x65)+[chAr]([bYTE]0x6d)+[CHaR]([ByTe]0x73)+[char](105)+[CHAR]([b
         assert_eq!(script_res.result(), 'a'.into());
         assert_eq!(
             script_res.deobfuscated(),
-            vec!["[int]'a'", "a"].join(NEWLINE)
+            vec!["$var = 'a'", "[int]'a'"].join(NEWLINE)
         );
         assert_eq!(script_res.errors().len(), 1);
         assert_eq!(
@@ -80,10 +80,8 @@ $([cHar]([BYte]0x65)+[chAr]([bYTE]0x6d)+[CHaR]([ByTe]0x73)+[char](105)+[CHAR]([b
         assert_eq!(script_res.errors().len(), 0);
 
         let script_res = p.parse_input(" [int]'a';$var ").unwrap();
-        assert_eq!(
-            script_res.deobfuscated(),
-            vec!["[int]'a'", "a"].join(NEWLINE)
-        );
+        assert_eq!(script_res.deobfuscated(), vec!["[int]'a'"].join(NEWLINE));
+        assert_eq!(script_res.output(), vec!["a"].join(NEWLINE));
         assert_eq!(script_res.errors().len(), 1);
         assert_eq!(
             script_res.errors()[0].to_string(),
@@ -120,7 +118,11 @@ $([cHar]([BYte]0x65)+[chAr]([bYTE]0x6d)+[CHaR]([ByTe]0x73)+[char](105)+[CHAR]([b
         let mut p = PowerShellSession::new().with_variables(Variables::force_eval());
         let input = r#" $global:var = $env:programfiles;[int]'a';$var"#;
         let script_res = p.parse_input(input).unwrap();
-        assert_eq!(script_res.deobfuscated(), r#"[int]'a'"#);
+        assert_eq!(script_res.result(), PsValue::Null);
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec!["$var = $null", "[int]'a'"].join(NEWLINE)
+        );
         assert_eq!(script_res.errors().len(), 1);
     }
 
@@ -136,7 +138,11 @@ $([cHar]([BYte]0x65)+[chAr]([bYTE]0x6d)+[CHaR]([ByTe]0x73)+[char](105)+[CHAR]([b
         );
         assert_eq!(
             script_res.deobfuscated(),
-            std::env::var("PROGRAMFILES").unwrap()
+            vec![format!(
+                "$var = '{}'",
+                std::env::var("PROGRAMFILES").unwrap()
+            )]
+            .join(NEWLINE)
         );
         assert_eq!(script_res.errors().len(), 0);
     }
@@ -220,7 +226,7 @@ Write-Output "Modulo: $(($a % $b))"
 
         assert_eq!(script_result.result(), PsValue::String("Modulo: 0".into()));
         assert_eq!(
-            script_result.stream(),
+            script_result.output(),
             vec![
                 r#"=== Test 3: Arithmetic Operations ==="#,
                 r#"Addition: 15"#,
@@ -249,7 +255,7 @@ Write-Output "Modulo: $(($a % $b))"
     }
 
     #[test]
-    fn test_comprehensive() {
+    fn test_scripts() {
         use std::fs;
         let Ok(entries) = fs::read_dir("test_scripts") else {
             panic!("Failed to read test files");
@@ -260,6 +266,7 @@ Write-Output "Modulo: $(($a % $b))"
                 // If it's a directory, we can read the files inside it
                 let input_script = dir_entry.path().join("input.ps1");
                 let deobfuscated = dir_entry.path().join("deobfuscated.txt");
+                let output = dir_entry.path().join("output.txt");
 
                 let Ok(content) = fs::read_to_string(&input_script) else {
                     panic!("Failed to read test files");
@@ -268,13 +275,88 @@ Write-Output "Modulo: $(($a % $b))"
                 let Ok(deobfuscated) = fs::read_to_string(&deobfuscated) else {
                     panic!("Failed to read test files");
                 };
+
+                let Ok(output) = fs::read_to_string(&output) else {
+                    panic!("Failed to read test files");
+                };
+
                 let script_result = PowerShellSession::new()
                     .with_variables(Variables::env())
                     .parse_input(&content)
                     .unwrap();
 
-                assert_eq!(deobfuscated, script_result.deobfuscated());
+                let deobfuscated_vec = deobfuscated
+                    .lines()
+                    .map(|s| s.trim_end())
+                    .collect::<Vec<&str>>();
+
+                let script_deobfuscated = script_result.deobfuscated();
+
+                let output_vec = output.lines().map(|s| s.trim_end()).collect::<Vec<&str>>();
+
+                let script_output = script_result.output();
+
+                //std::fs::write(format!("{}.txt",
+                // dir_entry.path().components().last().unwrap().as_os_str().to_string_lossy()),
+                // script_output.clone()).unwrap();
+                let script_deobfuscated_vec = script_deobfuscated
+                    .lines()
+                    .map(|s| s.trim_end())
+                    .collect::<Vec<&str>>();
+
+                let script_output_vec = script_output
+                    .lines()
+                    .map(|s| s.trim_end())
+                    .collect::<Vec<&str>>();
+
+                for i in 0..deobfuscated_vec.len() {
+                    assert_eq!(deobfuscated_vec[i], script_deobfuscated_vec[i]);
+                }
+
+                for i in 0..output_vec.len() {
+                    assert_eq!(output_vec[i], script_output_vec[i]);
+                }
             }
         }
+    }
+
+    #[test]
+    fn test_range() {
+        // Test for even numbers
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+        let input = r#" $numbers = 1..10; $numbers"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec!["$numbers = @(1,2,3,4,5,6,7,8,9,10)"].join(NEWLINE)
+        );
+        assert_eq!(script_res.errors().len(), 0);
+    }
+
+    #[test]
+    fn even_numbers() {
+        // Test for even numbers
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+        let input = r#" $numbers = 1..10; $evenNumbers = $numbers | Where-Object { $_ % 2 -eq 0 }; $evenNumbers"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![
+                PsValue::Int(2),
+                PsValue::Int(4),
+                PsValue::Int(6),
+                PsValue::Int(8),
+                PsValue::Int(10)
+            ])
+        );
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec![
+                "$numbers = @(1,2,3,4,5,6,7,8,9,10)",
+                "$evennumbers = @(2,4,6,8,10)"
+            ]
+            .join(NEWLINE)
+        );
+        assert_eq!(script_res.errors().len(), 0);
     }
 }

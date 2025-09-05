@@ -239,7 +239,8 @@ method_invocation = { (member_access | static_access) ~ "(" ~ argument_list? ~ "
 
 // --------------- PIPELINE
 pipeline_statement = _{ pipeline ~ statement_terminator? }
-pipeline = { assignment_exp | (redirected_expression ~ pipeline_tail?) | ( command ~ pipeline_tail?) }
+pipeline = { assignment_exp | pipeline_with_tail }
+pipeline_with_tail = {(redirected_expression | command) ~ pipeline_tail?}
 redirected_expression = { expression ~ redirection? }
 pipeline_tail = { ("|" ~ command)+ }
 

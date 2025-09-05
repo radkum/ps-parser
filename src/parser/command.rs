@@ -7,8 +7,9 @@ use crate::PowerShellSession;
 
 #[derive(Debug, Clone)]
 pub struct CommandOutput {
-    pub val: Option<Val>,                      // Regular return value
-    pub stream_message: Option<StreamMessage>, // Message to a specific stream
+    pub val: Option<Val>,              // Regular return value
+    pub deobfuscated: Option<String>,  // Message to a specific stream
+    pub stream: Option<StreamMessage>, // Message to a specific stream
 }
 
 #[derive(Error, Debug, PartialEq, Clone)]
@@ -62,6 +63,16 @@ pub(crate) enum CommandElem {
     ArgList(String),
 }
 
+impl CommandElem {
+    pub fn display(&self) -> String {
+        match self {
+            CommandElem::Parameter(s) => s.clone(),
+            CommandElem::Argument(v) => v.cast_to_script(),
+            CommandElem::ArgList(s) => s.clone(),
+        }
+    }
+}
+
 // Where-Object cmdlet implementation
 fn where_object(
     args: Vec<CommandElem>,
@@ -90,7 +101,6 @@ fn where_object(
         return Err(CommandError::IncorrectArgs("Where-Object".into()));
     };
 
-    let stream_message = StreamMessage::error("".into());
     let filtered_elements = elements
         .into_iter()
         .filter(
@@ -105,17 +115,11 @@ fn where_object(
         .map(|element| element.clone())
         .collect::<Vec<Val>>();
 
-    if !stream_message.is_empty() {
-        Ok(CommandOutput {
-            val: Some(Val::Array(filtered_elements)),
-            stream_message: Some(stream_message),
-        })
-    } else {
-        Ok(CommandOutput {
-            val: Some(Val::Array(filtered_elements)),
-            stream_message: None,
-        })
-    }
+    Ok(CommandOutput {
+        val: Some(Val::Array(filtered_elements)),
+        deobfuscated: None,
+        stream: None,
+    })
 }
 
 // Helper function to extract message from command arguments
@@ -146,10 +150,18 @@ fn write_host(
     _: Option<&mut PowerShellSession>,
 ) -> CommandResult<CommandOutput> {
     let message = extract_message(&args);
+    let deobfuscated = format!(
+        "Write-Host {}",
+        args.iter()
+            .map(|p| p.display())
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
 
     Ok(CommandOutput {
         val: None,
-        stream_message: Some(StreamMessage::success(message)),
+        deobfuscated: Some(deobfuscated),
+        stream: Some(StreamMessage::success(message)),
     })
 }
 // Write-Output cmdlet implementation
@@ -158,10 +170,18 @@ fn write_output(
     _: Option<&mut PowerShellSession>,
 ) -> CommandResult<CommandOutput> {
     let message = extract_message(&args);
+    let deobfuscated = format!(
+        "Write-Output {}",
+        args.iter()
+            .map(|p| p.display())
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
 
     Ok(CommandOutput {
         val: Some(Val::String(message.clone().into())),
-        stream_message: Some(StreamMessage::success(message)),
+        deobfuscated: Some(deobfuscated),
+        stream: None,
     })
 }
 
@@ -171,10 +191,18 @@ fn write_warning(
     _: Option<&mut PowerShellSession>,
 ) -> CommandResult<CommandOutput> {
     let message = extract_message(&args);
+    let deobfuscated = format!(
+        "Write-Warning {}",
+        args.iter()
+            .map(|p| p.display())
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
 
     Ok(CommandOutput {
         val: Some(Val::String(message.clone().into())),
-        stream_message: Some(StreamMessage::warning(message)),
+        deobfuscated: Some(deobfuscated),
+        stream: None,
     })
 }
 
@@ -184,10 +212,18 @@ fn write_error(
     _: Option<&mut PowerShellSession>,
 ) -> CommandResult<CommandOutput> {
     let message = extract_message(&args);
+    let deobfuscated = format!(
+        "Write-Error {}",
+        args.iter()
+            .map(|p| p.display())
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
 
     Ok(CommandOutput {
         val: Some(Val::String(message.clone().into())),
-        stream_message: Some(StreamMessage::error(message)),
+        deobfuscated: Some(deobfuscated),
+        stream: None,
     })
 }
 
@@ -197,10 +233,17 @@ fn write_verbose(
     _: Option<&mut PowerShellSession>,
 ) -> CommandResult<CommandOutput> {
     let message = extract_message(&args);
-
+    let deobfuscated = format!(
+        "Write-Verbose {}",
+        args.iter()
+            .map(|p| p.display())
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
     Ok(CommandOutput {
         val: Some(Val::String(message.clone().into())),
-        stream_message: Some(StreamMessage::verbose(message)),
+        deobfuscated: Some(deobfuscated),
+        stream: None,
     })
 }
 
@@ -233,8 +276,13 @@ mod tests {
         );
         assert_eq!(
             script_res.deobfuscated(),
-            std::env::var("PROGRAMFILES").unwrap()
+            vec![
+                format!("$var = '{}'", std::env::var("PROGRAMFILES").unwrap()),
+                format!("Write-Output '{}'", std::env::var("PROGRAMFILES").unwrap())
+            ]
+            .join(NEWLINE)
         );
+        assert_eq!(script_res.output(), std::env::var("PROGRAMFILES").unwrap());
         assert_eq!(script_res.errors().len(), 0);
     }
 }

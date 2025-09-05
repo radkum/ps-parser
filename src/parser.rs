@@ -47,7 +47,8 @@ pub struct PowerShellSession {
     variables: Variables,
     tokens: Tokens,
     errors: Vec<ParserError>,
-    stream: Vec<StreamMessage>,
+    output: Vec<StreamMessage>,
+    deobfuscated_statements: Vec<String>,
 }
 
 impl Default for PowerShellSession {
@@ -62,7 +63,8 @@ impl<'a> PowerShellSession {
             variables: Variables::new(),
             tokens: Tokens::new(),
             errors: Vec::new(),
-            stream: Vec::new(),
+            output: Vec::new(),
+            deobfuscated_statements: Vec::new(),
         }
     }
 
@@ -79,27 +81,42 @@ impl<'a> PowerShellSession {
         let mut pairs = PowerShellSession::parse(Rule::program, input)?;
         let program_token = pairs.next().expect("");
 
-        let mut script_statements = Vec::new();
+        //let mut script_statements = Vec::new();
         let mut script_last_output = Val::default();
 
         if let Rule::program = program_token.as_rule() {
             let pairs = program_token.into_inner();
 
+            //println!("token: {} deobfuscated: {:?}", token.as_str(),
+            // &self.deobfuscated_statements);
             for token in pairs {
                 let token_str = token.as_str();
                 let result = match token.as_rule() {
-                    Rule::pipeline_statement => self.eval_pipeline_statement(token.clone()),
-                    Rule::EOI => {
-                        break;
-                    }
                     Rule::pipeline => {
                         //first assign to output, later create from it script line
-                        self.eval_pipeline(token.clone())
+                        //self.eval_pipeline(token.clone())
+                        let mut pairs = token.into_inner();
+                        let token = pairs.next().unwrap();
+
+                        match token.as_rule() {
+                            Rule::assignment_exp => {
+                                let result = self.eval_assigment_exp(token);
+                                //we don't want print assignent result to deobfuscated script.
+                                // Thats why we always return null
+                                result.map(|_| Val::Null)
+                            }
+                            Rule::pipeline_with_tail => self.eval_pipeline_with_tail(token),
+                            _ => panic!("not possible: {:?}", token.as_rule()),
+                        }
                     }
                     Rule::statement_terminator => continue,
+                    Rule::EOI => break,
                     _ => {
-                        log::error!("safe_eval not implemented: {:?}", token.as_rule());
-                        Ok(Val::String(token_str.into()))
+                        log::error!("parse_input not implemented: {:?}", token.as_rule());
+                        Err(ParserError::NotImplemented(format!(
+                            "Not implemented: {:?}",
+                            token.as_rule()
+                        )))
                     }
                 };
 
@@ -108,26 +125,24 @@ impl<'a> PowerShellSession {
                 script_last_output = match result {
                     Ok(val) => {
                         if val != Val::Null {
-                            script_statements.push(val.display());
+                            self.output.push(val.display().into());
                         }
 
                         val
                     }
                     Err(e) => {
                         self.errors.push(e);
-                        script_statements.push(token_str.into());
+                        self.deobfuscated_statements.push(token_str.into());
                         Val::Null
                     }
                 };
             }
         }
 
-        let deobfuscated = script_statements.join(NEWLINE);
-
         Ok(ScriptResult::new(
             script_last_output,
-            std::mem::take(&mut self.stream),
-            deobfuscated,
+            std::mem::take(&mut self.output),
+            std::mem::take(&mut self.deobfuscated_statements),
             std::mem::take(&mut self.tokens),
             std::mem::take(&mut self.errors),
         ))
@@ -139,7 +154,11 @@ impl<'a> PowerShellSession {
         ps_item: &Val,
     ) -> ParserResult<bool> {
         self.variables.set_ps_item(ps_item.clone());
-        let res = self.parse_input(input.0.as_str())?.result().is_true();
+        let mut new_session = PowerShellSession::new().with_variables(self.variables.clone());
+        let res = new_session
+            .parse_input(input.0.as_str())?
+            .result()
+            .is_true();
         self.variables.reset_ps_item();
         Ok(res)
     }
@@ -149,13 +168,13 @@ impl<'a> PowerShellSession {
     }
 
     fn eval_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        Ok(match token.as_rule() {
-            Rule::pipeline_statement => self.safe_eval_pipeline_statement(token)?,
-            Rule::pipeline => self.safe_eval_pipeline(token)?,
-            _ => {
-                panic!("eval statements not implemented: {:?}", token.as_rule());
-            }
-        })
+        match token.as_rule() {
+            Rule::pipeline => self.safe_eval_pipeline(token),
+            _ => Err(ParserError::NotImplemented(format!(
+                "Not implemented: {:?}",
+                token.as_rule()
+            )))?,
+        }
     }
 
     fn eval_statements(&mut self, token: Pair<'a>) -> ParserResult<Vec<Val>> {
@@ -1107,11 +1126,16 @@ impl<'a> PowerShellSession {
 
         let CommandOutput {
             val,
-            stream_message,
+            deobfuscated,
+            stream,
         } = Command::execute(self, command_name.as_str(), args)?;
 
-        if let Some(msg) = stream_message {
-            self.stream.push(msg);
+        if let Some(msg) = deobfuscated {
+            self.deobfuscated_statements.push(msg);
+        }
+
+        if let Some(msg) = stream {
+            self.output.push(msg);
         }
 
         Ok(val.unwrap_or_default())
@@ -1148,18 +1172,6 @@ impl<'a> PowerShellSession {
         Ok(res)
     }
 
-    fn safe_eval_pipeline_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        check_rule!(token, Rule::pipeline_statement);
-        let token = token.into_inner().next().unwrap();
-        self.safe_eval_pipeline(token)
-    }
-
-    fn eval_pipeline_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        check_rule!(token, Rule::pipeline_statement);
-        let token = token.into_inner().next().unwrap();
-        self.eval_pipeline(token)
-    }
-
     fn eval_pipeline_tail(&mut self, token: Pair<'a>, input: Val) -> ParserResult<Val> {
         check_rule!(token, Rule::pipeline_tail);
         let mut arg = input;
@@ -1171,14 +1183,11 @@ impl<'a> PowerShellSession {
 
         Ok(arg)
     }
-    fn eval_pipeline(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        check_rule!(token, Rule::pipeline);
+
+    fn eval_pipeline_with_tail(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::pipeline_with_tail);
         let mut pairs = token.into_inner();
         let token = pairs.next().unwrap();
-
-        if let Rule::assignment_exp = token.as_rule() {
-            return self.eval_assigment_exp(token);
-        }
 
         let result: Val = match token.as_rule() {
             Rule::redirected_expression => self.eval_redirected_expression(token)?,
@@ -1197,6 +1206,18 @@ impl<'a> PowerShellSession {
             }
         } else {
             Ok(result)
+        }
+    }
+
+    fn eval_pipeline(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::pipeline);
+        let mut pairs = token.into_inner();
+        let token = pairs.next().unwrap();
+
+        match token.as_rule() {
+            Rule::assignment_exp => return self.eval_assigment_exp(token),
+            Rule::pipeline_with_tail => return self.eval_pipeline_with_tail(token),
+            _ => panic!("not possible: {:?}", token.as_rule()),
         }
     }
 
@@ -1255,22 +1276,17 @@ impl<'a> PowerShellSession {
         let pred = ArithmeticPred::get(op.as_str());
 
         let right_token = pairs.next().unwrap();
-        let right_result = self.eval_pipeline(right_token.clone());
+        let right_op = self.eval_pipeline(right_token.clone())?;
 
-        match right_result {
-            Ok(right_operand) => {
-                let Some(pred) = pred else { panic!() };
-                let op_result = pred(var, right_operand)?;
-                self.variables.set(&var_name, op_result.clone())?;
-                Ok(Val::Null)
-            }
-            Err(err) => {
-                self.errors.push(err);
-                Ok(Val::String(
-                    format!("{} = {}", var_name, right_token.as_str()).into(),
-                ))
-            }
-        }
+        let Some(pred) = pred else { panic!() };
+        let op_result = pred(var, right_op)?;
+        self.variables.set(&var_name, op_result.clone())?;
+
+        println!("{} = {}", var_name, op_result.cast_to_script());
+        //we want save each assignment statement
+        self.deobfuscated_statements
+            .push(format!("{} = {}", var_name, op_result.cast_to_script()));
+        Ok(op_result)
     }
 }
 

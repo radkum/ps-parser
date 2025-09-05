@@ -1,5 +1,45 @@
+$string = 'Hello World'
+$number = 42
+$float = 3.14
+$bool = $true
+$null_val = $null
+$path = 'C:\VsExclude\ps-parser\target\debug\deps;C:\VsExclude\ps-parser\target\debug;C:\Users\radoslaw.kumorek\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib\rustlib\x86_64-pc-windows-msvc\lib;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;C:\Program Files (x86)\NVIDIA Corporation\PhysX\Common;C:\Program Files\Git\cmd;C:\Program Files (x86)\GitExtensions\;C:\Program Files\dotnet\;C:\Program Files\Docker\Docker\resources\bin;C:\Program Files (x86)\Windows Kits\10\Windows Performance Toolkit\;C:\Program Files\nodejs\;C:\Program Files\Amazon\AWSCLIV2\;C:\Users\radoslaw.kumorek\AppData\Local\Programs\Python\Python313\Scripts\;C:\Users\radoslaw.kumorek\AppData\Local\Programs\Python\Python313\;C:\Users\radoslaw.kumorek\AppData\Local\Programs\Python\Launcher\;C:\Users\radoslaw.kumorek\.cargo\bin;C:\Users\radoslaw.kumorek\AppData\Local\Microsoft\WindowsApps;C:\Users\radoslaw.kumorek\AppData\Local\Programs\Microsoft VS Code\bin;C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x64;;c:\users\radoslaw.kumorek\.local\bin;C:\Program Files (x86)\Nmap;C:\Users\radoslaw.kumorek\.dotnet\tools;C:\Users\radoslaw.kumorek\AppData\Roaming\npm;c:\Users\radoslaw.kumorek\AppData\Roaming\Code\User\globalStorage\github.copilot-chat\debugCommand'
+$temp = 'C:\Users\RADOSL~1.KUM\AppData\Local\Temp'
+$user = 'radoslaw.kumorek'
+$add = 8
+$sub = 6
+$mul = 42
+$div = 5
+$mod = 3
+$a = 10
+$b = 5
+$result = 30
 $error_test = 3 + "invalid"
 
+$error_status = $false
+$str1 = 'Hello'
+$str2 = 'World'
+$concat = 'Hello World'
+$repeat = 'HelloHelloHello'
+$eq = $true
+$ne = $true
+$gt = $true
+$lt = $true
+$ge = $true
+$le = $true
+$and_op = $false
+$or_op = $true
+$not_op = $false
+$xor_op = $true
+$array = @(1,2,3,4,5)
+$string_array = @('apple','banana','cherry')
+$mixed = @(1,'two',3,$true)
+$range1 = @(1,2,3,4,5)
+$range2 = @(10,9,8,7,6,5,4,3,2,1)
+$cast_int = 123
+$cast_float = 3.14
+$cast_string = '42'
+$cast_bool = $true
 if ($true) {
     $if_result = "condition true"
 }
@@ -10,6 +50,7 @@ if ($false) {
 } else {
     $else_result = "true branch"
 }
+$score = 85
 if ($score -ge 90) {
     $grade = "A"
 } elseif ($score -ge 80) {
@@ -20,13 +61,16 @@ if ($score -ge 90) {
 for ($i = 1; $i -le 3; $i++) {
     $for_result = "iteration " + $i
 }
+$counter = 1
 while ($counter -le 3) {
     $while_result = "count " + $counter
     $counter++
 }
+$items = @('a','b','c')
 foreach ($item in $items) {
     $foreach_result = "item: " + $item
 }
+$day = 'Monday'
 switch ($day) {
     "Monday" { $switch_result = "Start of week" }
     "Friday" { $switch_result = "TGIF" }
@@ -44,8 +88,40 @@ $sum_result = Get-Sum 3 7
 
 # Test 16: String Matching
 
-5
-7
-10
-8
+$text = 'PowerShell'
+$like_test = $true
+$match_test = $true
+$list = @('apple','banana','cherry')
+$contains_test = $true
+$in_test = $true
+$join_test = 'apple, banana, cherry'
+$split_test = @('a','b','c','d')
+$replace_test = 'Hello PowerShell'
+$band = 1
+$bor = 7
+$bxor = 6
+$bnot = -6
+$shl = 16
+$shr = 4
+$inc_test = 5
+$dec_test = 10
+$paren_result = 21
+$sub_expr = @($null)
+$neg_number = -42
+$neg_bool = $false
+$complex = 20
+$assign_add = 10
+$assign_add = 15
+$assign_sub = 20
+$assign_sub = 17
+$assign_mul = 4
+$assign_mul = 12
+$format_result = 'Value: 42, Name: Test'
+$comment_test = 'after comment'
+$block_comment_test = 'after block comment'
+$stmt1 = 1
+$stmt2 = 2
+$stmt3 = 3
 $error1 = 1 + "bad"
+$good = 10
+$status = $true

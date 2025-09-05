@@ -16,7 +16,7 @@ pub enum VariableError {
 
 pub type VariableResult<T> = core::result::Result<T, VariableError>;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Variables {
     map: HashMap<VarName, Variable>,
     force_var_eval: bool,

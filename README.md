@@ -23,11 +23,8 @@ Crate it's not ready. It's prerelase version
 
 ## TODO
 Version 0.1.0
-- add tests for from_ini()
-- fix deobfuscated output and add tests for stream 
-
 - handle all special variables ($$, $^, $?, $_)
+- add support for param in scripBlock
 - eval all statemets, eg. preparse functions and later try to call it
 - instead of compilation feature flag, add option to Parser construction .with_culture("en-US)
 - make parser no_std
-- add support for param in scripBlock

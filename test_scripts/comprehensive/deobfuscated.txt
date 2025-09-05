@@ -1,32 +1,62 @@
-Simple: Hello World
-Number: 42
-Float: 3.14159
-Boolean: True
-Null: 
-Mixed types: 
-Concatenation: Hello World
-String multiplication: HelloHelloHello
-String interpolation: Hello, World!
-Equal: False
-Not Equal: True
-Greater Than: False
-Less Than: True
-Greater or Equal: False
-Less or Equal: True
-AND: False
-OR: True
-NOT: False
-XOR: True
-Number array: 1 2 3 4 5
-String array: apple banana cherry
-Mixed array: 1 two 3 True 
-Array length: 5
-First element: 1
-Ascending range: 1 2 3 4 5
-Descending range: 10 9 8 7 6 5 4 3 2 1
-Hash table: System.Collections.Hashtable
-Name: John
-Age: 30
+Write-Host '=== Test 1: Variables and Assignment ===' -ForegroundColor 'Green'
+$simplevar = 'Hello World'
+$numbervar = 42
+$floatvar = 3.14159
+$boolvar = $true
+$nullvar = $null
+Write-Output 'Simple: Hello World'
+Write-Output 'Number: 42'
+Write-Output 'Float: 3.14159'
+Write-Output 'Boolean: True'
+Write-Output 'Null: '
+Write-Output 'Mixed types: '
+Write-Host '=== Test 4: String Operations ===' -ForegroundColor 'Green'
+$str1 = 'Hello'
+$str2 = 'World'
+Write-Output 'Concatenation: Hello World'
+Write-Output 'String multiplication: HelloHelloHello'
+Write-Output 'String interpolation: Hello, World!'
+Write-Host '=== Test 5: Comparison Operators ===' -ForegroundColor 'Green'
+$x = 10
+$y = 20
+Write-Output 'Equal: False'
+Write-Output 'Not Equal: True'
+Write-Output 'Greater Than: False'
+Write-Output 'Less Than: True'
+Write-Output 'Greater or Equal: False'
+Write-Output 'Less or Equal: True'
+Write-Host '=== Test 6: Logical Operators ===' -ForegroundColor 'Green'
+$true1 = $true
+$false1 = $false
+Write-Output 'AND: False'
+Write-Output 'OR: True'
+Write-Output 'NOT: False'
+Write-Output 'XOR: True'
+Write-Host '=== Test 7: Arrays ===' -ForegroundColor 'Green'
+$array1 = @(1,2,3,4,5)
+$array2 = @('apple','banana','cherry')
+$mixedarray = @(1,'two',3,$true,$null)
+Write-Output 'Number array: 1 2 3 4 5'
+Write-Output 'String array: apple banana cherry'
+Write-Output 'Mixed array: 1 two 3 True '
+Write-Output 'Array length: 5'
+Write-Output 'First element: 1'
+Write-Host '=== Test 8: Ranges ===' -ForegroundColor 'Green'
+$range1 = @(1,2,3,4,5)
+$range2 = @(10,9,8,7,6,5,4,3,2,1)
+Write-Output 'Ascending range: 1 2 3 4 5'
+Write-Output 'Descending range: 10 9 8 7 6 5 4 3 2 1'
+Write-Host '=== Test 9: Hash Tables ===' -ForegroundColor 'Green'
+$hash = @{
+	age = 30
+	city = 'New York'
+	name = 'John'
+}
+Write-Output 'Hash table: System.Collections.Hashtable'
+Write-Output 'Name: John'
+Write-Output 'Age: 30'
+Write-Host '=== Test 10: Conditional Statements ===' -ForegroundColor 'Green'
+$score = 85
 if ($score -ge 90) {
     Write-Output "Grade: A"
 } elseif ($score -ge 80) {
@@ -36,6 +66,8 @@ if ($score -ge 90) {
 } else {
     Write-Output "Grade: F"
 }
+Write-Host '=== Test 11: Switch Statements ===' -ForegroundColor 'Green'
+$day = 'Monday'
 switch ($day) {
     "Monday" { Write-Output "Start of work week" }
     "Friday" { Write-Output "TGIF!" }
@@ -43,25 +75,32 @@ switch ($day) {
     "Sunday" { Write-Output "Weekend!" }
     default { Write-Output "Regular day" }
 }
+Write-Host '=== Test 12: For Loop ===' -ForegroundColor 'Green'
 for ($i = 1; $i -le 5; $i++) {
     Write-Output "For loop iteration: $i"
 }
+Write-Host '=== Test 13: While Loop ===' -ForegroundColor 'Green'
+$counter = 1
 while ($counter -le 3) {
     Write-Output "While loop iteration: $counter"
     $counter++
 }
+Write-Host '=== Test 14: ForEach Loop ===' -ForegroundColor 'Green'
+$fruits = @('apple','banana','orange')
 foreach ($fruit in $fruits) {
     Write-Output "Fruit: $fruit"
 }
+Write-Host '=== Test 15: Functions ===' -ForegroundColor 'Green'
 function Get-Square($number) {
     return $number * $number
 }
 function Get-Greeting($name = "World") {
     return "Hello, $name!"
 }
-Square of 5: 
-Greeting: 
-Greeting with name: 
+Write-Output 'Square of 5: '
+Write-Output 'Greeting: '
+Write-Output 'Greeting with name: '
+Write-Host '=== Test 16: Advanced Function ===' -ForegroundColor 'Green'
 function Test-Parameters {
     param(
         [string]$Name,
@@ -77,32 +116,67 @@ function Test-Parameters {
 }
 
 
-
-Contains 'Shell': True
-Starts with 'Power': True
-Matches regex: True
-String: 123 (Type: String)
-String: 123 (Type: String)
-Int: 123 (Type: Int32)
-Float: 123 (Type: Double)
-Successful operation result: 2
-Last operation success: True
+Write-Output ''
+Write-Host '=== Test 17: String Matching ===' -ForegroundColor 'Green'
+$text = 'PowerShell is awesome'
+Write-Output 'Contains 'Shell': True'
+Write-Output 'Starts with 'Power': True'
+Write-Output 'Matches regex: True'
+Write-Host '=== Test 18: Type Casting ===' -ForegroundColor 'Green'
+$stringnumber = '123'
+$intnumber = 123
+$floatnumber = 123
+Write-Output 'String: 123 (Type: String)'
+Write-Output 'String: 123 (Type: String)'
+Write-Output 'Int: 123 (Type: Int32)'
+Write-Output 'Float: 123 (Type: Double)'
+Write-Host '=== Test 19: Error Handling ===' -ForegroundColor 'Green'
+$successful = 2
+Write-Output 'Successful operation result: 2'
+Write-Output 'Last operation success: True'
 $failed = 3 + "invalid string"
 
-Failed operation result: 
-Last operation success after error: True
-Complex arithmetic: 10
-Complex logical: True
-Even numbers: 2 4 6 8 10
-PowerShell Version: $PSVersionTable.PSVersion
-Execution Policy: 
-Current Location: 
-First user: Alice
-First user skills: PowerShell, Python
-First user skills: , 
-Theme setting: Dark
-Single line comment test
-Multi-line comment test
+Write-Output 'Failed operation result: '
+Write-Output 'Last operation success after error: True'
+Write-Host '=== Test 20: Complex Expressions ===' -ForegroundColor 'Green'
+$result = 10
+Write-Output 'Complex arithmetic: 10'
+$complexcondition = $true
+Write-Output 'Complex logical: True'
+Write-Host '=== Test 21: Pipeline Operations ===' -ForegroundColor 'Green'
+$numbers = @(1,2,3,4,5,6,7,8,9,10)
+$evennumbers = @(2,4,6,8,10)
+Write-Output 'Even numbers: 2 4 6 8 10'
+Write-Host '=== Test 22: Special Variables ===' -ForegroundColor 'Green'
+Write-Output 'PowerShell Version: $PSVersionTable.PSVersion'
+Write-Output 'Execution Policy: '
+Write-Output 'Current Location: '
+Write-Host '=== Test 23: Nested Structures ===' -ForegroundColor 'Green'
+$nesteddata = @{
+	settings = @{
+	language = 'en-US'
+	theme = 'Dark'
+}
+	users = @(@{
+	age = 30
+	name = 'Alice'
+	skills = @('PowerShell','Python')
+},@{
+	age = 25
+	name = 'Bob'
+	skills = @('Java','C#')
+})
+}
+Write-Output 'First user: Alice'
+Write-Output 'First user skills: PowerShell, Python'
+Write-Output 'First user skills: , '
+Write-Output 'Theme setting: Dark'
+Write-Host '=== Test 24: Comments ===' -ForegroundColor 'Green'
+Write-Output 'Single line comment test'
+Write-Output 'Multi-line comment test'
+Write-Host '=== Test 25: Script Blocks ===' -ForegroundColor 'Green'
+$scriptblock = {param($x, $y) return $x + $y
+}
 $result = & $scriptBlock 10 20
 Write-Output "Script block result: $result"
 
