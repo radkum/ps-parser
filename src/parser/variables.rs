@@ -69,12 +69,26 @@ impl Variables {
         b
     }
 
-    pub fn load<R: std::io::Read>(&mut self, _reader: R) -> Result<(), Box<dyn std::error::Error>> {
-        let mut _config_parser = configparser::ini::Ini::new();
-        //let conf = config_parser.load_from_stream(reader)?;
-        let conf: HashMap<String, HashMap<String, Option<String>>> = HashMap::new();
+    pub fn load_from_file(
+        &mut self,
+        path: &std::path::Path,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut config_parser = configparser::ini::Ini::new();
+        let map = config_parser.load(path)?;
+        self.load(map)
+    }
 
-        for (section_name, properties) in &conf {
+    pub fn load_from_string(&mut self, ini_string: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let mut config_parser = configparser::ini::Ini::new();
+        let map = config_parser.read(ini_string.into())?;
+        self.load(map)
+    }
+
+    fn load(
+        &mut self,
+        conf_map: HashMap<String, HashMap<String, Option<String>>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for (section_name, properties) in conf_map {
             for (key, value) in properties {
                 let Some(value) = value else {
                     continue;
@@ -156,16 +170,14 @@ impl Variables {
     /// Create a new Variables instance with variables loaded from an INI file
     pub fn from_ini_file(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
         let mut variables = Self::new();
-        let mut file = std::fs::File::open(path)?;
-        variables.load(&mut file)?;
+        variables.load_from_file(path)?;
         Ok(variables)
     }
 
     /// Create a new Variables instance with variables loaded from an INI file
     pub fn from_ini_string(ini_string: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let mut variables = Self::new();
-        let mut reader = std::io::Cursor::new(ini_string);
-        variables.load(&mut reader)?;
+        variables.load_from_string(ini_string)?;
         Ok(variables)
     }
 
@@ -287,7 +299,7 @@ mod tests {
         assert_eq!(p.safe_eval(input).unwrap().as_str(), "False");
     }
 
-    //#[test]
+    #[test]
     fn test_from_ini() {
         let input = r#"[global]
 name = radek
@@ -300,7 +312,7 @@ empty_value =
 local_var = "local_value"
         "#;
         let mut variables = Variables::new();
-        variables.load(input.as_bytes()).unwrap();
+        variables.load_from_string(input).unwrap();
         let mut p = PowerShellSession::new().with_variables(variables);
 
         assert_eq!(
@@ -319,7 +331,7 @@ local_var = "local_value"
         );
     }
 
-    //#[test]
+    #[test]
     fn test_from_ini_string() {
         let input = r#"[global]
 name = radek
