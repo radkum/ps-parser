@@ -1,5 +1,10 @@
 # ps-parser
 
+[![Crates.io](https://img.shields.io/crates/v/ps-parser.svg)](https://crates.io/crates/ps-parser)
+[![Crates.io](https://img.shields.io/crates/d/ps-parser.svg)](https://crates.io/crates/ps-parser)
+[![Docs.rs](https://docs.rs/ps-parser/badge.svg)](https://docs.rs/ps-parser)
+[![License](https://img.shields.io/crates/l/ps-parser.svg)](LICENSE)
+
 A fast and flexible PowerShell parser written in Rust.
 Parse, analyze, and manipulate PowerShell scripts with idiomatic Rust types.
 
@@ -7,7 +12,7 @@ Parse, analyze, and manipulate PowerShell scripts with idiomatic Rust types.
 
 Malicious scripts typically use "safe" operations to obfuscate "unsafe" ones. For example, arithmetic operations are used to obfuscate function arguments.
 
-The goal of this parser is to combat obfuscation in PowerShell by evaluating everything that is "safe" but not anything that is "unsafe."
+The goal of this parser is to combat obfuscation in PowerShell by evaluating everything that is "safe" but not anything that is "unsafe".
 
 ## Features
 
@@ -29,23 +34,30 @@ ps-parser = "0.1.0"
 
 ## Usage
 
-### Parse a PowerShell script
+### Parse a PowerShell script and eval only "safe" operations
+
 ```rust
 use ps_parser::PowerShellSession;
 
 let mut ps = PowerShellSession::new(); 
 let script = r#"
-$a = 1 + 2
-Write-Output $a
+$arg = 20MB*2/4
+
+# Get-Process is not "safe" to evaluate, so Where-Object is also not evaluated
+Get-Process | Where-Object WorkingSet -GT $arg  
+$evenNumbers = 1..10 | Where-Object { $_ % 2 -eq 0 } # Where-Object is evaluated, because 1..10 is "safe" 
 "#;
 
 let result = ps.parse_input(script)?.deobfuscated();
 println!("{}", result);
 ```
+
 Output: 
-```rust
-$a = 3
-Write-Output 3
+```powershell
+$arg = 10485760
+Get-Process | Where-Object WorkingSet -GT $arg
+
+$evennumbers = @(2,4,6,8,10)
 ```
 
 ### Evaluate arithmetic and variables
@@ -60,9 +72,9 @@ $x = 5; $y = $x * 8/2; $y%=3;$y
 let result = ps.parse_input(script)?.deobfuscated();
 println!("{}", result);
 ```
-```
+
 Output: 
-```rust
+```powershell
 $x = 5
 $y = 20
 $y = 2
@@ -83,7 +95,7 @@ println!("Result:\n{}", script_result.result());
 ```
 
 Output: 
-```rust
+```powershell
 Deobfuscated:
 $a = @('a','b','c')
 $b = 'c'
@@ -106,7 +118,7 @@ println!("{}", script_result.deobfuscated());
 ```
 
 Output: 
-```rust
+```powershell
 $ilrynqstt = 'System.Management.Automation.ArmiUtils'
 ```
 
@@ -131,7 +143,7 @@ println!("Deobfuscated:\n{}", script_result.deobfuscated());
 ```
 
 Output: 
-```rust
+```powershell
 Output:
 decoded
 
@@ -151,7 +163,7 @@ println!("{}", script_result.result());
 ```
 
 Output: 
-```rust
+```powershell
 C:\Program Files
 ```
 

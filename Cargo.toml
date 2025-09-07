@@ -1,7 +1,9 @@
 [package]
 name = "ps-parser"
-description = "The Powershell Parser"
 version = "0.1.0"
+description = "The Powershell Parser"
+homepage = "https://github.com/radkum/ps-parser"
+repository = "https://github.com/radkum/ps-parser"
 authors = ["radkum <radoslaw.kumorekit@gmail.com>"]
 edition = "2024"
 keywords = ["powershell","obfuscation", "parser", "pest"]
