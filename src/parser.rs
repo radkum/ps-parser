@@ -58,6 +58,25 @@ impl Default for PowerShellSession {
 }
 
 impl<'a> PowerShellSession {
+    /// Creates a new PowerShell parsing session with default settings.
+    ///
+    /// The session is initialized with built-in variables like `$true`,
+    /// `$false`, `$null`, and special variables like `$?` for error status
+    /// tracking.
+    ///
+    /// # Returns
+    ///
+    /// A new `PowerShellSession` instance ready for script evaluation.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ps_parser::PowerShellSession;
+    ///
+    /// let mut session = PowerShellSession::new();
+    /// let result = session.safe_eval("$true").unwrap();
+    /// assert_eq!(result, "True");
+    /// ```
     pub fn new() -> Self {
         Self {
             variables: Variables::new(),
@@ -68,16 +87,102 @@ impl<'a> PowerShellSession {
         }
     }
 
+    /// Creates a new PowerShell session with the provided variables.
+    ///
+    /// This constructor allows you to initialize the session with a custom set
+    /// of variables, such as environment variables or variables loaded from
+    /// configuration files.
+    ///
+    /// # Arguments
+    ///
+    /// * `variables` - A `Variables` instance containing the initial variable
+    ///   set.
+    ///
+    /// # Returns
+    ///
+    /// A new `PowerShellSession` instance with the provided variables.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ps_parser::{PowerShellSession, Variables};
+    ///
+    /// let env_vars = Variables::env();
+    /// let mut session = PowerShellSession::new().with_variables(env_vars);
+    /// let username = session.safe_eval("$env:USERNAME").unwrap();
+    /// ```
     pub fn with_variables(mut self, variables: Variables) -> Self {
         self.variables = variables;
         self
     }
 
-    // pub fn errors(self) -> Vec<ParserError> {
-    //     self.errors
-    // }
+    /// Safely evaluates a PowerShell script and returns the output as a string.
+    ///
+    /// This method parses and evaluates the provided PowerShell script,
+    /// handling errors gracefully and returning the result as a formatted
+    /// string. It's the recommended method for simple script evaluation.
+    ///
+    /// # Arguments
+    ///
+    /// * `script` - A string slice containing the PowerShell script to
+    ///   evaluate.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<String, ParserError>` - The output of the script evaluation,
+    ///   or an error if parsing/evaluation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ps_parser::PowerShellSession;
+    ///
+    /// let mut session = PowerShellSession::new();
+    ///
+    /// // Simple arithmetic
+    /// let result = session.safe_eval("1 + 2 * 3").unwrap();
+    /// assert_eq!(result, "7");
+    ///
+    /// // Variable assignment and retrieval
+    /// let result = session.safe_eval("$name = 'World'; \"Hello $name\"").unwrap();
+    /// assert_eq!(result, "Hello World");
+    /// ```
+    pub fn safe_eval(&mut self, script: &str) -> Result<String, ParserError> {
+        Ok(self.parse_input(script)?.result().to_string())
+    }
 
-    pub fn parse_input(&mut self, input: &str) -> ParserResult<ScriptResult> {
+    /// Parses and evaluates a PowerShell script, returning detailed results.
+    ///
+    /// This method provides comprehensive information about the parsing and
+    /// evaluation process, including the final result, generated output,
+    /// any errors encountered, and the tokenized representation of the
+    /// script. It's particularly useful for debugging and deobfuscation.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - A string slice containing the PowerShell script to parse and
+    ///   evaluate.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<ScriptResult, ParserError>` - A detailed result containing the
+    ///   evaluation outcome, output, errors, and tokens, or a parsing error if
+    ///   the script is malformed.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ps_parser::PowerShellSession;
+    ///
+    /// let mut session = PowerShellSession::new();
+    /// let script_result = session.parse_input("$a = 42; Write-Output $a").unwrap();
+    ///
+    /// println!("Final result: {:?}", script_result.result());
+    /// println!("Generated output: {:?}", script_result.output());
+    /// println!("Parsing errors: {:?}", script_result.errors());
+    /// println!("Deobfuscated code: {:?}", script_result.deobfuscated());
+    /// ```
+    pub fn parse_input(&mut self, input: &str) -> Result<ScriptResult, ParserError> {
         let mut pairs = PowerShellSession::parse(Rule::program, input)?;
         let program_token = pairs.next().expect("");
 
@@ -161,10 +266,6 @@ impl<'a> PowerShellSession {
             .is_true();
         self.variables.reset_ps_item();
         Ok(res)
-    }
-
-    pub fn safe_eval(&mut self, input: &str) -> ParserResult<String> {
-        Ok(self.parse_input(input)?.result().to_string())
     }
 
     fn eval_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {

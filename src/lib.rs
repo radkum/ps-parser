@@ -1,6 +1,136 @@
+//! # ps-parser
+//!
+//! A fast and flexible PowerShell parser written in Rust.
+//!
+//! ## Overview
+//!
+//! `ps-parser` provides parsing, evaluation, and manipulation of PowerShell
+//! scripts. It supports variables, arrays, hash tables, script blocks,
+//! arithmetic, logical operations, and more.
+//!
+//! ## Features
+//!
+//! - Parse PowerShell scripts using pest grammar
+//! - Evaluate expressions, variables, arrays, hash tables, and script blocks
+//! - Environment and INI variable loading
+//! - Deobfuscation and error reporting
+//! - Extensible for custom PowerShell types
+//!
+//! ## Usage
+//!
+//! ```rust
+//! use ps_parser::PowerShellSession;
+//!
+//! let mut session = PowerShellSession::new();
+//! let output = session.safe_eval(r#"$a = 42; Write-Output $a"#).unwrap();
+//! println!("{}", output); // prints: 42
+//! ```
+
 mod parser;
 
 pub(crate) use parser::NEWLINE;
+/// Represents a PowerShell parsing and evaluation session.
+///
+/// This is the main entry point for parsing and evaluating PowerShell scripts.
+/// It maintains the session state including variables, tokens, and error
+/// information.
+///
+/// # Examples
+///
+/// ```rust
+/// use ps_parser::PowerShellSession;
+///
+/// // Create a new session
+/// let mut session = PowerShellSession::new();
+///
+/// // Evaluate a simple expression
+/// let result = session.safe_eval("$a = 1 + 2; Write-Output $a").unwrap();
+/// assert_eq!(result, "3");
+///
+/// // Parse and get detailed results
+/// let script_result = session.parse_input("$b = 'Hello World'; $b").unwrap();
+/// println!("Result: {:?}", script_result.result());
+/// ```
+///
+/// Represents a PowerShell value that can be stored and manipulated.
+///
+/// This enum covers all the basic PowerShell data types including primitives,
+/// collections, and complex objects like script blocks and hash tables.
+///
+/// # Examples
+///
+/// ```rust
+/// use ps_parser::PsValue;
+///
+/// // Different value types  
+/// let int_val = PsValue::Int(42);
+/// let string_val = PsValue::String("Hello".into());
+/// let bool_val = PsValue::Bool(true);
+/// ```
+///
+/// Contains the complete result of parsing and evaluating a PowerShell script.
+///
+/// This structure holds the final result value, any output generated,
+/// parsing errors encountered, and the tokenized representation of the script.
+/// It's particularly useful for debugging and deobfuscation purposes.
+///
+/// # Examples
+///
+/// ```rust
+/// use ps_parser::PowerShellSession;
+///
+/// let mut session = PowerShellSession::new();
+/// let script_result = session.parse_input("$a = 42; $a").unwrap();
+///
+/// // Access different parts of the result
+/// println!("Final value: {:?}", script_result.result());
+/// println!("Output: {:?}", script_result.output());
+/// println!("Errors: {:?}", script_result.errors());
+/// ```
+///
+/// Represents a parsed token from a PowerShell script.
+///
+/// Tokens are the building blocks of parsed PowerShell code and are used
+/// for syntax analysis, deobfuscation, and code transformation.
+///
+/// # Examples
+///
+/// ```rust
+/// use ps_parser::PowerShellSession;
+///
+/// let mut session = PowerShellSession::new();
+/// let script_result = session.parse_input("$var = 123").unwrap();
+///
+/// // Inspect the tokens
+/// for token in script_result.tokens().all() {
+///     println!("Token: {:?}", token);
+/// }
+/// ```
+///
+/// Manages PowerShell variables across different scopes.
+///
+/// This structure handles variable storage, retrieval, and scope management
+/// for PowerShell scripts. It supports loading variables from environment
+/// variables, INI files, and manual assignment.
+///
+/// # Examples
+///
+/// ```rust
+/// use ps_parser::{Variables, PowerShellSession};
+/// use std::path::Path;
+///
+/// // Load environment variables
+/// let env_vars = Variables::env();
+/// let mut session = PowerShellSession::new().with_variables(env_vars);
+///
+/// // Load from INI string
+/// let ini_vars = Variables::from_ini_string("[global]\nname = John Doe\n[local]\nlocal_var = \"local_value\"").unwrap();
+/// let mut session2 = PowerShellSession::new().with_variables(ini_vars);
+///
+/// // Create empty and add manually
+/// let mut vars = Variables::new();
+/// // ... add variables manually
+/// ```
 pub use parser::{PowerShellSession, PsValue, ScriptResult, Token, Variables};
 
 #[cfg(test)]

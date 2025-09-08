@@ -130,7 +130,103 @@ impl Variables {
         Ok(())
     }
 
-    pub fn env() -> Self {
+    /// Creates a new empty Variables container.
+    ///
+    /// # Arguments
+    ///
+    /// * initializes the container with PowerShell built-in variables like
+    ///   `$true`, `$false`, `$null`, and `$?`. If `false`,
+    ///
+    /// # Returns
+    ///
+    /// A new `Variables` instance.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ps_parser::Variables;
+    ///
+    /// // Create with built-in variables
+    /// let vars_with_builtins = Variables::new();
+    ///
+    /// // Create empty
+    /// let empty_vars = Variables::new();
+    /// ```
+    pub fn new() -> Variables {
+        let map = Self::const_variables();
+
+        Self {
+            map,
+            force_var_eval: false,
+        }
+    }
+
+    /// Creates a new Variables container with forced evaluation enabled.
+    ///
+    /// This constructor creates a Variables instance that will return
+    /// `Val::Null` for undefined variables instead of returning `None`.
+    /// This is useful for PowerShell script evaluation where undefined
+    /// variables should be treated as `$null` rather than causing errors.
+    ///
+    /// # Returns
+    ///
+    /// A new `Variables` instance with forced evaluation enabled and built-in
+    /// variables initialized.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ps_parser::{Variables, PowerShellSession};
+    ///
+    /// // Create with forced evaluation
+    /// let vars = Variables::force_eval();
+    /// let mut session = PowerShellSession::new().with_variables(vars);
+    ///
+    /// // Undefined variables will evaluate to $null instead of causing errors
+    /// let result = session.safe_eval("$undefined_variable").unwrap();
+    /// assert_eq!(result, "");  // $null displays as empty string
+    /// ```
+    ///
+    /// # Behavior Difference
+    ///
+    /// - `Variables::new()`: Returns `None` for undefined variables
+    /// - `Variables::force_eval()`: Returns `Val::Null` for undefined variables
+    ///
+    /// This is particularly useful when parsing PowerShell scripts that may
+    /// reference variables that haven't been explicitly defined, allowing
+    /// the script to continue execution rather than failing.
+    pub fn force_eval() -> Self {
+        let map = Self::const_variables();
+
+        Self {
+            map,
+            force_var_eval: true,
+        }
+    }
+
+    /// Loads all environment variables into a Variables container.
+    ///
+    /// This method reads all environment variables from the system and stores
+    /// them in the `env` scope, making them accessible as
+    /// `$env:VARIABLE_NAME` in PowerShell scripts.
+    ///
+    /// # Returns
+    ///
+    /// A new `Variables` instance containing all environment variables.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ps_parser::{Variables, PowerShellSession};
+    ///
+    /// let env_vars = Variables::env();
+    /// let mut session = PowerShellSession::new().with_variables(env_vars);
+    ///
+    /// // Access environment variables
+    /// let path = session.safe_eval("$env:PATH").unwrap();
+    /// let username = session.safe_eval("$env:USERNAME").unwrap();
+    /// ```
+    pub fn env() -> Variables {
         let mut map = Self::const_variables();
 
         // Load all environment variables
@@ -149,22 +245,54 @@ impl Variables {
         }
     }
 
-    pub fn new() -> Self {
-        let map = Self::const_variables();
-
-        Self {
-            map,
-            force_var_eval: false,
-        }
-    }
-
-    pub fn force_eval() -> Self {
-        let map = Self::const_variables();
-
-        Self {
-            map,
-            force_var_eval: true,
-        }
+    /// Loads variables from an INI configuration file.
+    ///
+    /// This method parses an INI file and loads its key-value pairs as
+    /// PowerShell variables. Variables are organized by INI sections, with
+    /// the `[global]` section creating global variables and other sections
+    /// creating scoped variables.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - A reference to the path of the INI file to load.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Variables, VariableError>` - A Variables instance with the
+    ///   loaded data, or an error if the file cannot be read or parsed.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ps_parser::{Variables, PowerShellSession};
+    /// use std::path::Path;
+    ///
+    /// // Load from INI file
+    /// let variables = Variables::from_ini_string("[global]\nname = John Doe\n[local]\nlocal_var = \"local_value\"").unwrap();
+    /// let mut session = PowerShellSession::new().with_variables(variables);
+    ///
+    /// // Access loaded variables
+    /// let name = session.safe_eval("$global:name").unwrap();
+    /// let local_var = session.safe_eval("$local:local_var").unwrap();
+    /// ```
+    ///
+    /// # INI Format
+    ///
+    /// ```ini
+    /// # Global variables (accessible as $global:key)
+    /// [global]
+    /// name = John Doe
+    /// version = 1.0
+    ///
+    /// # Local scope variables (accessible as $local:key)
+    /// [local]
+    /// temp_dir = /tmp
+    /// debug = true
+    /// ```
+    pub fn from_ini_string(ini_string: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut variables = Self::new();
+        variables.load_from_string(ini_string)?;
+        Ok(variables)
     }
 
     /// Create a new Variables instance with variables loaded from an INI file
@@ -174,24 +302,17 @@ impl Variables {
         Ok(variables)
     }
 
-    /// Create a new Variables instance with variables loaded from an INI file
-    pub fn from_ini_string(ini_string: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let mut variables = Self::new();
-        variables.load_from_string(ini_string)?;
-        Ok(variables)
-    }
-
-    pub(crate) fn get(&self, var_name: &VarName) -> Option<Val> {
-        //todo: handle special variables and scopes
-
-        let mut var = self.map.get(var_name).map(|v| v.value.clone());
-        if self.force_var_eval && var.is_none() {
-            var = Some(Val::Null);
-        }
-
-        var
-    }
-
+    /// Sets the value of a variable in the specified scope.
+    ///
+    /// # Arguments
+    ///
+    /// * `var_name` - The variable name and scope information.
+    /// * `val` - The value to assign to the variable.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<(), VariableError>` - Success or an error if the variable is
+    ///   read-only.
     pub(crate) fn set(&mut self, var_name: &VarName, val: Val) -> VariableResult<()> {
         if let Some(variable) = self.map.get_mut(var_name) {
             if let VarProp::ReadOnly = variable.prop {
@@ -206,6 +327,27 @@ impl Variables {
                 .insert(var_name.clone(), Variable::new(VarProp::ReadWrite, val));
             Ok(())
         }
+    }
+
+    /// Retrieves the value of a variable from the appropriate scope.
+    ///
+    /// # Arguments
+    ///
+    /// * `var_name` - The variable name and scope information.
+    ///
+    /// # Returns
+    ///
+    /// * `VariableResult<Val>` - The variable's value, or an error if not
+    ///   found.
+    pub(crate) fn get(&self, var_name: &VarName) -> Option<Val> {
+        //todo: handle special variables and scopes
+
+        let mut var = self.map.get(var_name).map(|v| v.value.clone());
+        if self.force_var_eval && var.is_none() {
+            var = Some(Val::Null);
+        }
+
+        var
     }
 }
 
