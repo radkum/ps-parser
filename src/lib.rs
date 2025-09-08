@@ -91,6 +91,15 @@ pub use parser::ScriptResult;
 ///
 /// Tokens are the building blocks of parsed PowerShell code and are used
 /// for syntax analysis, deobfuscation, and code transformation.
+/// 
+/// Right now 4 token types are supported:
+/// - **String**: Representation of single quoted PowerShell strings (e.g., `'hello world'`)
+/// - **StringExpandable**: Representation of double quoted PowerShell strings with variable expansion (e.g., `"Hello $name"`)
+/// - **Expression**: Parsed PowerShell expressions with their evaluated results (e.g., `$a + $b`)
+/// - **Function**: PowerShell function definitions and calls
+///
+/// Each token type stores both the original source code and its processed/evaluated form,
+/// making it useful for deobfuscation and analysis purposes.
 ///
 /// # Examples
 ///

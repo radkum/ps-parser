@@ -5,14 +5,14 @@
 [![Docs.rs](https://docs.rs/ps-parser/badge.svg)](https://docs.rs/ps-parser)
 [![License](https://img.shields.io/crates/l/ps-parser.svg)](LICENSE)
 
-A fast and flexible PowerShell parser written in Rust.
-Parse, analyze, and manipulate PowerShell scripts with idiomatic Rust types.
+A PowerShell parser written in Rust.
+Parse, evaluate and deobfuscate PowerShell scripts with idiomatic Rust types.
 
 ## Goal
 
 Malicious scripts typically use "safe" operations to obfuscate "unsafe" ones. For example, arithmetic operations are used to obfuscate function arguments.
 
-The goal of this parser is to combat obfuscation in PowerShell by evaluating everything that is "safe" but not anything that is "unsafe".
+The goal of this parser is to combat obfuscation in PowerShell by evaluating everything that is "safe" but not anything that is "unsafe". Ps-parser deliver also possibility to get script "tokens"
 
 ## Features
 
@@ -207,19 +207,17 @@ StringExpandable("\"Addition: $($a + $b)\"", "Addition: 15")
 Expression("5", Int(5))
 ```
 
-## Examples
+## Future plans
 
-See the `test_scripts/` directory for samples. Input script, deobfuscated script and script output.
+- add "scopes" to evaluation
+- eval "if" and "switch" statements
+- eval "function" and "script_block" statements
+- parse "enum" and "class" statements
 
 ## Documentation
 
 - [API Reference (docs.rs)](https://docs.rs/ps-parser)
 - [Crate on crates.io](https://crates.io/crates/ps-parser)
-
-## Contributing
-
-Pull requests, issues, and suggestions are welcome!
-Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
