@@ -118,7 +118,7 @@ $str_complex = ("Hello" + " " + "World") * 2
 $str_compare = ("Hello" -eq "Hello") -and ("World" -ne "world")
 
 # Test 23: Environment Variable Edge Cases
-$env_exists = $env:PATH
+$env_exists = $env:programfiles
 $env_maybe_not_exists = $env:NONEXISTENT_VAR_12345
 $env_empty = $env:EMPTY_VAR
 

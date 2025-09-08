@@ -11,9 +11,7 @@ $bool = $true
 $null_val = $null
 
 # Test 2: Environment Variables  
-$path = $env:PATH
-$temp = $env:TEMP
-$user = $env:USERNAME
+$programfiles = $env:PROGRAMFILES
 
 # Test 3: Arithmetic Operations
 $add = 5 + 3
