@@ -106,7 +106,10 @@ $shr = 4
 $inc_test = 5
 $dec_test = 10
 $paren_result = 21
-$sub_expr = @($null)
+$sub_expr = $(Get-Double 10)
+
+# Test 24: Negation
+
 $neg_number = -42
 $neg_bool = $false
 $complex = 20

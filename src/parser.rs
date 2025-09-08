@@ -31,7 +31,7 @@ use crate::parser::command::CommandOutput;
 type Pair<'i> = ::pest::iterators::Pair<'i, Rule>;
 type Pairs<'i> = ::pest::iterators::Pairs<'i, Rule>;
 
-pub(crate) const NEWLINE: &str = "\r\n";
+pub(crate) const NEWLINE: &str = "\n";
 
 macro_rules! check_rule {
     ($pair:expr, $rule:pat) => {
@@ -169,11 +169,21 @@ impl<'a> PowerShellSession {
 
     fn eval_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         match token.as_rule() {
-            Rule::pipeline => self.safe_eval_pipeline(token),
+            Rule::pipeline => self.eval_pipeline(token),
             _ => Err(ParserError::NotImplemented(format!(
                 "Not implemented: {:?}",
                 token.as_rule()
             )))?,
+        }
+    }
+
+    fn safe_eval_sub_expr(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        match self.eval_statements(token.clone()) {
+            Ok(vals) => Ok(Val::Array(vals)),
+            Err(err) => {
+                self.errors.push(err);
+                Ok(Val::ScriptText(token.as_str().to_string()))
+            }
         }
     }
 
@@ -196,7 +206,7 @@ impl<'a> PowerShellSession {
             let token = token.into_inner().next().unwrap();
             let s = match token.as_rule() {
                 Rule::variable => self.get_variable(token)?.cast_to_string(),
-                Rule::sub_expression => Val::Array(self.eval_statements(token)?).cast_to_string(),
+                Rule::sub_expression => self.safe_eval_sub_expr(token)?.cast_to_string(),
                 Rule::backtick_escape => token
                     .as_str()
                     .strip_prefix("`")
@@ -1222,13 +1232,13 @@ impl<'a> PowerShellSession {
     }
 
     fn safe_eval_pipeline(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        let res = self.eval_pipeline(token);
+        let res = self.eval_pipeline(token.clone());
 
         let v = match res {
             Ok(val) => val,
             Err(err) => {
                 self.errors.push(err);
-                Val::Null
+                Val::ScriptText(token.as_str().to_string())
             }
         };
 

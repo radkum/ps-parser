@@ -296,8 +296,20 @@ Write-Output "Modulo: $(($a % $b))"
 
                 let script_output = script_result.output();
 
-                //std::fs::write(format!("{}.txt",
-                // dir_entry.path().components().last().unwrap().as_os_str().to_string_lossy()),
+                let _name = dir_entry
+                    .path()
+                    .components()
+                    .last()
+                    .unwrap()
+                    .as_os_str()
+                    .to_string_lossy()
+                    .to_string();
+                // std::fs::write(
+                //     format!("{}_deobfuscated.txt", _name),
+                //     script_deobfuscated.clone(),
+                // )
+                // .unwrap();
+                // std::fs::write(format!("{}_output.txt", _name),
                 // script_output.clone()).unwrap();
                 let script_deobfuscated_vec = script_deobfuscated
                     .lines()
@@ -358,5 +370,28 @@ Write-Output "Modulo: $(($a % $b))"
             .join(NEWLINE)
         );
         assert_eq!(script_res.errors().len(), 0);
+    }
+
+    //#[test]
+    fn _test_function() {
+        // Test for even numbers
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+        let input = r#" 
+function Get-Square($number) {
+    return $number * $number
+}
+"Square of 5: $(Get-Square 5)" "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec![
+                "function Get-Square($number) {",
+                "    return $number * $number",
+                "}",
+                " \"Square of 5: $(Get-Square 5)\""
+            ]
+            .join(NEWLINE)
+        );
+        assert_eq!(script_res.errors().len(), 2);
     }
 }
