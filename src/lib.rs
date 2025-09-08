@@ -27,7 +27,6 @@
 //! ```
 
 mod parser;
-
 pub(crate) use parser::NEWLINE;
 /// Represents a PowerShell parsing and evaluation session.
 ///
@@ -51,7 +50,7 @@ pub(crate) use parser::NEWLINE;
 /// let script_result = session.parse_input("$b = 'Hello World'; $b").unwrap();
 /// println!("Result: {:?}", script_result.result());
 /// ```
-///
+pub use parser::PowerShellSession;
 /// Represents a PowerShell value that can be stored and manipulated.
 ///
 /// This enum covers all the basic PowerShell data types including primitives,
@@ -67,7 +66,7 @@ pub(crate) use parser::NEWLINE;
 /// let string_val = PsValue::String("Hello".into());
 /// let bool_val = PsValue::Bool(true);
 /// ```
-///
+pub use parser::PsValue;
 /// Contains the complete result of parsing and evaluating a PowerShell script.
 ///
 /// This structure holds the final result value, any output generated,
@@ -87,7 +86,7 @@ pub(crate) use parser::NEWLINE;
 /// println!("Output: {:?}", script_result.output());
 /// println!("Errors: {:?}", script_result.errors());
 /// ```
-///
+pub use parser::ScriptResult;
 /// Represents a parsed token from a PowerShell script.
 ///
 /// Tokens are the building blocks of parsed PowerShell code and are used
@@ -106,7 +105,7 @@ pub(crate) use parser::NEWLINE;
 ///     println!("Token: {:?}", token);
 /// }
 /// ```
-///
+pub use parser::Token;
 /// Manages PowerShell variables across different scopes.
 ///
 /// This structure handles variable storage, retrieval, and scope management
@@ -131,7 +130,7 @@ pub(crate) use parser::NEWLINE;
 /// let mut vars = Variables::new();
 /// // ... add variables manually
 /// ```
-pub use parser::{PowerShellSession, PsValue, ScriptResult, Token, Variables};
+pub use parser::Variables;
 
 #[cfg(test)]
 mod tests {
