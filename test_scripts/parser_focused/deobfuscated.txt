@@ -38,24 +38,10 @@ $cast_int = 123
 $cast_float = 3.14
 $cast_string = '42'
 $cast_bool = $true
-if ($true) {
-    $if_result = "condition true"
-}
-
-
-if ($false) {
-    $else_result = "false branch"
-} else {
-    $else_result = "true branch"
-}
+$if_result = 'condition true'
+$else_result = 'true branch'
 $score = 85
-if ($score -ge 90) {
-    $grade = "A"
-} elseif ($score -ge 80) {
-    $grade = "B"
-} else {
-    $grade = "C"
-}
+$grade = 'B'
 for ($i = 1; $i -le 3; $i++) {
     $for_result = "iteration " + $i
 }

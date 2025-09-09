@@ -91,15 +91,19 @@ pub use parser::ScriptResult;
 ///
 /// Tokens are the building blocks of parsed PowerShell code and are used
 /// for syntax analysis, deobfuscation, and code transformation.
-/// 
+///
 /// Right now 4 token types are supported:
-/// - **String**: Representation of single quoted PowerShell strings (e.g., `'hello world'`)
-/// - **StringExpandable**: Representation of double quoted PowerShell strings with variable expansion (e.g., `"Hello $name"`)
-/// - **Expression**: Parsed PowerShell expressions with their evaluated results (e.g., `$a + $b`)
+/// - **String**: Representation of single quoted PowerShell strings (e.g.,
+///   `'hello world'`)
+/// - **StringExpandable**: Representation of double quoted PowerShell strings
+///   with variable expansion (e.g., `"Hello $name"`)
+/// - **Expression**: Parsed PowerShell expressions with their evaluated results
+///   (e.g., `$a + $b`)
 /// - **Function**: PowerShell function definitions and calls
 ///
-/// Each token type stores both the original source code and its processed/evaluated form,
-/// making it useful for deobfuscation and analysis purposes.
+/// Each token type stores both the original source code and its
+/// processed/evaluated form, making it useful for deobfuscation and analysis
+/// purposes.
 ///
 /// # Examples
 ///
@@ -531,5 +535,45 @@ function Get-Square($number) {
             .join(NEWLINE)
         );
         assert_eq!(script_res.errors().len(), 2);
+    }
+
+    #[test]
+    fn test_if() {
+        // Test for even numbers
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+        let input = r#" 
+        # Test 10: Conditional Statements
+if ($true) {
+    $if_result = "condition true"
+}
+
+if ($false) {
+    $else_result = "false branch"
+} else {
+    $else_result = "true branch"
+}
+
+$score = 85
+if ($score -ge 90) {
+    $grade = "A"
+} elseif ($score -ge 80) {
+    $grade = "B"
+} else {
+    $grade = "C"
+}
+        
+        "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec![
+                "$if_result = 'condition true'",
+                "$else_result = 'true branch'",
+                "$score = 85",
+                "$grade = 'B'"
+            ]
+            .join(NEWLINE)
+        );
+        assert_eq!(script_res.errors().len(), 0);
     }
 }

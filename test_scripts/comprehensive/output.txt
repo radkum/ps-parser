@@ -35,6 +35,7 @@ Hash table: System.Collections.Hashtable
 Name: John
 Age: 30
 === Test 10: Conditional Statements ===
+Grade: B
 === Test 11: Switch Statements ===
 === Test 12: For Loop ===
 === Test 13: While Loop ===

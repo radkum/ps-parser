@@ -40,11 +40,11 @@ statement = _{
 statement_terminator = { (";" | NEWLINE)+ }
 
 if_statement = {
-    ^"if" ~ "(" ~ pipeline ~ ")"  ~ statement_block ~ elseif_clauses? ~ else?
+    ^"if" ~ "(" ~ pipeline ~ ")"  ~ statement_block ~ elseif_clauses? ~ else_condition?
 }
 elseif_clauses = {else_if+}
 else_if = { ^"elseif" ~ "(" ~ pipeline ~ ")" ~ statement_block }
-else = { ^"else" ~ statement_block }
+else_condition = { ^"else" ~ statement_block }
 
 //------------------------------- LABELED STATEMENTS
 label = @{ ":" ~ ASCII_ALPHANUMERIC* }

@@ -214,6 +214,7 @@ impl<'a> PowerShellSession {
                             _ => panic!("not possible: {:?}", token.as_rule()),
                         }
                     }
+                    Rule::if_statement => self.eval_if_statement(token),
                     Rule::statement_terminator => continue,
                     Rule::EOI => break,
                     _ => {
@@ -253,6 +254,45 @@ impl<'a> PowerShellSession {
         ))
     }
 
+    pub(crate) fn eval_if_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::if_statement);
+        let mut pair = token.into_inner();
+        let condition_token = pair.next().unwrap();
+        let true_token = pair.next().unwrap();
+        let condition_val = self.eval_pipeline(condition_token)?;
+        let res = if condition_val.cast_to_bool() {
+            self.eval_statement_block(true_token)?
+        } else {
+            if let Some(mut token) = pair.next() {
+                if token.as_rule() == Rule::elseif_clauses {
+                    for else_if in token.into_inner() {
+                        let mut pairs = else_if.into_inner();
+                        let condition_token = pairs.next().unwrap();
+                        let statement_token = pairs.next().unwrap();
+                        let condition_val = self.eval_pipeline(condition_token)?;
+                        if condition_val.cast_to_bool() {
+                            return self.eval_statement_block(statement_token);
+                        }
+                    }
+                    let Some(token2) = pair.next() else {
+                        return Ok(Val::Null);
+                    };
+                    token = token2;
+                }
+                if token.as_rule() == Rule::else_condition {
+                    let statement_token = token.into_inner().next().unwrap();
+                    self.eval_statement_block(statement_token)?
+                } else {
+                    Val::Null
+                }
+            } else {
+                Val::Null
+            }
+        };
+
+        Ok(res)
+    }
+
     pub(crate) fn eval_script_block(
         &mut self,
         input: &ScriptBlock,
@@ -271,6 +311,7 @@ impl<'a> PowerShellSession {
     fn eval_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         match token.as_rule() {
             Rule::pipeline => self.eval_pipeline(token),
+            Rule::if_statement => self.eval_if_statement(token),
             _ => Err(ParserError::NotImplemented(format!(
                 "Not implemented: {:?}",
                 token.as_rule()
@@ -288,6 +329,15 @@ impl<'a> PowerShellSession {
         }
     }
 
+    fn eval_statement_block(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        Ok(self
+            .safe_eval_statements(token)?
+            .iter()
+            .last()
+            .cloned()
+            .unwrap_or(Val::Null))
+    }
+
     fn eval_statements(&mut self, token: Pair<'a>) -> ParserResult<Vec<Val>> {
         //check_rule!(token, Rule::statements);
         let pairs = token.into_inner();
@@ -296,6 +346,23 @@ impl<'a> PowerShellSession {
         for token in pairs {
             let s = self.eval_statement(token)?;
             statements.push(s);
+        }
+        Ok(statements)
+    }
+
+    fn safe_eval_statements(&mut self, token: Pair<'a>) -> ParserResult<Vec<Val>> {
+        //check_rule!(token, Rule::statements);
+        let pairs = token.into_inner();
+        let mut statements = vec![];
+
+        for token in pairs {
+            match self.eval_statement(token.clone()) {
+                Ok(s) => statements.push(s),
+                Err(err) => {
+                    self.errors.push(err);
+                    statements.push(Val::ScriptText(token.as_str().to_string()));
+                }
+            }
         }
         Ok(statements)
     }

@@ -108,13 +108,8 @@ $nested_func_result = Outer 5
 # Test 27: Variable Scoping in Blocks
 
 $global_var = 'global'
-if ($true) {
-    $block_var = "block"
-    $scope_test = $global_var + $block_var
-}
-
-# Test 28: Switch with Edge Cases
-
+$block_var = 'block'
+$scope_test = 'globalblock'
 $switch_var = $null
 switch ($switch_var) {
     $null { $switch_null_result = "matched null" }

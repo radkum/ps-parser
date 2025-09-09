@@ -57,15 +57,7 @@ Write-Output 'Name: John'
 Write-Output 'Age: 30'
 Write-Host '=== Test 10: Conditional Statements ===' -ForegroundColor 'Green'
 $score = 85
-if ($score -ge 90) {
-    Write-Output "Grade: A"
-} elseif ($score -ge 80) {
-    Write-Output "Grade: B"
-} elseif ($score -ge 70) {
-    Write-Output "Grade: C"
-} else {
-    Write-Output "Grade: F"
-}
+Write-Output 'Grade: B'
 Write-Host '=== Test 11: Switch Statements ===' -ForegroundColor 'Green'
 $day = 'Monday'
 switch ($day) {
