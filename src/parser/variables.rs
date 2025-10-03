@@ -1,4 +1,5 @@
 mod variable;
+mod scopes;
 use std::collections::HashMap;
 
 use thiserror_no_std::Error;

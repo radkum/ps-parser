@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::LazyLock};
 
 use thiserror_no_std::Error;
-
+use crate::ScriptResult;
 use super::{StreamMessage, Val};
 use crate::PowerShellSession;
 
@@ -10,6 +10,16 @@ pub struct CommandOutput {
     pub val: Option<Val>,              // Regular return value
     pub deobfuscated: Option<String>,  // Message to a specific stream
     pub stream: Option<StreamMessage>, // Message to a specific stream
+}
+
+impl From<ScriptResult> for CommandOutput {
+    fn from(script_result: ScriptResult) -> Self {
+        CommandOutput {
+            val: Some(script_result.result().into()),
+            deobfuscated: script_result.deobfuscated().into(),
+            stream: StreamMessage::success(script_result.output()).into(),
+        }
+    }
 }
 
 #[derive(Error, Debug, PartialEq, Clone)]
@@ -78,6 +88,7 @@ fn where_object(
     args: Vec<CommandElem>,
     ps: Option<&mut PowerShellSession>,
 ) -> CommandResult<CommandOutput> {
+    println!("args: {:?}", args);
     log::debug!("args: {:?}", args);
     if args.len() != 2 {
         return Err(CommandError::IncorrectArgs(
@@ -102,14 +113,14 @@ fn where_object(
     };
 
     let filtered_elements = elements
-        .into_iter()
+        .iter()
         .filter(
-            |element| match ps.eval_script_block(script_block, element) {
+            |element| match ps.eval_script_block(&script_block, Some(element.clone().clone())) {
                 Err(er) => {
                     ps.errors.push(er);
                     false
                 }
-                Ok(b) => b,
+                Ok(b) => b.result().is_true(),
             },
         )
         .map(|element| element.clone())
@@ -256,7 +267,6 @@ mod tests {
         let mut p = PowerShellSession::new();
         let input = r#"$numbers = 1..10;$evenNumbers = $numbers | Where-Object { $_ % 2 -eq 0 };$evenNumbers"#;
         let s = p.parse_input(input).unwrap();
-        println!("s: {:?}", s);
         assert_eq!(
             s.result().to_string(),
             vec!["2", "4", "6", "8", "10"].join(NEWLINE)

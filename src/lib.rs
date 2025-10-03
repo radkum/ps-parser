@@ -493,6 +493,7 @@ Write-Output "Modulo: $(($a % $b))"
         let mut p = PowerShellSession::new().with_variables(Variables::env());
         let input = r#" $numbers = 1..10; $evenNumbers = $numbers | Where-Object { $_ % 2 -eq 0 }; $evenNumbers"#;
         let script_res = p.parse_input(input).unwrap();
+        println!("{:?}", script_res);
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![
@@ -501,6 +502,30 @@ Write-Output "Modulo: $(($a % $b))"
                 PsValue::Int(6),
                 PsValue::Int(8),
                 PsValue::Int(10)
+            ])
+        );
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec![
+                "$numbers = @(1,2,3,4,5,6,7,8,9,10)",
+                "$evennumbers = @(2,4,6,8,10)"
+            ]
+            .join(NEWLINE)
+        );
+        assert_eq!(script_res.errors().len(), 0);
+    }
+
+    #[test]
+    fn divisible_by_2_and_3() {
+        // Test for even numbers
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+        let input = r#" $numbers = 1..10; $evenNumbers = $numbers | Where { $_ % 2 -eq 0 }| ? { $_ % 3 -eq 0 }; $evenNumbers"#;
+        let script_res = p.parse_input(input).unwrap();
+        println!("{:?}", script_res);
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![
+                PsValue::Int(6),
             ])
         );
         assert_eq!(

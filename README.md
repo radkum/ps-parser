@@ -210,7 +210,8 @@ Expression("5", Int(5))
 ## Future plans
 
 - add "scopes" to evaluation
-- eval "if" and "switch" statements
+- replace panic with some message?
+- eval "switch" statements
 - eval "function" and "script_block" statements
 - parse "enum" and "class" statements
 

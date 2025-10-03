@@ -125,7 +125,7 @@ finally_clause = { ^"finally" ~ statement_block }
 data_statement = { ^"data" ~ simple_name? ~ data_commands_allowed? ~ statement_block }
 data_commands_allowed = { ^"-supportedcommand" ~ data_commands_list }
 data_commands_list = { data_command ~ ("," ~ data_command)* }
-data_command = { command_name_expr }
+data_command = { invocation_command_exp }
 
 //--------------------------------- CLASS STATEMENTS
 class_attribute = { ^"hidden" | ^"static" }
@@ -251,15 +251,16 @@ assignement_op = {prefix_assign_op? ~ assign_op }
 
 // ---------------- COMMAND
 command = {
-    script_block_command
+    invocation_command
   | long_command
-  | foreach_command
-  | invocation_command
 }
-foreach_command = { ("%" | ^"foreach-object") ~ script_block_expression+ }
-long_command = ${ command_name ~ command_element* }
-script_block_command = { command_name ~ script_block_expression }
-invocation_command = { command_invokation_operator ~ command_name_expr ~ command_element* }
+foreach_command_name = { "%" | ^"foreach-object" }
+where_command_name = { "?" | ^"where-object" | ^"where" }
+long_command = ${ (where_command_name | foreach_command_name | command_name) ~ command_element* }
+//script_block_command = { command_name ~ script_block_expression }
+invocation_command = { current_scope_invocation_command | new_scope_invocation_command }
+current_scope_invocation_command = { "." ~ invocation_command_exp }
+new_scope_invocation_command = { "&" ~ invocation_command_exp }
 BREAK = _{ " " | "\t" }
 command_element = _{ 
     BREAK 
@@ -277,6 +278,7 @@ stop_parsing = @{ "--%" ~ (!(NEWLINE) ~ ANY)* }
 command_argument_sep = { ":" }
 command_argument = {
       parenthesized_expression
+    | script_block_expression
     | array_literal_exp 
     | generic_token
     | command_argument_sep ~ array_literal_exp
@@ -284,8 +286,8 @@ command_argument = {
 }
 
 
-command_name_expr = { command_name | path_command_name | primary_expression }
-command_invokation_operator = {"." | "&"}
+invocation_command_exp = { long_command | path_command_name | primary_expression }
+
 command_call = { command_ident ~ expression* }
 command_name = { command_name_base  ~ extra_command_token? }
 command_name_base = @{ (!FORBIDDEN_CHARS ~ ANY)+ }
