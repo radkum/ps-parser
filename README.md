@@ -209,10 +209,13 @@ Expression("5", Int(5))
 
 ## Future plans
 
-- add "scopes" to evaluation
-- replace panic with some message?
+version 0.2.0
+- check each panic
 - eval "switch" statements
 - eval "function" and "script_block" statements
+- make benchmarks
+
+version 0.2.1
 - parse "enum" and "class" statements
 
 ## Documentation
