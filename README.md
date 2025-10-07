@@ -216,6 +216,9 @@ version 0.2.0
 - make benchmarks
 
 version 0.2.1
+- consider not reporting error: not implemented?
+- maybe more token kinds?
+- maybe return "script" scope variables in ScriptResult?
 - parse "enum" and "class" statements
 
 ## Documentation
