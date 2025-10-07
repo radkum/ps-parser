@@ -6,8 +6,7 @@ WHITESPACE     = _{ " " | "\t" | NEWLINE }
 program = { SOI ~ param_block? ~ statements ~ EOI }
 
 //---------------------------------- BLOCKS
-script_block = { script_block_body | (param_block ~ ";"* ~ script_block_body?)}
-param_block = { attribute_list? ~ ^"param" ~ "(" ~ parameter_list? ~ ")" }
+param_block = { ^"param" ~ "(" ~ parameter_list? ~ ")" }
 parameter_list = { script_parameter ~ ("," ~ script_parameter)* }
 script_parameter = { attribute_list? ~ variable ~ script_parameter_default? }
 script_parameter_default = { "=" ~ expression }
@@ -99,12 +98,17 @@ function_name = { command_token }
 function_parameter_declaration = { "(" ~ parameter_list? ~ ")" }
 
 flow_control_statement = {
-    ( ^"break" ~ label_exp?)
-  | ( ^"continue" ~ label_exp?)
-  | ( ^"throw" ~ pipeline?)
-  | ( ^"return" ~ pipeline?)
-  | ( ^"exit" ~ pipeline?)
+    flow_control_label_statement
+  | flow_control_pipeline_statement
 }
+flow_control_label_statement = { break_statement | continue_statement }
+break_statement = { ^"break" ~ label_exp? }
+continue_statement = { ^"continue" ~ label_exp? }
+
+flow_control_pipeline_statement = { throw_statement | return_statement | exit_statement }
+throw_statement = { ^"throw" ~ pipeline?}
+return_statement = { ^"return" ~ pipeline?}
+exit_statement = { ^"exit" ~ pipeline?}
 
 trap_statement = { ^"trap" ~ type_literal? ~ statement_block}
 
@@ -250,15 +254,14 @@ assign_op = { "=" }
 assignement_op = {prefix_assign_op? ~ assign_op }
 
 // ---------------- COMMAND
-command = {
+command = ${(
     invocation_command
-  | long_command
+  | cmdlet_command) ~ command_element*
 }
 foreach_command_name = { "%" | ^"foreach-object" }
 where_command_name = { "?" | ^"where-object" | ^"where" }
-long_command = ${ (where_command_name | foreach_command_name | command_name) ~ command_element* }
-//script_block_command = { command_name ~ script_block_expression }
-invocation_command = { current_scope_invocation_command | new_scope_invocation_command }
+cmdlet_command = ${ (where_command_name | foreach_command_name | command_name) }
+invocation_command = !{ current_scope_invocation_command | new_scope_invocation_command }
 current_scope_invocation_command = { "." ~ invocation_command_exp }
 new_scope_invocation_command = { "&" ~ invocation_command_exp }
 BREAK = _{ " " | "\t" }
@@ -285,14 +288,13 @@ command_argument = {
     | command_argument_sep ~ generic_token?
 }
 
-
-invocation_command_exp = { long_command | path_command_name | primary_expression }
+invocation_command_exp = _{ cmdlet_command | path_command_name | primary_expression }
 
 command_call = { command_ident ~ expression* }
 command_name = { command_name_base  ~ extra_command_token? }
 command_name_base = @{ (!FORBIDDEN_CHARS ~ ANY)+ }
 FORBIDDEN_CHARS = _{
-      "{" | "}" | "(" | ")" | ";" | "," | "|" | "&" | "`" | "\"" | "'" | WHITESPACE | NEWLINE
+      "{" | "}" | "(" | ")" | ";" | "," | "|" | "&" | "$" | "`" | "\"" | "'" | WHITESPACE | NEWLINE
     | "[" | "]" | "+" | "-" | "*" | "/" | "@" | "<" | "!" | "%" | "="
 }
 
@@ -308,8 +310,7 @@ extra_command_token = {
     | "''" 
 }
 immediate_chars = @{ (!SECOND_FORBIDDEN_CHARS ~ ANY)+ }
-path_command_name = { (path_command_name_token | variable)+ }
-path_command_name_token = @{ (ASCII_ALPHANUMERIC | "_" | "?" | "-" | "." | "\\")+ }
+path_command_name = @{ (ASCII_ALPHANUMERIC | "_" | "?" | "-" | "." | "\\")+ }
 
 //-------------------------------------STRING OPERATORS
 string_op = { replace_op | split_op | cmp_op | contain_op | join_op | type_check_op }
@@ -339,8 +340,8 @@ value = {
 parenthesized_expression = { "(" ~ pipeline ~ ")"}
 sub_expression = !{ "$(" ~ statements? ~ ")" }
 array_expression = { "@(" ~ statements? ~ ")" }
-script_block_expression = { "{" ~ script_block_inner ~ "}" }
-script_block_inner = { param_block? ~ script_block }
+script_block_expression = !{ "{" ~ script_block ~ "}" }
+script_block = { param_block? ~ ";"* ~ script_block_body? }
 
 hash_literal_expression = { "@{" ~ hash_literal_body? ~ "}" }
 hash_literal_body = _{ hash_entry* }

@@ -1,3 +1,5 @@
+use std::num::ParseFloatError;
+
 use thiserror_no_std::Error;
 
 use super::{
@@ -10,7 +12,7 @@ use super::{
 #[derive(Error, Debug, PartialEq, Clone)]
 pub enum ParserError {
     #[error("PestError: {0}")]
-    PestError(PestError),
+    PestError(String),
 
     #[error("ValError: {0}")]
     ValError(ValError),
@@ -27,13 +29,16 @@ pub enum ParserError {
     #[error("CommandError: {0}")]
     CommandError(CommandError),
 
+    #[error("ParseFloatError: {0}")]
+    ParseFloatError(ParseFloatError),
+
     #[error("NotImplementedError: {0}")]
     NotImplemented(String),
 }
 
 impl From<PestError> for ParserError {
     fn from(value: PestError) -> Self {
-        Self::PestError(value)
+        Self::PestError(value.to_string())
     }
 }
 
@@ -68,3 +73,9 @@ impl From<CommandError> for ParserError {
 }
 
 impl std::error::Error for ParserError {}
+
+impl From<ParseFloatError> for ParserError {
+    fn from(value: ParseFloatError) -> Self {
+        Self::ParseFloatError(value)
+    }
+}

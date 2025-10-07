@@ -84,7 +84,7 @@ impl From<InternalVal> for PsValue {
                     .collect(),
             ),
             InternalVal::RuntimeObject(obj) => PsValue::String(obj.name()),
-            InternalVal::ScriptBlock(obj) => PsValue::String(obj.0.clone()),
+            InternalVal::ScriptBlock(sb) => PsValue::String(sb.raw_text),
             InternalVal::ScriptText(st) => PsValue::String(st.clone()),
         }
     }

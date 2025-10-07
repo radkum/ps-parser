@@ -25,7 +25,7 @@ pub type ValResult<T> = core::result::Result<T, ValError>;
 
 use crate::NEWLINE;
 
-#[derive(PartialEq, Debug, SmartDefault)]
+#[derive(PartialEq, Debug, SmartDefault, Clone)]
 pub enum ValType {
     #[default]
     Null,
@@ -94,7 +94,55 @@ pub(crate) enum Val {
 }
 
 #[derive(Debug, Clone)]
-pub struct ScriptBlock(pub String);
+pub struct Param {
+    name: String,
+    //ttype: Option<ValType>,
+    default_value: Option<Val>,
+}
+
+impl Param {
+    pub fn new(name: String, default_value: Option<Val>) -> Self {
+        Self {
+            name,
+            default_value,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    // pub fn ttype(&self) -> Option<&ValType> {
+    //     self.ttype.as_ref()
+    // }
+
+    pub fn default_value(&self) -> Option<Val> {
+        self.default_value.clone()
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ScriptBlock {
+    pub params: Vec<Param>,
+    pub body: String,
+    pub raw_text: String,
+}
+
+impl ScriptBlock {
+    pub fn new(params: Vec<Param>, script: String, raw_text: String) -> Self {
+        Self {
+            params,
+            body: script,
+            raw_text,
+        }
+    }
+}
+
+impl std::fmt::Display for ScriptBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.raw_text)
+    }
+}
 
 impl std::fmt::Display for Val {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -216,7 +264,8 @@ impl Val {
             }
             Val::ScriptBlock(sb1) => {
                 if let Val::ScriptBlock(sb2) = val {
-                    str_cmp(&sb1.0, &sb2.0, case_insensitive) == std::cmp::Ordering::Equal
+                    str_cmp(&sb1.raw_text, &sb2.raw_text, case_insensitive)
+                        == std::cmp::Ordering::Equal
                 } else {
                     false
                 }
@@ -566,7 +615,7 @@ impl Val {
             ValType::String => Val::String(PsString::default()),
             ValType::Array => Val::Array(Default::default()),
             ValType::HashTable => Val::HashTable(HashMap::new()),
-            ValType::ScriptBlock => Val::ScriptBlock(ScriptBlock("".to_string())),
+            ValType::ScriptBlock => Val::ScriptBlock(ScriptBlock::default()),
             ValType::ScriptText => Val::ScriptText("".to_string()),
             ValType::RuntimeType(s) => {
                 if let Ok(runtime_object) = runtime_object::get_runtime_object(s.as_str()) {
@@ -589,7 +638,7 @@ impl Val {
             Val::Array(v) => !v.is_empty(),
             Val::HashTable(h) => !h.is_empty(),
             Val::RuntimeObject(rt) => !rt.name().is_empty(),
-            Val::ScriptBlock(sb) => !sb.0.is_empty(),
+            Val::ScriptBlock(_) => true,
             Val::ScriptText(st) => !st.is_empty(),
         }
     }
@@ -716,7 +765,7 @@ impl Val {
                 .join(" "),
             Val::HashTable(_) => "System.Collections.Hashtable".to_string(),
             Val::RuntimeObject(s) => s.name(),
-            Val::ScriptBlock(sb) => sb.0.clone(),
+            Val::ScriptBlock(sb) => sb.to_string(),
             Val::ScriptText(st) => st.clone(),
         }
     }
@@ -738,7 +787,7 @@ impl Val {
             Val::Array(v) => v.clone(),
             Val::HashTable(_) => vec![self.clone()],
             Val::RuntimeObject(a) => vec![Val::String(a.name().into())],
-            Val::ScriptBlock(s) => vec![Val::String(s.0.clone().into())],
+            Val::ScriptBlock(sb) => vec![Val::String(sb.to_string().into())],
             Val::ScriptText(s) => vec![Val::String(s.clone().into())],
         }
     }
@@ -830,8 +879,8 @@ impl Val {
             Val::Bool(b) => String::from(if *b { "$true" } else { "$false" }),
             Val::Int(i) => i.to_string(),
             Val::Float(f) => f.to_string(),
-            Val::Char(c) => format!("'{}'", char::from_u32(*c).unwrap_or_default().to_string()),
-            Val::String(PsString(s)) => format!("'{}'", s),
+            Val::Char(c) => format!("'{}'", char::from_u32(*c).unwrap_or_default()),
+            Val::String(PsString(s)) => format!("\"{}\"", s),
             Val::Array(v) => {
                 let inner = v
                     .iter()
@@ -850,7 +899,7 @@ impl Val {
                 format!("@{{{NEWLINE}{}{NEWLINE}}}", inner)
             }
             Val::RuntimeObject(s) => format!("[{}]", s.name()),
-            Val::ScriptBlock(sb) => format!("{{{}}}", sb.0.as_str()),
+            Val::ScriptBlock(sb) => format!("{{{}}}", sb),
             Val::ScriptText(st) => st.clone(),
         }
     }
@@ -926,20 +975,11 @@ impl TypeInfoTrait for Val {
 impl From<TypeInfo> for Val {
     fn from(info: TypeInfo) -> Self {
         let mut table = HashMap::new();
+        table.insert("IsPublic".to_ascii_lowercase(), Val::Bool(info.is_public));
+        table.insert("IsSerial".to_ascii_lowercase(), Val::Bool(info.is_serial));
+        table.insert("Name".to_ascii_lowercase(), Val::String(info.name.into()));
         table.insert(
-            "IsPublic".to_ascii_lowercase().into(),
-            Val::Bool(info.is_public),
-        );
-        table.insert(
-            "IsSerial".to_ascii_lowercase().into(),
-            Val::Bool(info.is_serial),
-        );
-        table.insert(
-            "Name".to_ascii_lowercase().into(),
-            Val::String(info.name.into()),
-        );
-        table.insert(
-            "BaseType".to_ascii_lowercase().into(),
+            "BaseType".to_ascii_lowercase(),
             Val::String(info.base_type.into()),
         );
         Val::HashTable(table)

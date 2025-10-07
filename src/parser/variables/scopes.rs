@@ -1,3 +1,9 @@
+#[derive(Debug)]
+pub(crate) enum SessionScope {
+    Current,
+    New,
+}
+
 #[cfg(test)]
 mod tests {
     use crate::PowerShellSession;
@@ -7,10 +13,7 @@ mod tests {
         let mut p = PowerShellSession::new();
         let input = r#"$v = 5;& { $v = 10};$v"#;
         let s = p.parse_input(input).unwrap();
-        assert_eq!(
-            s.result().to_string(),
-            "5".to_string()
-        );
+        assert_eq!(s.result().to_string(), "5".to_string());
     }
 
     #[test]
@@ -18,9 +21,6 @@ mod tests {
         let mut p = PowerShellSession::new();
         let input = r#"$v = 5;. { $v = 10};$v"#;
         let s = p.parse_input(input).unwrap();
-        assert_eq!(
-            s.result().to_string(),
-            "10".to_string()
-        );
+        assert_eq!(s.result().to_string(), "10".to_string());
     }
 }

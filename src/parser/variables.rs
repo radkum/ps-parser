@@ -1,12 +1,13 @@
-mod variable;
 mod scopes;
+mod variable;
 use std::collections::HashMap;
 
+use phf::phf_map;
+pub(super) use scopes::SessionScope;
 use thiserror_no_std::Error;
-pub(super) use variable::{Scope, VarName, VarProp, Variable};
+pub(super) use variable::{Scope, VarName};
 
 use crate::parser::Val;
-
 #[derive(Error, Debug, PartialEq, Clone)]
 pub enum VariableError {
     #[error("Variable \"{0}\" is not defined")]
@@ -16,10 +17,15 @@ pub enum VariableError {
 }
 
 pub type VariableResult<T> = core::result::Result<T, VariableError>;
+pub type VariableMap = HashMap<String, Val>;
 
-#[derive(Default, Clone)]
+#[derive(Clone, Default)]
 pub struct Variables {
-    map: HashMap<VarName, Variable>,
+    env: VariableMap,
+    global_scope: VariableMap,
+    script_scope: VariableMap,
+    scope_sessions_stack: Vec<VariableMap>,
+    state: State,
     force_var_eval: bool,
     //special variables
     // status: bool, // $?
@@ -28,43 +34,52 @@ pub struct Variables {
     // current_pipeline: Option<String>,
 }
 
+#[derive(Default, Clone)]
+enum State {
+    #[default]
+    Script,
+    Stack(u32),
+}
+
 impl Variables {
-    fn const_variables() -> HashMap<VarName, Variable> {
-        HashMap::from([
-            (
-                VarName::new(Scope::Global, "true".to_ascii_lowercase()),
-                Variable::new(VarProp::ReadOnly, Val::Bool(true)),
-            ),
-            (
-                VarName::new(Scope::Global, "false".to_ascii_lowercase()),
-                Variable::new(VarProp::ReadOnly, Val::Bool(false)),
-            ),
-            (
-                VarName::new(Scope::Global, "null".to_ascii_lowercase()),
-                Variable::new(VarProp::ReadOnly, Val::Null),
-            ),
-        ])
-    }
+    const PREDEFINED_VARIABLES: phf::Map<&'static str, Val> = phf_map! {
+        "true" => Val::Bool(true),
+        "false" => Val::Bool(false),
+        "null" => Val::Null,
+    };
 
     pub(crate) fn set_ps_item(&mut self, ps_item: Val) {
         let _ = self.set(
-            &VarName::new(Scope::Special, "$PSItem".into()),
+            &VarName::new_with_scope(Scope::Special, "$PSItem".into()),
             ps_item.clone(),
         );
-        let _ = self.set(&VarName::new(Scope::Special, "$_".into()), ps_item);
+        let _ = self.set(
+            &VarName::new_with_scope(Scope::Special, "$_".into()),
+            ps_item,
+        );
     }
 
     pub(crate) fn reset_ps_item(&mut self) {
-        let _ = self.set(&VarName::new(Scope::Special, "$PSItem".into()), Val::Null);
-        let _ = self.set(&VarName::new(Scope::Special, "$_".into()), Val::Null);
+        let _ = self.set(
+            &VarName::new_with_scope(Scope::Special, "$PSItem".into()),
+            Val::Null,
+        );
+        let _ = self.set(
+            &VarName::new_with_scope(Scope::Special, "$_".into()),
+            Val::Null,
+        );
     }
 
     pub fn set_status(&mut self, b: bool) {
-        let _ = self.set(&VarName::new(Scope::Special, "$?".into()), Val::Bool(b));
+        let _ = self.set(
+            &VarName::new_with_scope(Scope::Special, "$?".into()),
+            Val::Bool(b),
+        );
     }
 
     pub fn status(&mut self) -> bool {
-        let Some(Val::Bool(b)) = self.get(&VarName::new(Scope::Special, "$?".into())) else {
+        let Some(Val::Bool(b)) = self.get(&VarName::new_with_scope(Scope::Special, "$?".into()))
+        else {
             return false;
         };
         b
@@ -96,8 +111,9 @@ impl Variables {
                 };
 
                 let var_name = match section_name.as_str() {
-                    "global" => VarName::new(Scope::Global, key.to_lowercase()),
-                    "local" => VarName::new(Scope::Local, key.to_lowercase()),
+                    "global" => VarName::new_with_scope(Scope::Global, key.to_lowercase()),
+                    "script" => VarName::new_with_scope(Scope::Script, key.to_lowercase()),
+                    "env" => VarName::new_with_scope(Scope::Env, key.to_lowercase()),
                     _ => {
                         continue;
                     }
@@ -117,15 +133,9 @@ impl Variables {
                 };
 
                 // Insert the variable (overwrite if it exists and is not read-only)
-                if let Some(variable) = self.map.get(&var_name) {
-                    if variable.prop == VarProp::ReadOnly {
-                        log::warn!("Skipping read-only variable: {:?}", var_name);
-                        continue;
-                    }
+                if let Err(err) = self.set(&var_name, parsed_value.clone()) {
+                    log::error!("Failed to set variable {:?}: {}", var_name, err);
                 }
-
-                self.map
-                    .insert(var_name, Variable::new(VarProp::ReadWrite, parsed_value));
             }
         }
         Ok(())
@@ -154,12 +164,7 @@ impl Variables {
     /// let empty_vars = Variables::new();
     /// ```
     pub fn new() -> Variables {
-        let map = Self::const_variables();
-
-        Self {
-            map,
-            force_var_eval: false,
-        }
+        Default::default()
     }
 
     /// Creates a new Variables container with forced evaluation enabled.
@@ -197,11 +202,9 @@ impl Variables {
     /// reference variables that haven't been explicitly defined, allowing
     /// the script to continue execution rather than failing.
     pub fn force_eval() -> Self {
-        let map = Self::const_variables();
-
         Self {
-            map,
             force_var_eval: true,
+            ..Default::default()
         }
     }
 
@@ -228,22 +231,16 @@ impl Variables {
     /// let username = session.safe_eval("$env:USERNAME").unwrap();
     /// ```
     pub fn env() -> Variables {
-        let mut map = Self::const_variables();
+        let mut vars = Variables::new();
 
         // Load all environment variables
         for (key, value) in std::env::vars() {
             // Store environment variables with Env scope so they can be accessed via
             // $env:variable_name
-            map.insert(
-                VarName::new(Scope::Env, key.to_lowercase()),
-                Variable::new(VarProp::ReadWrite, Val::String(value.into())),
-            );
+            vars.env
+                .insert(key.to_lowercase(), Val::String(value.into()));
         }
-
-        Self {
-            map,
-            force_var_eval: true,
-        }
+        vars
     }
 
     /// Loads variables from an INI configuration file.
@@ -303,6 +300,51 @@ impl Variables {
         Ok(variables)
     }
 
+    fn const_map_from_scope(&self, scope: &Scope) -> &VariableMap {
+        match scope {
+            Scope::Global => &self.global_scope,
+            Scope::Script => &self.script_scope,
+            Scope::Env => &self.env,
+            Scope::Local => match self.state {
+                State::Script => &self.script_scope,
+                State::Stack(depth) => {
+                    if depth < self.scope_sessions_stack.len() as u32 {
+                        &self.scope_sessions_stack[depth as usize]
+                    } else {
+                        &self.script_scope
+                    }
+                }
+            },
+            Scope::Special => {
+                &self.global_scope //todo!(),
+            }
+        }
+    }
+
+    fn local_scope(&mut self) -> &mut VariableMap {
+        match self.state {
+            State::Script => &mut self.script_scope,
+            State::Stack(depth) => {
+                if depth < self.scope_sessions_stack.len() as u32 {
+                    &mut self.scope_sessions_stack[depth as usize]
+                } else {
+                    &mut self.script_scope
+                }
+            }
+        }
+    }
+    fn map_from_scope(&mut self, scope: &Scope) -> &mut VariableMap {
+        match scope {
+            Scope::Global => &mut self.global_scope,
+            Scope::Script => &mut self.script_scope,
+            Scope::Env => &mut self.env,
+            Scope::Local => self.local_scope(),
+            Scope::Special => {
+                &mut self.global_scope //todo!(),
+            }
+        }
+    }
+
     /// Sets the value of a variable in the specified scope.
     ///
     /// # Arguments
@@ -315,18 +357,54 @@ impl Variables {
     /// * `Result<(), VariableError>` - Success or an error if the variable is
     ///   read-only.
     pub(crate) fn set(&mut self, var_name: &VarName, val: Val) -> VariableResult<()> {
-        if let Some(variable) = self.map.get_mut(var_name) {
-            if let VarProp::ReadOnly = variable.prop {
-                log::error!("You couldn't modify a read-only variable");
-                Err(VariableError::ReadOnly(var_name.name.to_string()))
-            } else {
-                variable.value = val;
-                Ok(())
-            }
+        let var = self.find_mut_variable_in_scopes(var_name)?;
+
+        if let Some(variable) = var {
+            *variable = val;
         } else {
-            self.map
-                .insert(var_name.clone(), Variable::new(VarProp::ReadWrite, val));
-            Ok(())
+            let map = self.map_from_scope(&var_name.scope.clone().unwrap_or(Scope::Local));
+            map.insert(var_name.name.to_ascii_lowercase(), val);
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn set_local(&mut self, name: &str, val: Val) -> VariableResult<()> {
+        let var_name = VarName::new_with_scope(Scope::Local, name.to_ascii_lowercase());
+        self.set(&var_name, val)
+    }
+
+    fn find_mut_variable_in_scopes(
+        &mut self,
+        var_name: &VarName,
+    ) -> VariableResult<Option<&mut Val>> {
+        let name = var_name.name.to_ascii_lowercase();
+        let name_str = name.as_str();
+
+        if let Some(scope) = &var_name.scope {
+            let map = self.map_from_scope(scope);
+            Ok(map.get_mut(name_str))
+        } else {
+            if Self::PREDEFINED_VARIABLES.contains_key(name_str) {
+                return Err(VariableError::ReadOnly(name.clone()));
+            }
+
+            // No scope specified, check local scopes first, then globals
+            for local_scope in self.scope_sessions_stack.iter_mut().rev() {
+                if local_scope.contains_key(name_str) {
+                    return Ok(local_scope.get_mut(name_str));
+                }
+            }
+
+            if self.script_scope.contains_key(name_str) {
+                return Ok(self.script_scope.get_mut(name_str));
+            }
+
+            if self.global_scope.contains_key(name_str) {
+                return Ok(self.global_scope.get_mut(name_str));
+            }
+
+            Ok(None)
         }
     }
 
@@ -341,14 +419,66 @@ impl Variables {
     /// * `VariableResult<Val>` - The variable's value, or an error if not
     ///   found.
     pub(crate) fn get(&self, var_name: &VarName) -> Option<Val> {
-        //todo: handle special variables and scopes
+        let var = self.find_variable_in_scopes(var_name);
 
-        let mut var = self.map.get(var_name).map(|v| v.value.clone());
         if self.force_var_eval && var.is_none() {
-            var = Some(Val::Null);
+            Some(Val::Null)
+        } else {
+            var.cloned()
         }
+    }
 
-        var
+    fn find_variable_in_scopes(&self, var_name: &VarName) -> Option<&Val> {
+        let name = var_name.name.to_ascii_lowercase();
+        let name_str = name.as_str();
+
+        if let Some(scope) = &var_name.scope {
+            let map = self.const_map_from_scope(scope);
+            map.get(name_str)
+        } else {
+            if Self::PREDEFINED_VARIABLES.contains_key(name_str) {
+                return Self::PREDEFINED_VARIABLES.get(name_str);
+            }
+
+            // No scope specified, check local scopes first, then globals
+            for local_scope in self.scope_sessions_stack.iter().rev() {
+                if local_scope.contains_key(name_str) {
+                    return local_scope.get(name_str);
+                }
+            }
+
+            if self.script_scope.contains_key(name_str) {
+                return self.script_scope.get(name_str);
+            }
+
+            if self.global_scope.contains_key(name_str) {
+                return self.global_scope.get(name_str);
+            }
+
+            None
+        }
+    }
+
+    pub(crate) fn push_scope_session(&mut self) {
+        let current_map = self.local_scope();
+        let new_map = current_map.clone();
+
+        self.scope_sessions_stack.push(new_map);
+        self.state = State::Stack(self.scope_sessions_stack.len() as u32 - 1);
+    }
+
+    pub(crate) fn pop_scope_session(&mut self) {
+        match self.scope_sessions_stack.len() {
+            0 => todo!(),
+            1 => {
+                self.scope_sessions_stack.pop();
+                self.state = State::Script;
+            }
+            _ => {
+                self.scope_sessions_stack.pop();
+                self.state = State::Stack(self.scope_sessions_stack.len() as u32 - 1);
+            }
+        }
     }
 }
 
@@ -451,7 +581,7 @@ is_admin = true
 height = 5.9
 empty_value =
 
-[local]
+[script]
 local_var = "local_value"
         "#;
         let mut variables = Variables::new();
@@ -469,6 +599,10 @@ local_var = "local_value"
         assert_eq!(p.safe_eval(r#" $false "#).unwrap().as_str(), "False");
         assert_eq!(p.safe_eval(r#" $null "#).unwrap().as_str(), "");
         assert_eq!(
+            p.safe_eval(r#" $script:local_var "#).unwrap().as_str(),
+            "\"local_value\""
+        );
+        assert_eq!(
             p.safe_eval(r#" $local:local_var "#).unwrap().as_str(),
             "\"local_value\""
         );
@@ -483,13 +617,12 @@ is_admin = true
 height = 5.9
 empty_value =
 
-[local]
+[script]
 local_var = "local_value"
         "#;
 
         let variables = Variables::from_ini_string(input).unwrap();
         let mut p = PowerShellSession::new().with_variables(variables);
-
         assert_eq!(
             p.parse_input(r#" $global:name "#).unwrap().result(),
             PsValue::String("radek".into())
@@ -500,6 +633,14 @@ local_var = "local_value"
         );
         assert_eq!(p.safe_eval(r#" $false "#).unwrap().as_str(), "False");
         assert_eq!(p.safe_eval(r#" $null "#).unwrap().as_str(), "");
+        assert_eq!(
+            p.safe_eval(r#" $script:local_var "#).unwrap().as_str(),
+            "\"local_value\""
+        );
+        assert_eq!(
+            p.safe_eval(r#" $local_var "#).unwrap().as_str(),
+            "\"local_value\""
+        );
         assert_eq!(
             p.safe_eval(r#" $local:local_var "#).unwrap().as_str(),
             "\"local_value\""

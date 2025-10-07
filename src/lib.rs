@@ -156,12 +156,12 @@ mod tests {
     fn deobfuscation() {
         // assign variable and print it to screen
         let mut p = PowerShellSession::new();
-        let input = r#" $global:var = [char]([int]("9e4e" -replace "e")+3); [int]'a';$var"#;
+        let input = r#" $script:var = [char]([int]("9e4e" -replace "e")+3); [int]'a';$var"#;
         let script_res = p.parse_input(input).unwrap();
         assert_eq!(script_res.result(), 'a'.into());
         assert_eq!(
             script_res.deobfuscated(),
-            vec!["$var = 'a'", "[int]'a'"].join(NEWLINE)
+            vec!["$script:var = 'a'", "[int]'a'"].join(NEWLINE)
         );
         assert_eq!(script_res.errors().len(), 1);
         assert_eq!(
@@ -213,12 +213,12 @@ mod tests {
 
         // assign not existing value, forcing evaluation
         let mut p = PowerShellSession::new().with_variables(Variables::force_eval());
-        let input = r#" $global:var = $env:programfiles;[int]'a';$var"#;
+        let input = r#" $local:var = $env:programfiles;[int]'a';$script:var"#;
         let script_res = p.parse_input(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Null);
         assert_eq!(
             script_res.deobfuscated(),
-            vec!["$var = $null", "[int]'a'"].join(NEWLINE)
+            vec!["$local:var = $null", "[int]'a'"].join(NEWLINE)
         );
         assert_eq!(script_res.errors().len(), 1);
     }
@@ -227,7 +227,7 @@ mod tests {
     fn deobfuscation_env_value() {
         // assign not existing value, without forcing evaluation
         let mut p = PowerShellSession::new().with_variables(Variables::env());
-        let input = r#" $global:var = $env:programfiles;$var"#;
+        let input = r#" $local:var = $env:programfiles;$var"#;
         let script_res = p.parse_input(input).unwrap();
         assert_eq!(
             script_res.result(),
@@ -236,7 +236,7 @@ mod tests {
         assert_eq!(
             script_res.deobfuscated(),
             vec![format!(
-                "$var = '{}'",
+                "$local:var = \"{}\"",
                 std::env::var("PROGRAMFILES").unwrap()
             )]
             .join(NEWLINE)
@@ -401,13 +401,12 @@ Write-Output "Modulo: $(($a % $b))"
                     .as_os_str()
                     .to_string_lossy()
                     .to_string();
-                // std::fs::write(
-                //     format!("{}_deobfuscated.txt", _name),
-                //     script_deobfuscated.clone(),
-                // )
-                // .unwrap();
-                // std::fs::write(format!("{}_output.txt", _name),
-                // script_output.clone()).unwrap();
+                std::fs::write(
+                    format!("{}_deobfuscated.txt", _name),
+                    script_deobfuscated.clone(),
+                )
+                .unwrap();
+                std::fs::write(format!("{}_output.txt", _name), script_output.clone()).unwrap();
                 let script_deobfuscated_vec = script_deobfuscated
                     .lines()
                     .map(|s| s.trim_end())
@@ -448,7 +447,6 @@ Write-Output "Modulo: $(($a % $b))"
         let mut p = PowerShellSession::new().with_variables(Variables::env());
         let input = r#" $numbers = 1..10; $evenNumbers = $numbers | Where-Object { $_ % 2 -eq 0 }; $evenNumbers"#;
         let script_res = p.parse_input(input).unwrap();
-        println!("{:?}", script_res);
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![
@@ -474,22 +472,12 @@ Write-Output "Modulo: $(($a % $b))"
     fn divisible_by_2_and_3() {
         // Test for even numbers
         let mut p = PowerShellSession::new().with_variables(Variables::env());
-        let input = r#" $numbers = 1..10; $evenNumbers = $numbers | Where { $_ % 2 -eq 0 }| ? { $_ % 3 -eq 0 }; $evenNumbers"#;
+        let input = r#" $numbers = 1..10; $numbers | Where { $_ % 2 -eq 0 } | ? { $_ % 3 -eq 0 }"#;
         let script_res = p.parse_input(input).unwrap();
-        println!("{:?}", script_res);
-        assert_eq!(
-            script_res.result(),
-            PsValue::Array(vec![
-                PsValue::Int(6),
-            ])
-        );
+        assert_eq!(script_res.result(), PsValue::Array(vec![PsValue::Int(6),]));
         assert_eq!(
             script_res.deobfuscated(),
-            vec![
-                "$numbers = @(1,2,3,4,5,6,7,8,9,10)",
-                "$evennumbers = @(2,4,6,8,10)"
-            ]
-            .join(NEWLINE)
+            vec!["$numbers = @(1,2,3,4,5,6,7,8,9,10)",].join(NEWLINE)
         );
         assert_eq!(script_res.errors().len(), 0);
     }
@@ -547,10 +535,10 @@ if ($score -ge 90) {
         assert_eq!(
             script_res.deobfuscated(),
             vec![
-                "$if_result = 'condition true'",
-                "$else_result = 'true branch'",
+                "$if_result = \"condition true\"",
+                "$else_result = \"true branch\"",
                 "$score = 85",
-                "$grade = 'B'"
+                "$grade = \"B\""
             ]
             .join(NEWLINE)
         );
