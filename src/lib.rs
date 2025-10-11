@@ -355,74 +355,84 @@ Write-Output "Modulo: $(($a % $b))"
     fn test_scripts() {
         use std::fs;
         let Ok(entries) = fs::read_dir("test_scripts") else {
-            panic!("Failed to read test files");
+            panic!("Failed to read 'test_scripts' directory");
         };
         for entry in entries {
             let dir_entry = entry.unwrap();
             if std::fs::FileType::is_dir(&dir_entry.file_type().unwrap()) {
                 // If it's a directory, we can read the files inside it
                 let input_script = dir_entry.path().join("input.ps1");
-                let deobfuscated = dir_entry.path().join("deobfuscated.txt");
-                let output = dir_entry.path().join("output.txt");
+                let expected_deobfuscated_script = dir_entry.path().join("deobfuscated.txt");
+                let expected_output_script = dir_entry.path().join("output.txt");
 
-                let Ok(content) = fs::read_to_string(&input_script) else {
-                    panic!("Failed to read test files");
+                let Ok(input) = fs::read_to_string(&input_script) else {
+                    panic!("Failed to read test file: {}", input_script.display());
                 };
 
-                let Ok(deobfuscated) = fs::read_to_string(&deobfuscated) else {
-                    panic!("Failed to read test files");
+                let Ok(expected_deobfuscated) = fs::read_to_string(&expected_deobfuscated_script)
+                else {
+                    panic!(
+                        "Failed to read test file: {}",
+                        expected_deobfuscated_script.display()
+                    );
                 };
 
-                let Ok(output) = fs::read_to_string(&output) else {
-                    panic!("Failed to read test files");
+                let Ok(expected_output) = fs::read_to_string(&expected_output_script) else {
+                    panic!(
+                        "Failed to read test file: {}",
+                        expected_output_script.display()
+                    );
                 };
 
                 let script_result = PowerShellSession::new()
                     .with_variables(Variables::env())
-                    .parse_input(&content)
+                    .parse_input(&input)
                     .unwrap();
 
-                let deobfuscated_vec = deobfuscated
+                let expected_deobfuscated_vec = expected_deobfuscated
                     .lines()
                     .map(|s| s.trim_end())
                     .collect::<Vec<&str>>();
 
-                let script_deobfuscated = script_result.deobfuscated();
+                let current_deobfuscated = script_result.deobfuscated();
+                let current_output = script_result.output();
 
-                let output_vec = output.lines().map(|s| s.trim_end()).collect::<Vec<&str>>();
-
-                let script_output = script_result.output();
-
-                let _name = dir_entry
-                    .path()
-                    .components()
-                    .last()
-                    .unwrap()
-                    .as_os_str()
-                    .to_string_lossy()
-                    .to_string();
-                std::fs::write(
-                    format!("{}_deobfuscated.txt", _name),
-                    script_deobfuscated.clone(),
-                )
-                .unwrap();
-                std::fs::write(format!("{}_output.txt", _name), script_output.clone()).unwrap();
-                let script_deobfuscated_vec = script_deobfuscated
+                let expected_output_vec = expected_output
                     .lines()
                     .map(|s| s.trim_end())
                     .collect::<Vec<&str>>();
 
-                let script_output_vec = script_output
+                // let _name = dir_entry
+                //     .path()
+                //     .components()
+                //     .last()
+                //     .unwrap()
+                //     .as_os_str()
+                //     .to_string_lossy()
+                //     .to_string();
+                // std::fs::write(
+                //     format!("{}_deobfuscated.txt", _name),
+                //     deobfuscated.clone(),
+                // )
+                // .unwrap();
+                // std::fs::write(format!("{}_output.txt", _name),
+                // script_output.clone()).unwrap();
+                let current_deobfuscated_vec = current_deobfuscated
                     .lines()
                     .map(|s| s.trim_end())
                     .collect::<Vec<&str>>();
 
-                for i in 0..deobfuscated_vec.len() {
-                    assert_eq!(deobfuscated_vec[i], script_deobfuscated_vec[i]);
+                let current_output_vec = current_output
+                    .lines()
+                    .map(|s| s.trim_end())
+                    .collect::<Vec<&str>>();
+
+                for i in 0..expected_deobfuscated_vec.len() {
+                    assert_eq!(expected_deobfuscated_vec[i], current_deobfuscated_vec[i]);
                 }
 
-                for i in 0..output_vec.len() {
-                    assert_eq!(output_vec[i], script_output_vec[i]);
+                for i in 0..expected_output_vec.len() {
+                    assert_eq!(expected_output_vec[i], current_output_vec[i]);
                 }
             }
         }

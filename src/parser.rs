@@ -33,10 +33,20 @@ type Pairs<'i> = ::pest::iterators::Pairs<'i, Rule>;
 
 pub(crate) const NEWLINE: &str = "\n";
 
+macro_rules! unexpected_token {
+    ($pair:expr) => {
+        panic!("Unexpected token: {:?}", $pair.as_rule())
+    };
+}
+
 macro_rules! check_rule {
     ($pair:expr, $rule:pat) => {
         if !matches!($pair.as_rule(), $rule) {
-            panic!("rule: {:?}", $pair.as_rule());
+            panic!(
+                "Unexpected token: {:?}, instead of {}",
+                $pair.as_rule(),
+                stringify!($rule)
+            );
         }
     };
 }
@@ -253,7 +263,7 @@ impl<'a> PowerShellSession {
                                 result.map(|_| Val::Null)
                             }
                             Rule::pipeline_with_tail => self.eval_pipeline_with_tail(token),
-                            _ => panic!("not possible: {:?}", token.as_rule()),
+                            _ => unexpected_token!(token),
                         }
                     }
                     Rule::if_statement => self.eval_if_statement(token),
@@ -367,7 +377,7 @@ impl<'a> PowerShellSession {
                     Val::Null
                 }
             }
-            _ => panic!("Not possible: {:?}", token.as_rule()),
+            _ => unexpected_token!(token),
         })
     }
 
@@ -461,15 +471,12 @@ impl<'a> PowerShellSession {
                 self.parse_dq(token)?
             }
             Rule::singlequoted_string_literal => {
-                if let Some(stripped_prefix) = token.as_str().to_string().strip_prefix("'") {
-                    if let Some(stripped_suffix) = stripped_prefix.to_string().strip_suffix("'") {
-                        stripped_suffix.to_string()
-                    } else {
-                        panic!("no suffix")
-                    }
-                } else {
-                    panic!("no prefix")
-                }
+                let token_string = token.as_str().to_string();
+                let stripped_prefix = token_string
+                    .strip_prefix("'")
+                    .unwrap_or(token_string.as_str());
+                let stripped_suffix = stripped_prefix.strip_suffix("'").unwrap_or(stripped_prefix);
+                stripped_suffix.to_string()
             }
             Rule::singlequoted_multiline_string_literal => {
                 let mut res_str = String::new();
@@ -479,9 +486,7 @@ impl<'a> PowerShellSession {
                 }
                 res_str
             }
-            _ => {
-                panic!("eval_string_literal - token.rule(): {:?}", token.as_rule());
-            }
+            _ => unexpected_token!(token),
         };
         let ps_token = if is_expandable {
             Token::StringExpandable(cloned_token.as_str().to_string(), res.clone())
@@ -540,9 +545,7 @@ impl<'a> PowerShellSession {
                 };
                 VarName::new(scope, token.as_str().to_ascii_lowercase())
             }
-            _ => {
-                panic!("token.rule(): {:?}", token.as_rule());
-            }
+            _ => unexpected_token!(token),
         })
     }
 
@@ -581,9 +584,7 @@ impl<'a> PowerShellSession {
                 let unary = self.eval_unary_exp(unary_token)?;
                 Val::Int(!unary.cast_to_int()?)
             }
-            _ => {
-                panic!("token.rule(): {:?}", token.as_rule());
-            }
+            _ => unexpected_token!(token),
         };
 
         Ok(res)
@@ -683,9 +684,7 @@ impl<'a> PowerShellSession {
                     let index = self.eval_expression(index_token)?;
                     object = object.get_index(index)?;
                 }
-                _ => {
-                    panic!("token.rule(): {:?}", token.as_rule());
-                }
+                _ => unexpected_token!(token),
             }
         }
         log::debug!("Success eval_access: {:?}", object);
@@ -728,9 +727,7 @@ impl<'a> PowerShellSession {
                     let index = self.eval_expression(index_token)?;
                     object = format!("{}[{}]", object, index);
                 }
-                _ => {
-                    panic!("parse_access token.rule(): {:?}", token.as_rule());
-                }
+                _ => unexpected_token!(token),
             }
         }
         Ok(Val::String(object.into()))
@@ -773,13 +770,7 @@ impl<'a> PowerShellSession {
 
                 var_to_return
             }
-            _ => {
-                panic!(
-                    "eval_primary_expression: rule: {:?} str: {}",
-                    token.as_rule(),
-                    token.as_str()
-                );
-            }
+            _ => unexpected_token!(token),
         };
 
         Ok(res)
@@ -839,9 +830,7 @@ impl<'a> PowerShellSession {
                 .eval_unary_exp(key_token)?
                 .cast_to_string()
                 .to_ascii_lowercase(),
-            _ => {
-                panic!("key_token.rule(): {:?}", key_token.as_rule());
-            }
+            _ => unexpected_token!(key_token),
         })
     }
 
@@ -895,9 +884,7 @@ impl<'a> PowerShellSession {
             Rule::number_literal => self.eval_number_literal(token)?,
             Rule::type_literal => Val::init(self.eval_type_literal(token)?)?,
             Rule::variable => self.get_variable(token)?,
-            _ => {
-                panic!("token.rule(): {:?}", token.as_rule());
-            }
+            _ => unexpected_token!(token),
         };
         log::debug!("eval_value - res: {:?}", res);
         Ok(res)
@@ -956,9 +943,7 @@ impl<'a> PowerShellSession {
                 Val::Float(float_str.parse::<f64>()?)
                 //todo: handle all border cases
             }
-            _ => {
-                panic!("eval_number - token.rule(): {:?}", token.as_rule());
-            }
+            _ => unexpected_token!(token),
         };
         Ok(v)
     }
@@ -969,9 +954,7 @@ impl<'a> PowerShellSession {
         match token.as_rule() {
             Rule::expression_with_unary_operator => self.eval_expression_with_unary_operator(token),
             Rule::primary_expression => self.eval_primary_expression(token),
-            _ => {
-                panic!("eval_unary_exp token.rule(): {:?}", token.as_rule());
-            }
+            _ => unexpected_token!(token),
         }
     }
 
@@ -1025,9 +1008,7 @@ impl<'a> PowerShellSession {
                     res
                 }
             }
-            _ => {
-                panic!("eval_range_exp not implemented: {:?}", token.as_rule());
-            }
+            _ => unexpected_token!(token),
         };
 
         Ok(res)
@@ -1162,10 +1143,11 @@ impl<'a> PowerShellSession {
         let mut res = self.eval_format_exp(pairs.next().unwrap())?;
         while let Some(op) = pairs.next() {
             let Some(fun) = ArithmeticPred::get(op.as_str()) else {
-                panic!(
-                    "can't find arithmetic function for operator: {}",
+                log::error!("No arithmetic function for operator: {}", op.as_str());
+                return Err(ParserError::NotImplemented(format!(
+                    "No arithmetic function for operator: {}",
                     op.as_str()
-                )
+                )));
             };
 
             let postfix = pairs.next().unwrap();
@@ -1184,7 +1166,11 @@ impl<'a> PowerShellSession {
         while let Some(op) = pairs.next() {
             //check_rule!(op, Rule::additive_op); plus or minus
             let Some(fun) = ArithmeticPred::get(op.as_str()) else {
-                panic!()
+                log::error!("No arithmetic function for operator: {}", op.as_str());
+                return Err(ParserError::NotImplemented(format!(
+                    "No arithmetic function for operator: {}",
+                    op.as_str()
+                )));
             };
 
             let mult = pairs.next().unwrap();
@@ -1245,7 +1231,11 @@ impl<'a> PowerShellSession {
 
         while let Some(op) = pairs.next() {
             let Some(fun) = StringPred::get(op.as_str()) else {
-                panic!("no operator: {}", op.as_str())
+                log::error!("No string predicate for operator: {}", op.as_str());
+                return Err(ParserError::NotImplemented(format!(
+                    "No string predicate for operator: {}",
+                    op.as_str()
+                )));
             };
 
             let token = pairs.next().unwrap();
@@ -1261,9 +1251,7 @@ impl<'a> PowerShellSession {
                     ));
                 }
                 Rule::additive_exp => self.eval_additive(token)?,
-                _ => {
-                    panic!("eval_comparison_exp not implemented: {:?}", token.as_rule());
-                }
+                _ => unexpected_token!(token),
             };
             log::trace!("res: {:?}, right_op: {:?}", &res, &right_op);
             res = fun(res, right_op)?;
@@ -1322,7 +1310,11 @@ impl<'a> PowerShellSession {
         while let Some(op) = pairs.next() {
             check_rule!(op, Rule::bitwise_operator);
             let Some(fun) = BitwisePred::get(op.as_str()) else {
-                panic!()
+                log::error!("No bitwise predicate for operator: {}", op.as_str());
+                return Err(ParserError::NotImplemented(format!(
+                    "No bitwise predicate for operator: {}",
+                    op.as_str()
+                )));
             };
 
             let mult = pairs.next().unwrap();
@@ -1342,10 +1334,7 @@ impl<'a> PowerShellSession {
             Rule::command_name => token.as_str(),
             Rule::where_command_name => "where-object",
             Rule::foreach_command_name => "foreach-object",
-            _ => panic!(
-                "parse_cmdlet_command not implemented: {:?}",
-                token.as_rule()
-            ),
+            _ => unexpected_token!(token),
         };
 
         Ok(Command::cmdlet(command_name))
@@ -1377,10 +1366,7 @@ impl<'a> PowerShellSession {
                 }
                 Rule::stop_parsing => { //todo: stop parsing
                 }
-                _ => panic!(
-                    "eval_command not implemented: {:?}",
-                    command_element_token.as_rule()
-                ),
+                _ => unexpected_token!(command_element_token),
             }
         }
         Ok(args)
@@ -1394,10 +1380,7 @@ impl<'a> PowerShellSession {
         let command = match command_token.as_rule() {
             Rule::cmdlet_command => self.parse_cmdlet_command_name(command_token)?,
             Rule::invocation_command => self.parse_invocation_command(command_token)?,
-            _ => panic!(
-                "eval_command not implemented: {:?}",
-                command_token.as_rule()
-            ),
+            _ => unexpected_token!(command_token),
         };
 
         let mut args = self.parse_command_args(pairs)?;
@@ -1446,22 +1429,13 @@ impl<'a> PowerShellSession {
         let session_scope = match invocation_command_token.as_rule() {
             Rule::current_scope_invocation_command => SessionScope::Current,
             Rule::new_scope_invocation_command => SessionScope::New,
-            _ => {
-                panic!(
-                    "eval_invocation_command not implemented: {:?}",
-                    invocation_command_token.as_rule()
-                );
-            }
+            _ => unexpected_token!(invocation_command_token),
         };
 
         let token_inner = invocation_command_token.into_inner().next().unwrap();
 
         let mut command = match token_inner.as_rule() {
             Rule::cmdlet_command => self.parse_cmdlet_command_name(token_inner)?,
-            Rule::script_block_expression => {
-                let script_block = self.parse_script_block_expression(token_inner)?;
-                Command::script_block(script_block)
-            }
             Rule::primary_expression => {
                 let primary = self.eval_primary_expression(token_inner)?;
                 let script_block = if let Val::ScriptBlock(script_block) = primary {
@@ -1472,7 +1446,7 @@ impl<'a> PowerShellSession {
                 Command::script_block(script_block)
             }
             Rule::path_command_name => Command::path(token_inner.as_str()),
-            _ => panic!("Not implemented: {:?}", token_inner.as_rule()),
+            _ => unexpected_token!(token_inner),
         };
 
         command.set_session_scope(session_scope);
@@ -1497,7 +1471,11 @@ impl<'a> PowerShellSession {
         while let Some(op) = pairs.next() {
             check_rule!(op, Rule::logical_operator);
             let Some(fun) = LogicalPred::get(op.as_str()) else {
-                panic!()
+                log::error!("No logical predicate for operator: {}", op.as_str());
+                return Err(ParserError::NotImplemented(format!(
+                    "No logical predicate for operator: {}",
+                    op.as_str()
+                )));
             };
 
             let mult = pairs.next().unwrap();
@@ -1530,17 +1508,13 @@ impl<'a> PowerShellSession {
         let result: Val = match token.as_rule() {
             Rule::redirected_expression => self.eval_redirected_expression(token)?,
             Rule::command => self.eval_command(token, None)?,
-            _ => {
-                panic!("eval_pipeline not implemented: {:?}", token.as_rule());
-            }
+            _ => unexpected_token!(token),
         };
 
         if let Some(token) = pairs.next() {
             match token.as_rule() {
                 Rule::pipeline_tail => Ok(self.eval_pipeline_tail(token, result)?),
-                _ => {
-                    panic!("eval_pipeline not implemented: {:?}", token.as_rule());
-                }
+                _ => unexpected_token!(token),
             }
         } else {
             Ok(result)
@@ -1555,7 +1529,7 @@ impl<'a> PowerShellSession {
         match token.as_rule() {
             Rule::assignment_exp => self.eval_assigment_exp(token),
             Rule::pipeline_with_tail => self.eval_pipeline_with_tail(token),
-            _ => panic!("not possible: {:?}", token.as_rule()),
+            _ => unexpected_token!(token),
         }
     }
 
@@ -1578,6 +1552,7 @@ impl<'a> PowerShellSession {
 
         let mut pairs = token.into_inner();
         let type_token = pairs.next().unwrap();
+        check_rule!(type_token, Rule::type_literal);
         let val_type = self.eval_type_literal(type_token)?;
 
         let token = pairs.next().unwrap();
@@ -1588,12 +1563,7 @@ impl<'a> PowerShellSession {
             }
             Rule::range_exp => self.eval_range_exp(token)?,
             Rule::unary_exp => self.eval_unary_exp(token)?,
-            _ => {
-                panic!(
-                    "eval_cast_expression not implemented: {:?}",
-                    token.as_rule()
-                );
-            }
+            _ => unexpected_token!(token),
         };
 
         Ok(res.cast(val_type)?)
@@ -1616,7 +1586,13 @@ impl<'a> PowerShellSession {
         let right_token = pairs.next().unwrap();
         let right_op = self.eval_pipeline(right_token.clone())?;
 
-        let Some(pred) = pred else { panic!() };
+        let Some(pred) = pred else {
+            log::error!("No arithmetic function for operator: {}", op.as_str());
+            return Err(ParserError::NotImplemented(format!(
+                "No arithmetic function for operator: {}",
+                op.as_str()
+            )));
+        };
         let op_result = pred(var, right_op)?;
         self.variables.set(&var_name, op_result.clone())?;
 
