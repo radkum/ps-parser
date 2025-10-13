@@ -598,10 +598,13 @@ impl Val {
             ValType::Char => Val::Char(self.cast_to_char()?),
             ValType::String => Val::String(PsString(self.cast_to_string())),
             ValType::Array => Val::Array(self.cast_to_array()),
-            ValType::HashTable => Err(ValError::UnknownType("HashTable".to_string()))?,
-            ValType::ScriptBlock => Err(ValError::UnknownType("ScriptBlock".to_string()))?,
-            ValType::ScriptText => Err(ValError::UnknownType("ScriptText".to_string()))?,
-            ValType::RuntimeType(_) => todo!(),
+            ValType::HashTable => Val::HashTable(self.cast_to_hashtable()?),
+            ValType::ScriptBlock => Val::ScriptBlock(self.cast_to_scriptblock()?),
+            ValType::ScriptText => Val::ScriptText(self.cast_to_script()),
+            ValType::RuntimeType(_) => Err(ValError::InvalidCast(
+                self.ttype().to_string(),
+                "RuntimeType".to_string(),
+            ))?,
         })
     }
 
@@ -831,6 +834,17 @@ impl Val {
             Err(ValError::InvalidCast(
                 self.ttype().to_string(),
                 "HashTable".to_string(),
+            ))
+        }
+    }
+
+    pub(crate) fn cast_to_scriptblock(&self) -> ValResult<ScriptBlock> {
+        if let Val::ScriptBlock(sb) = self {
+            Ok(sb.clone())
+        } else {
+            Err(ValError::InvalidCast(
+                self.ttype().to_string(),
+                "ScriptBlock".to_string(),
             ))
         }
     }

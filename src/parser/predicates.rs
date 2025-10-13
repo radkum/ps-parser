@@ -80,7 +80,7 @@ impl StringPred {
 
 #[cfg(test)]
 mod tests {
-    use crate::PowerShellSession;
+    use crate::{PowerShellSession, Variables};
 
     #[test]
     fn test_obfuscation() {
@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn test_strings() {
-        let mut p = PowerShellSession::new();
+        let mut p = PowerShellSession::new().with_variables(Variables::new().values_persist());
         assert_eq!(
             p.safe_eval(r#" 'It''s fine' "#).unwrap().as_str(),
             "It''s fine"

@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn hash_table() {
         // assign not existing value, without forcing evaluation
-        let mut p = PowerShellSession::new().with_variables(Variables::env());
+        let mut p = PowerShellSession::new().with_variables(Variables::env().values_persist());
         let input = r#" 
 $nestedData = @{
     Users = @(

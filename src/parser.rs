@@ -191,6 +191,22 @@ impl<'a> PowerShellSession {
         Ok(script_res.deobfuscated().to_string())
     }
 
+    pub fn env_variables(&self) -> HashMap<String, PsValue> {
+        self.variables
+            .get_env()
+            .into_iter()
+            .map(|(k, v)| (k, v.into()))
+            .collect()
+    }
+
+    pub fn global_variables(&self) -> HashMap<String, PsValue> {
+        self.variables
+            .get_global()
+            .into_iter()
+            .map(|(k, v)| (k, v.into()))
+            .collect()
+    }
+
     /// Parses and evaluates a PowerShell script, returning detailed results.
     ///
     /// This method provides comprehensive information about the parsing and
@@ -223,6 +239,7 @@ impl<'a> PowerShellSession {
     /// println!("Deobfuscated code: {:?}", script_result.deobfuscated());
     /// ```
     pub fn parse_input(&mut self, input: &str) -> Result<ScriptResult, ParserError> {
+        self.variables.init();
         let (script_last_output, mut result) = self.parse_subscript(input)?;
 
         Ok(ScriptResult::new(
@@ -231,6 +248,11 @@ impl<'a> PowerShellSession {
             std::mem::take(&mut result.deobfuscated),
             std::mem::take(&mut self.tokens),
             std::mem::take(&mut self.errors),
+            self.variables
+                .script_scope()
+                .into_iter()
+                .map(|(k, v)| (k, v.into()))
+                .collect(),
         ))
     }
 

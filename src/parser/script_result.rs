@@ -18,6 +18,12 @@ pub enum PsValue {
     HashTable(HashMap<String, PsValue>),
 }
 
+impl core::fmt::Display for PsString {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 impl PsValue {
     pub fn is_true(&self) -> bool {
         match self {
@@ -97,6 +103,7 @@ pub struct ScriptResult {
     evaluated_statements: Vec<String>,
     tokens: Tokens,
     errors: Vec<ParserError>,
+    script_values: HashMap<String, PsValue>,
 }
 
 impl ScriptResult {
@@ -106,6 +113,7 @@ impl ScriptResult {
         evaluated_statements: Vec<String>,
         tokens: Tokens,
         errors: Vec<ParserError>,
+        script_values: HashMap<String, PsValue>,
     ) -> Self {
         Self {
             result: result.into(),
@@ -117,6 +125,7 @@ impl ScriptResult {
             evaluated_statements,
             tokens,
             errors,
+            script_values,
         }
     }
 
@@ -146,5 +155,9 @@ impl ScriptResult {
 
     pub fn output_lines(&self) -> Vec<String> {
         self.stream.clone()
+    }
+
+    pub fn script_variables(&self) -> HashMap<String, PsValue> {
+        self.script_values.clone()
     }
 }

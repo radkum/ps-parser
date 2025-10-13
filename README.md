@@ -210,16 +210,16 @@ Expression("5", Int(5))
 ## Future plans
 
 version 0.2.0
-- check each panic
-- eval "switch" statements
-- eval "function" and "script_block" statements
+- eval "function" statements
+- consider not reporting error: not implemented?
 - make benchmarks
+- documentation for script_block and global, script, local values
 
 version 0.2.1
-- consider not reporting error: not implemented?
-- maybe more token kinds?
-- maybe return "script" scope variables in ScriptResult?
+- eval "switch" statements
 - parse "enum" and "class" statements
+
+- maybe more token kinds?
 
 ## Documentation
 
