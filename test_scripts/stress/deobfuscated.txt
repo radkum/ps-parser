@@ -99,18 +99,11 @@ function Test-MultiParam($a, $b, $c) {
 }
 $empty_result = Test-Empty
 
-$one_param_result = Test-OneParam 5
-
-$multi_param_result = Test-MultiParam 1 2 3
-
-# Test 26: Nested Function Calls
-
+$one_param_result = 10
+$multi_param_result = 6
 function Inner($x) { return $x + 1 }
 function Outer($y) { return Inner($y * 2) }
-$nested_func_result = Outer 5
-
-# Test 27: Variable Scoping in Blocks
-
+$nested_func_result = 11
 $global_var = "global"
 $block_var = "block"
 $scope_test = "globalblock"

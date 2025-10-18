@@ -210,7 +210,9 @@ Expression("5", Int(5))
 ## Future plans
 
 version 0.2.0
-- eval "function" statements
+- eval empty function statement
+- eval function with param block
+- eval filter function
 - consider not reporting error: not implemented?
 - make benchmarks
 - documentation for script_block and global, script, local values

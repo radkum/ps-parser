@@ -1,13 +1,16 @@
+mod function;
 mod scopes;
 mod variable;
+
 use std::collections::HashMap;
 
+use function::FunctionMap;
 use phf::phf_map;
 pub(super) use scopes::SessionScope;
 use thiserror_no_std::Error;
 pub(super) use variable::{Scope, VarName};
 
-use crate::parser::Val;
+use crate::parser::{Val, value::ScriptBlock};
 #[derive(Error, Debug, PartialEq, Clone)]
 pub enum VariableError {
     #[error("Variable \"{0}\" is not defined")]
@@ -28,6 +31,7 @@ pub struct Variables {
     state: State,
     force_var_eval: bool,
     values_persist: bool,
+    functions: FunctionMap,
     //special variables
     // status: bool, // $?
     // first_token: Option<String>,
@@ -160,6 +164,10 @@ impl Variables {
 
     pub(crate) fn get_global(&self) -> VariableMap {
         self.global_scope.clone()
+    }
+
+    pub(crate) fn add_function(&mut self, name: String, func: ScriptBlock) {
+        self.functions.insert(name, func);
     }
 
     /// Creates a new empty Variables container.

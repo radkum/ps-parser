@@ -402,21 +402,7 @@ Write-Output "Modulo: $(($a % $b))"
                     .map(|s| s.trim_end())
                     .collect::<Vec<&str>>();
 
-                // let _name = dir_entry
-                //     .path()
-                //     .components()
-                //     .last()
-                //     .unwrap()
-                //     .as_os_str()
-                //     .to_string_lossy()
-                //     .to_string();
-                // std::fs::write(
-                //     format!("{}_deobfuscated.txt", _name),
-                //     deobfuscated.clone(),
-                // )
-                // .unwrap();
-                // std::fs::write(format!("{}_output.txt", _name),
-                // script_output.clone()).unwrap();
+                //save_files(&dir_entry, &current_deobfuscated, &current_output);
                 let current_deobfuscated_vec = current_deobfuscated
                     .lines()
                     .map(|s| s.trim_end())
@@ -428,14 +414,44 @@ Write-Output "Modulo: $(($a % $b))"
                     .collect::<Vec<&str>>();
 
                 for i in 0..expected_deobfuscated_vec.len() {
-                    assert_eq!(expected_deobfuscated_vec[i], current_deobfuscated_vec[i]);
+                    assert_eq!(
+                        expected_deobfuscated_vec[i],
+                        current_deobfuscated_vec[i],
+                        "File: {}, Deobfuscated line: {}",
+                        file_name(&dir_entry),
+                        i + 1
+                    );
                 }
 
                 for i in 0..expected_output_vec.len() {
-                    assert_eq!(expected_output_vec[i], current_output_vec[i]);
+                    assert_eq!(
+                        expected_output_vec[i],
+                        current_output_vec[i],
+                        "File: {}, Output line: {}",
+                        file_name(&dir_entry),
+                        i + 1
+                    );
                 }
             }
         }
+    }
+
+    fn file_name(dir_entry: &std::fs::DirEntry) -> String {
+        dir_entry
+            .path()
+            .components()
+            .last()
+            .unwrap()
+            .as_os_str()
+            .to_string_lossy()
+            .to_string()
+    }
+
+    #[allow(dead_code)]
+    fn save_files(dir_entry: &std::fs::DirEntry, deobfuscated: &str, output: &str) {
+        let name = file_name(dir_entry);
+        std::fs::write(format!("{}_deobfuscated.txt", name), deobfuscated).unwrap();
+        std::fs::write(format!("{}_output.txt", name), output).unwrap();
     }
 
     #[test]

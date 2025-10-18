@@ -5,6 +5,24 @@ use thiserror_no_std::Error;
 use super::{SessionScope, StreamMessage, Val, value::ScriptBlock};
 use crate::{PowerShellSession, ScriptResult, parser::ParserError};
 
+#[derive(Error, Debug, PartialEq, Clone)]
+pub enum CommandError {
+    #[error("{0} not found")]
+    NotFound(String),
+    #[error("Incorrect arguments for method \"{0}\"")]
+    IncorrectArgs(String),
+    #[error("{0}")]
+    ExecutionError(String),
+}
+
+impl From<ParserError> for CommandError {
+    fn from(value: ParserError) -> CommandError {
+        CommandError::ExecutionError(value.to_string())
+    }
+}
+
+pub type CommandResult<T> = core::result::Result<T, CommandError>;
+
 #[derive(Debug, Clone)]
 pub struct CommandOutput {
     pub val: Val,                      // Regular return value
@@ -54,25 +72,6 @@ impl From<Val> for CommandOutput {
         }
     }
 }
-
-#[derive(Error, Debug, PartialEq, Clone)]
-pub enum CommandError {
-    #[error("{0} not found")]
-    NotFound(String),
-    #[error("Incorrect arguments for method \"{0}\"")]
-    IncorrectArgs(String),
-    #[error("{0}")]
-    ExecutionError(String),
-}
-
-impl From<ParserError> for CommandError {
-    fn from(value: ParserError) -> CommandError {
-        CommandError::ExecutionError(value.to_string())
-    }
-}
-
-type CommandResult<T> = core::result::Result<T, CommandError>;
-
 #[derive(Debug)]
 pub enum CommandInner {
     Cmdlet(String),
@@ -144,24 +143,23 @@ impl Command {
             ps.push_scope_session();
         }
         let res = match &self.command_inner {
-            CommandInner::ScriptBlock(sb) => Ok(ps.eval_script_block(
-                sb,
-                None,
-                args.iter()
-                    .filter_map(|x| {
-                        if let CommandElem::Argument(v) = x {
-                            Some(v.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<Val>>(),
-            )?),
+            CommandInner::ScriptBlock(sb) => sb
+                .run(
+                    args.iter().filter_map(CommandElem::into_val).collect(),
+                    ps,
+                    None,
+                )
+                .map_err(|e| e.into()),
             CommandInner::Cmdlet(name) => {
-                let Some(f) = Self::get(&name.to_ascii_lowercase()) else {
-                    return Err(CommandError::NotFound(name.into()));
-                };
-                f(args, Some(ps))
+                if let Some(fun) = ps.variables.get_function(&name.to_ascii_lowercase()) {
+                    return fun(args.iter().filter_map(CommandElem::into_val).collect(), ps)
+                        .map_err(|e| e.into());
+                }
+                if let Some(cmdlet) = Self::get(&name.to_ascii_lowercase()) {
+                    return cmdlet(args, Some(ps));
+                }
+
+                Err(CommandError::NotFound(name.into()))
             }
             CommandInner::Path(path) => Err(CommandError::NotFound(path.into())),
         };
@@ -195,6 +193,14 @@ impl CommandElem {
             CommandElem::ArgList(s) => s.clone(),
         }
     }
+
+    pub fn into_val(value: &CommandElem) -> Option<Val> {
+        if let CommandElem::Argument(v) = value {
+            Some(v.clone())
+        } else {
+            None
+        }
+    }
 }
 
 // Where-Object cmdlet implementation
@@ -215,7 +221,7 @@ fn where_object(
         ));
     };
 
-    let CommandElem::Argument(Val::ScriptBlock(script_block)) = &args[1] else {
+    let CommandElem::Argument(Val::ScriptBlock(sb)) = &args[1] else {
         return Err(CommandError::IncorrectArgs(
             "Second argument must be a script block".into(),
         ));
@@ -227,14 +233,12 @@ fn where_object(
 
     let filtered_elements = elements
         .iter()
-        .filter(|&element| {
-            match ps.eval_script_block(script_block, Some(element.clone()), vec![]) {
-                Err(er) => {
-                    ps.errors.push(er);
-                    false
-                }
-                Ok(b) => b.val.cast_to_bool(),
+        .filter(|&element| match sb.run(vec![], ps, Some(element.clone())) {
+            Err(er) => {
+                ps.errors.push(er);
+                false
             }
+            Ok(b) => b.val.cast_to_bool(),
         })
         .cloned()
         .collect::<Vec<_>>();

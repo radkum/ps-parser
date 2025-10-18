@@ -41,9 +41,9 @@ Grade: B
 === Test 13: While Loop ===
 === Test 14: ForEach Loop ===
 === Test 15: Functions ===
-Square of 5: $(Get-Square 5)
-Greeting: $(Get-Greeting)
-Greeting with name: $(Get-Greeting "Alice")
+Square of 5: 25
+Greeting: Hello, World!
+Greeting with name: Hello, Alice!
 === Test 16: Advanced Function ===
 $(Test-Parameters -Name "Bob" -Age 30 -Verbose)
 === Test 17: String Matching ===

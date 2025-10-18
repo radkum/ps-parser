@@ -94,8 +94,8 @@ function_statement = {
     function_keyword ~ function_name ~ function_parameter_declaration? ~ "{" ~ script_block? ~ "}"
 }
 function_keyword = { ^"function" | ^"filter" | ^"workflow" }
-function_name = { command_token }
-function_parameter_declaration = { "(" ~ parameter_list? ~ ")" }
+function_name = @{ command_token }
+function_parameter_declaration = _{ "(" ~ parameter_list? ~ ")" }
 
 flow_control_statement = {
     flow_control_label_statement

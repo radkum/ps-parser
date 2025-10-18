@@ -89,9 +89,9 @@ function Get-Square($number) {
 function Get-Greeting($name = "World") {
     return "Hello, $name!"
 }
-Write-Output "Square of 5: $(Get-Square 5)"
-Write-Output "Greeting: $(Get-Greeting)"
-Write-Output "Greeting with name: $(Get-Greeting "Alice")"
+Write-Output "Square of 5: 25"
+Write-Output "Greeting: Hello, World!"
+Write-Output "Greeting with name: Hello, Alice!"
 Write-Host "=== Test 16: Advanced Function ===" -ForegroundColor Green
 function Test-Parameters {
     param(

@@ -1,6 +1,7 @@
 mod method_error;
 mod ps_string;
 mod runtime_object;
+mod script_block;
 mod system_convert;
 mod system_encoding;
 mod val_error;
@@ -17,6 +18,7 @@ pub(crate) use ps_string::PsString;
 use ps_string::str_cmp;
 pub(super) use runtime_object::RuntimeObject;
 use runtime_object::{MethodCallType, StaticFnCallType};
+pub(crate) use script_block::{Param, ScriptBlock};
 use smart_default::SmartDefault;
 use system_convert::Convert;
 use system_encoding::Encoding;
@@ -91,57 +93,6 @@ pub(crate) enum Val {
     RuntimeObject(Box<dyn RuntimeObject>),
     ScriptBlock(ScriptBlock),
     ScriptText(String),
-}
-
-#[derive(Debug, Clone)]
-pub struct Param {
-    name: String,
-    //ttype: Option<ValType>,
-    default_value: Option<Val>,
-}
-
-impl Param {
-    pub fn new(name: String, default_value: Option<Val>) -> Self {
-        Self {
-            name,
-            default_value,
-        }
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    // pub fn ttype(&self) -> Option<&ValType> {
-    //     self.ttype.as_ref()
-    // }
-
-    pub fn default_value(&self) -> Option<Val> {
-        self.default_value.clone()
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct ScriptBlock {
-    pub params: Vec<Param>,
-    pub body: String,
-    pub raw_text: String,
-}
-
-impl ScriptBlock {
-    pub fn new(params: Vec<Param>, script: String, raw_text: String) -> Self {
-        Self {
-            params,
-            body: script,
-            raw_text,
-        }
-    }
-}
-
-impl std::fmt::Display for ScriptBlock {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.raw_text)
-    }
 }
 
 impl std::fmt::Display for Val {
