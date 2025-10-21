@@ -66,12 +66,8 @@ function Get-Double($x) {
 function Get-Sum($a, $b) {
     return $a + $b
 }
-$double_result = Get-Double 5
-
-$sum_result = Get-Sum 3 7
-
-# Test 16: String Matching
-
+$double_result = 10
+$sum_result = 10
 $text = "PowerShell"
 $like_test = $true
 $match_test = $true
@@ -88,12 +84,13 @@ $bnot = -6
 $shl = 16
 $shr = 4
 $inc_test = 5
+5
+7
 $dec_test = 10
+10
+8
 $paren_result = 21
-$sub_expr = $(Get-Double 10)
-
-# Test 24: Negation
-
+$sub_expr = @(20)
 $neg_number = -42
 $neg_bool = $false
 $complex = 20

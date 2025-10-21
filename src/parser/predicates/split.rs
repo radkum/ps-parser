@@ -163,11 +163,11 @@ pub fn csplit(input: Val, args: Val) -> Val {
 
 #[cfg(test)]
 mod tests {
-    use crate::{NEWLINE, PowerShellSession};
+    use crate::{NEWLINE, PowerShellSession, Variables};
 
     #[test]
     fn test_split_empty_input() {
-        let mut p = PowerShellSession::new();
+        let mut p = PowerShellSession::new().with_variables(Variables::new().values_persist());
 
         assert_eq!(
             p.safe_eval(r#" -sPlit "red yellow blue green" "#).unwrap(),

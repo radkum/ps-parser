@@ -42,9 +42,21 @@ pub(crate) enum Scope {
     Env,
 }
 
+impl std::fmt::Display for Scope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Scope::Global => write!(f, "global"),
+            Scope::Local => write!(f, "local"),
+            Scope::Env => write!(f, "env"),
+            Scope::Special => write!(f, "special"),
+            Scope::Script => write!(f, "script"),
+        }
+    }
+}
+
 impl From<&str> for Scope {
     fn from(s: &str) -> Self {
-        match s {
+        match s.to_ascii_lowercase().as_str() {
             "env" => Scope::Env,
             "global" => Scope::Global,
             "local" => Scope::Local,

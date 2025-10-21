@@ -9,7 +9,8 @@ program = { SOI ~ param_block? ~ statements ~ EOI }
 param_block = { ^"param" ~ "(" ~ parameter_list? ~ ")" }
 parameter_list = { script_parameter ~ ("," ~ script_parameter)* }
 script_parameter = { attribute_list? ~ variable ~ script_parameter_default? }
-script_parameter_default = { "=" ~ expression }
+//script_parameter_default = { "=" ~ expression } - maybe expression?
+script_parameter_default = { "=" ~ value }
 script_block_body = { named_blocks | statements_block }
 statements_block = { statements }
 named_blocks = { named_block+ }
@@ -91,11 +92,11 @@ for_iterator    = { pipeline }
 
 //---------------------------------- OTHER STATEMENTS
 function_statement = {
-    function_keyword ~ function_name ~ function_parameter_declaration? ~ "{" ~ script_block? ~ "}"
+    function_keyword ~ (scope_keyword ~ ":")? ~ function_name ~ function_parameter_declaration? ~ "{" ~ script_block? ~ "}"
 }
 function_keyword = { ^"function" | ^"filter" | ^"workflow" }
-function_name = { command_token }
-function_parameter_declaration = { "(" ~ parameter_list? ~ ")" }
+function_name = @{ generic_token }
+function_parameter_declaration = _{ "(" ~ parameter_list? ~ ")" }
 
 flow_control_statement = {
     flow_control_label_statement
@@ -248,7 +249,7 @@ pipeline_with_tail = {(redirected_expression | command) ~ pipeline_tail?}
 redirected_expression = { expression ~ redirection? }
 pipeline_tail = { ("|" ~ command)+ }
 
-assignment_exp = { variable ~ assignement_op ~ pipeline }
+assignment_exp = { variable ~ assignement_op ~ (if_statement | pipeline) }
 prefix_assign_op = { (additive_op | multiplicative_op) }
 assign_op = { "=" }
 assignement_op = {prefix_assign_op? ~ assign_op }
@@ -338,7 +339,8 @@ value = {
     | variable
 }
 parenthesized_expression = { "(" ~ pipeline ~ ")"}
-sub_expression = !{ "$(" ~ statements? ~ ")" }
+//sub_expression = !{ "$(" ~ statements? ~ ")" } - maybe statemetnts?
+sub_expression = !{ "$(" ~ pipeline? ~ ")" }
 array_expression = { "@(" ~ statements? ~ ")" }
 script_block_expression = !{ "{" ~ script_block ~ "}" }
 script_block = { param_block? ~ ";"* ~ script_block_body? }
@@ -469,7 +471,7 @@ hex_int = @{HEX_DIGIT+}
 decimal_integer = { decimal_int ~ ("l" | "L" | "d" | "D" )? }
 hex_integer = { ("0x" | "0X") ~ hex_int ~ ("l" | "L")? }
 float = {float_1 | float_2 | float_3}
-float_1 = { ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ float_mantis? }
+float_1 = { ASCII_DIGIT+ ~ "." ~ !"." ~ ASCII_DIGIT* ~ float_mantis? }
 float_2 = @{ "." ~ ASCII_DIGIT+ ~ float_mantis? }
 float_3 = @{ ASCII_DIGIT+ ~ float_mantis }
 float_mantis = {("e" | "E") ~ ("+" | "-") ~ ASCII_DIGIT+}
@@ -489,7 +491,8 @@ generic_type_arguments = { type_spec ~ ("," ~ type_spec)* }
 
 //-----------------------ATTRIBUTES
 attribute_list       = { attribute+ }
-attribute            = { "[" ~ attribute_name ~ "(" ~ attribute_arguments? ~ ")" ~ "]" | type_literal }
+attribute            = { attribute_info | type_literal }
+attribute_info       = {"[" ~ attribute_name ~ "(" ~ attribute_arguments? ~ ")" ~ "]"}
 attribute_name       = { type_spec }
 attribute_arguments  = { attribute_argument ~ ("," ~ attribute_argument)* }
 attribute_argument   = { expression | (simple_name ~ ("=" ~ expression)?) }
@@ -503,5 +506,4 @@ generic_token_rest = _{
     !(WHITESPACE | "(" | ")" | "}" | "|" | ";" | ",") ~ ANY
 }
 command_token = @{ command_char+ }
-//command_char = _{ ASCII_ALPHANUMERIC | "-" | "_" | "." | "/" | "\\" | ":" | "'" | "\"" }
 command_char = _{ !( "(" | ")" | "{" | "}" | ";" | NEWLINE ) ~ ANY }

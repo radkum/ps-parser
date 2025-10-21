@@ -161,7 +161,7 @@ mod tests {
         assert_eq!(script_res.result(), 'a'.into());
         assert_eq!(
             script_res.deobfuscated(),
-            vec!["$script:var = 'a'", "[int]'a'"].join(NEWLINE)
+            vec!["$script:var = 'a'", "[int]'a'", "'a'"].join(NEWLINE)
         );
         assert_eq!(script_res.errors().len(), 1);
         assert_eq!(
@@ -177,7 +177,10 @@ mod tests {
         assert_eq!(script_res.errors().len(), 0);
 
         let script_res = p.parse_input(" [int]'a';$var ").unwrap();
-        assert_eq!(script_res.deobfuscated(), vec!["[int]'a'"].join(NEWLINE));
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec!["[int]'a'", "'a'"].join(NEWLINE)
+        );
         assert_eq!(script_res.output(), vec!["a"].join(NEWLINE));
         assert_eq!(script_res.errors().len(), 1);
         assert_eq!(
@@ -233,12 +236,13 @@ mod tests {
             script_res.result(),
             PsValue::String(std::env::var("PROGRAMFILES").unwrap())
         );
+        let program_files = std::env::var("PROGRAMFILES").unwrap();
         assert_eq!(
             script_res.deobfuscated(),
-            vec![format!(
-                "$local:var = \"{}\"",
-                std::env::var("PROGRAMFILES").unwrap()
-            )]
+            vec![
+                format!("$local:var = \"{}\"", program_files),
+                format!("\"{}\"", program_files)
+            ]
             .join(NEWLINE)
         );
         assert_eq!(script_res.errors().len(), 0);
@@ -247,7 +251,7 @@ mod tests {
     #[test]
     fn hash_table() {
         // assign not existing value, without forcing evaluation
-        let mut p = PowerShellSession::new().with_variables(Variables::env());
+        let mut p = PowerShellSession::new().with_variables(Variables::env().values_persist());
         let input = r#" 
 $nestedData = @{
     Users = @(
@@ -355,77 +359,103 @@ Write-Output "Modulo: $(($a % $b))"
     fn test_scripts() {
         use std::fs;
         let Ok(entries) = fs::read_dir("test_scripts") else {
-            panic!("Failed to read test files");
+            panic!("Failed to read 'test_scripts' directory");
         };
         for entry in entries {
             let dir_entry = entry.unwrap();
             if std::fs::FileType::is_dir(&dir_entry.file_type().unwrap()) {
                 // If it's a directory, we can read the files inside it
                 let input_script = dir_entry.path().join("input.ps1");
-                let deobfuscated = dir_entry.path().join("deobfuscated.txt");
-                let output = dir_entry.path().join("output.txt");
+                let expected_deobfuscated_script = dir_entry.path().join("deobfuscated.txt");
+                let expected_output_script = dir_entry.path().join("output.txt");
 
-                let Ok(content) = fs::read_to_string(&input_script) else {
-                    panic!("Failed to read test files");
+                let Ok(input) = fs::read_to_string(&input_script) else {
+                    panic!("Failed to read test file: {}", input_script.display());
                 };
 
-                let Ok(deobfuscated) = fs::read_to_string(&deobfuscated) else {
-                    panic!("Failed to read test files");
+                let Ok(expected_deobfuscated) = fs::read_to_string(&expected_deobfuscated_script)
+                else {
+                    panic!(
+                        "Failed to read test file: {}",
+                        expected_deobfuscated_script.display()
+                    );
                 };
 
-                let Ok(output) = fs::read_to_string(&output) else {
-                    panic!("Failed to read test files");
+                let Ok(expected_output) = fs::read_to_string(&expected_output_script) else {
+                    panic!(
+                        "Failed to read test file: {}",
+                        expected_output_script.display()
+                    );
                 };
 
                 let script_result = PowerShellSession::new()
                     .with_variables(Variables::env())
-                    .parse_input(&content)
+                    .parse_input(&input)
                     .unwrap();
 
-                let deobfuscated_vec = deobfuscated
+                let expected_deobfuscated_vec = expected_deobfuscated
                     .lines()
                     .map(|s| s.trim_end())
                     .collect::<Vec<&str>>();
 
-                let script_deobfuscated = script_result.deobfuscated();
+                let current_deobfuscated = script_result.deobfuscated();
+                let current_output = script_result.output();
 
-                let output_vec = output.lines().map(|s| s.trim_end()).collect::<Vec<&str>>();
-
-                let script_output = script_result.output();
-
-                let _name = dir_entry
-                    .path()
-                    .components()
-                    .last()
-                    .unwrap()
-                    .as_os_str()
-                    .to_string_lossy()
-                    .to_string();
-                std::fs::write(
-                    format!("{}_deobfuscated.txt", _name),
-                    script_deobfuscated.clone(),
-                )
-                .unwrap();
-                std::fs::write(format!("{}_output.txt", _name), script_output.clone()).unwrap();
-                let script_deobfuscated_vec = script_deobfuscated
+                let expected_output_vec = expected_output
                     .lines()
                     .map(|s| s.trim_end())
                     .collect::<Vec<&str>>();
 
-                let script_output_vec = script_output
+                //save_files(&dir_entry, &current_deobfuscated, &current_output);
+                let current_deobfuscated_vec = current_deobfuscated
                     .lines()
                     .map(|s| s.trim_end())
                     .collect::<Vec<&str>>();
 
-                for i in 0..deobfuscated_vec.len() {
-                    assert_eq!(deobfuscated_vec[i], script_deobfuscated_vec[i]);
+                let current_output_vec = current_output
+                    .lines()
+                    .map(|s| s.trim_end())
+                    .collect::<Vec<&str>>();
+
+                for i in 0..expected_deobfuscated_vec.len() {
+                    assert_eq!(
+                        expected_deobfuscated_vec[i],
+                        current_deobfuscated_vec[i],
+                        "File: {}, Deobfuscated line: {}",
+                        file_name(&dir_entry),
+                        i + 1
+                    );
                 }
 
-                for i in 0..output_vec.len() {
-                    assert_eq!(output_vec[i], script_output_vec[i]);
+                for i in 0..expected_output_vec.len() {
+                    assert_eq!(
+                        expected_output_vec[i],
+                        current_output_vec[i],
+                        "File: {}, Output line: {}",
+                        file_name(&dir_entry),
+                        i + 1
+                    );
                 }
             }
         }
+    }
+
+    fn file_name(dir_entry: &std::fs::DirEntry) -> String {
+        dir_entry
+            .path()
+            .components()
+            .last()
+            .unwrap()
+            .as_os_str()
+            .to_string_lossy()
+            .to_string()
+    }
+
+    #[allow(dead_code)]
+    fn save_files(dir_entry: &std::fs::DirEntry, deobfuscated: &str, output: &str) {
+        let name = file_name(dir_entry);
+        std::fs::write(format!("{}_deobfuscated.txt", name), deobfuscated).unwrap();
+        std::fs::write(format!("{}_output.txt", name), output).unwrap();
     }
 
     #[test]
@@ -436,7 +466,11 @@ Write-Output "Modulo: $(($a % $b))"
         let script_res = p.parse_input(input).unwrap();
         assert_eq!(
             script_res.deobfuscated(),
-            vec!["$numbers = @(1,2,3,4,5,6,7,8,9,10)"].join(NEWLINE)
+            vec![
+                "$numbers = @(1,2,3,4,5,6,7,8,9,10)",
+                "@(1,2,3,4,5,6,7,8,9,10)"
+            ]
+            .join(NEWLINE)
         );
         assert_eq!(script_res.errors().len(), 0);
     }
@@ -461,7 +495,8 @@ Write-Output "Modulo: $(($a % $b))"
             script_res.deobfuscated(),
             vec![
                 "$numbers = @(1,2,3,4,5,6,7,8,9,10)",
-                "$evennumbers = @(2,4,6,8,10)"
+                "$evennumbers = @(2,4,6,8,10)",
+                "@(2,4,6,8,10)"
             ]
             .join(NEWLINE)
         );
@@ -477,7 +512,7 @@ Write-Output "Modulo: $(($a % $b))"
         assert_eq!(script_res.result(), PsValue::Array(vec![PsValue::Int(6),]));
         assert_eq!(
             script_res.deobfuscated(),
-            vec!["$numbers = @(1,2,3,4,5,6,7,8,9,10)",].join(NEWLINE)
+            vec!["$numbers = @(1,2,3,4,5,6,7,8,9,10)", "@(6)"].join(NEWLINE)
         );
         assert_eq!(script_res.errors().len(), 0);
     }

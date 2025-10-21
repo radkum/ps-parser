@@ -10,8 +10,8 @@ use super::{
 };
 
 #[derive(Error, Debug, PartialEq, Clone)]
+#[error("PestError: {0}")]
 pub enum ParserError {
-    #[error("PestError: {0}")]
     PestError(String),
 
     #[error("ValError: {0}")]
@@ -34,6 +34,9 @@ pub enum ParserError {
 
     #[error("NotImplementedError: {0}")]
     NotImplemented(String),
+
+    #[error("Skip")]
+    Skip,
 }
 
 impl From<PestError> for ParserError {

@@ -148,6 +148,7 @@ $multi_param_result = Test-MultiParam 1 2 3
 function Inner($x) { return $x + 1 }
 function Outer($y) { return Inner($y * 2) }
 $nested_func_result = Outer 5
+$nested_func_result
 
 # Test 27: Variable Scoping in Blocks
 $global_var = "global"
@@ -155,7 +156,7 @@ if ($true) {
     $block_var = "block"
     $scope_test = $global_var + $block_var
 }
-
+$scope_test
 # Test 28: Switch with Edge Cases
 $switch_var = $null
 switch ($switch_var) {
@@ -164,6 +165,7 @@ switch ($switch_var) {
     0 { $switch_zero_result = "matched zero" }
     default { $switch_default_result = "default case" }
 }
+$switch_null_result
 
 # Test 29: Loop Edge Cases
 for ($i = 10; $i -gt 10; $i--) {
@@ -194,7 +196,7 @@ for ($i = 0; $i -lt $perf_array.Length; $i++) {
 
 # Test 32: Complex Conditional Logic
 $complex_if = if (($true -and $false) -or ($true -xor $false)) { "complex true" } else { "complex false" }
-
+$complex_if
 # Test 33: String Escape Sequences
 $escaped = "Quote: `" Newline: `n Tab: `t Backslash: ``"
 

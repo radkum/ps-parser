@@ -1,13 +1,16 @@
+mod function;
 mod scopes;
 mod variable;
+
 use std::collections::HashMap;
 
+use function::FunctionMap;
 use phf::phf_map;
 pub(super) use scopes::SessionScope;
 use thiserror_no_std::Error;
 pub(super) use variable::{Scope, VarName};
 
-use crate::parser::Val;
+use crate::parser::{Val, value::ScriptBlock};
 #[derive(Error, Debug, PartialEq, Clone)]
 pub enum VariableError {
     #[error("Variable \"{0}\" is not defined")]
@@ -27,6 +30,9 @@ pub struct Variables {
     scope_sessions_stack: Vec<VariableMap>,
     state: State,
     force_var_eval: bool,
+    values_persist: bool,
+    global_functions: FunctionMap,
+    script_functions: FunctionMap,
     //special variables
     // status: bool, // $?
     // first_token: Option<String>,
@@ -100,6 +106,14 @@ impl Variables {
         self.load(map)
     }
 
+    pub fn init(&mut self) {
+        if !self.values_persist {
+            self.script_scope.clear();
+        }
+        self.scope_sessions_stack.clear();
+        self.state = State::Script;
+    }
+
     fn load(
         &mut self,
         conf_map: HashMap<String, HashMap<String, Option<String>>>,
@@ -139,6 +153,30 @@ impl Variables {
             }
         }
         Ok(())
+    }
+
+    pub(crate) fn script_scope(&self) -> VariableMap {
+        self.script_scope.clone()
+    }
+
+    pub(crate) fn get_env(&self) -> VariableMap {
+        self.env.clone()
+    }
+
+    pub(crate) fn get_global(&self) -> VariableMap {
+        self.global_scope.clone()
+    }
+
+    pub(crate) fn add_script_function(&mut self, name: String, func: ScriptBlock) {
+        self.script_functions.insert(name, func);
+    }
+
+    pub(crate) fn add_global_function(&mut self, name: String, func: ScriptBlock) {
+        self.global_functions.insert(name, func);
+    }
+
+    pub(crate) fn clear_script_functions(&mut self) {
+        self.script_functions.clear();
     }
 
     /// Creates a new empty Variables container.
@@ -206,6 +244,13 @@ impl Variables {
             force_var_eval: true,
             ..Default::default()
         }
+    }
+
+    // not exported in this version
+    #[allow(dead_code)]
+    pub(crate) fn values_persist(mut self) -> Self {
+        self.values_persist = true;
+        self
     }
 
     /// Loads all environment variables into a Variables container.
@@ -469,7 +514,7 @@ impl Variables {
 
     pub(crate) fn pop_scope_session(&mut self) {
         match self.scope_sessions_stack.len() {
-            0 => todo!(),
+            0 => {} /* unreachable */
             1 => {
                 self.scope_sessions_stack.pop();
                 self.state = State::Script;
@@ -493,6 +538,15 @@ mod tests {
         assert_eq!(p.safe_eval(r#" $true "#).unwrap().as_str(), "True");
         assert_eq!(p.safe_eval(r#" $false "#).unwrap().as_str(), "False");
         assert_eq!(p.safe_eval(r#" $null "#).unwrap().as_str(), "");
+    }
+
+    #[test]
+    fn test_builtint_objects() {
+        let mut p = PowerShellSession::new();
+        assert_eq!(
+            p.parse_input(r#" [system.convert]0 "#).unwrap().result(),
+            PsValue::Null
+        );
     }
 
     #[test]
@@ -533,7 +587,82 @@ mod tests {
                 .as_str(),
             std::env::var("ProgramFiles(x86)").unwrap()
         );
+        let env_variables = p.env_variables();
+        assert_eq!(
+            env_variables.get("path").unwrap().to_string(),
+            std::env::var("PATH").unwrap()
+        );
+        assert_eq!(
+            env_variables.get("tmp").unwrap().to_string(),
+            std::env::var("TMP").unwrap()
+        );
+        assert_eq!(
+            env_variables.get("temp").unwrap().to_string(),
+            std::env::var("TMP").unwrap()
+        );
+        assert_eq!(
+            env_variables.get("appdata").unwrap().to_string(),
+            std::env::var("APPDATA").unwrap()
+        );
+        assert_eq!(
+            env_variables.get("username").unwrap().to_string(),
+            std::env::var("USERNAME").unwrap()
+        );
+        assert_eq!(
+            env_variables.get("programfiles").unwrap().to_string(),
+            std::env::var("PROGRAMFILES").unwrap()
+        );
+        assert_eq!(
+            env_variables.get("programfiles(x86)").unwrap().to_string(),
+            std::env::var("PROGRAMFILES(x86)").unwrap()
+        );
+    }
 
+    #[test]
+    fn test_global_variables() {
+        let v = Variables::env();
+        let mut p = PowerShellSession::new().with_variables(v);
+
+        p.parse_input(r#" $global:var_int = 5 "#).unwrap();
+        p.parse_input(r#" $global:var_string = "global";$script:var_string = "script";$local:var_string = "local" "#).unwrap();
+
+        assert_eq!(
+            p.parse_input(r#" $var_int "#).unwrap().result(),
+            PsValue::Int(5)
+        );
+        assert_eq!(
+            p.parse_input(r#" $var_string "#).unwrap().result(),
+            PsValue::String("global".into())
+        );
+
+        let global_variables = p.session_variables();
+        assert_eq!(global_variables.get("var_int").unwrap(), &PsValue::Int(5));
+        assert_eq!(
+            global_variables.get("var_string").unwrap(),
+            &PsValue::String("global".into())
+        );
+    }
+
+    #[test]
+    fn test_script_variables() {
+        let v = Variables::env();
+        let mut p = PowerShellSession::new().with_variables(v);
+
+        let script_res = p
+            .parse_input(r#" $script:var_int = 5;$var_string = "assdfa" "#)
+            .unwrap();
+        let script_variables = script_res.script_variables();
+        assert_eq!(script_variables.get("var_int"), Some(&PsValue::Int(5)));
+        assert_eq!(
+            script_variables.get("var_string"),
+            Some(&PsValue::String("assdfa".into()))
+        );
+    }
+
+    #[test]
+    fn test_env_special_cases() {
+        let v = Variables::env();
+        let mut p = PowerShellSession::new().with_variables(v);
         p.safe_eval(r#" $global:program = $env:programfiles + "\program" "#)
             .unwrap();
         assert_eq!(
@@ -545,10 +674,8 @@ mod tests {
             format!("{}\\program", std::env::var("PROGRAMFILES").unwrap())
         );
 
-        p.safe_eval(r#" ${Env:ProgramFiles(x86):adsf} = 5 "#)
-            .unwrap();
         assert_eq!(
-            p.safe_eval(r#" ${Env:ProgramFiles(x86):adsf} "#)
+            p.safe_eval(r#" ${Env:ProgramFiles(x86):adsf} = 5;${Env:ProgramFiles(x86):adsf} "#)
                 .unwrap()
                 .as_str(),
             5.to_string()
@@ -584,7 +711,7 @@ empty_value =
 [script]
 local_var = "local_value"
         "#;
-        let mut variables = Variables::new();
+        let mut variables = Variables::new().values_persist();
         variables.load_from_string(input).unwrap();
         let mut p = PowerShellSession::new().with_variables(variables);
 
@@ -621,7 +748,7 @@ empty_value =
 local_var = "local_value"
         "#;
 
-        let variables = Variables::from_ini_string(input).unwrap();
+        let variables = Variables::from_ini_string(input).unwrap().values_persist();
         let mut p = PowerShellSession::new().with_variables(variables);
         assert_eq!(
             p.parse_input(r#" $global:name "#).unwrap().result(),
