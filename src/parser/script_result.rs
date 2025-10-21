@@ -92,6 +92,7 @@ impl From<InternalVal> for PsValue {
             InternalVal::RuntimeObject(obj) => PsValue::String(obj.name()),
             InternalVal::ScriptBlock(sb) => PsValue::String(sb.raw_text),
             InternalVal::ScriptText(st) => PsValue::String(st.clone()),
+            InternalVal::NonDisplayed(box_val) => (*box_val).into(),
         }
     }
 }

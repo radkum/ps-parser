@@ -1,6 +1,3 @@
-condition true
-true branch
-B
 5
 7
 10

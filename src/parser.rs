@@ -199,7 +199,7 @@ impl<'a> PowerShellSession {
             .collect()
     }
 
-    pub fn global_variables(&self) -> HashMap<String, PsValue> {
+    pub fn session_variables(&self) -> HashMap<String, PsValue> {
         self.variables
             .get_global()
             .into_iter()
@@ -241,7 +241,7 @@ impl<'a> PowerShellSession {
     pub fn parse_input(&mut self, input: &str) -> Result<ScriptResult, ParserError> {
         self.variables.init();
         let (script_last_output, mut result) = self.parse_subscript(input)?;
-
+        self.variables.clear_script_functions();
         Ok(ScriptResult::new(
             script_last_output,
             std::mem::take(&mut result.output),
@@ -270,50 +270,24 @@ impl<'a> PowerShellSession {
 
             for token in pairs {
                 let token_str = token.as_str();
-                let result = match token.as_rule() {
-                    Rule::pipeline => {
-                        //first assign to output, later create from it script line
-                        //self.eval_pipeline(token.clone())
-                        let mut pairs = token.into_inner();
-                        let token = pairs.next().unwrap();
-
-                        match token.as_rule() {
-                            Rule::assignment_exp => {
-                                let result = self.eval_assigment_exp(token);
-                                //we don't want print assignent result to deobfuscated script.
-                                // Thats why we always return null
-                                result.map(|_| Val::Null)
-                            }
-                            Rule::pipeline_with_tail => self.eval_pipeline_with_tail(token),
-                            _ => unexpected_token!(token),
-                        }
-                    }
-                    Rule::if_statement => self.eval_if_statement(token),
-                    Rule::flow_control_statement => self.eval_flow_control_statement(token),
-                    Rule::function_statement => {
-                        let function_string = token.as_str().to_string();
-                        if let Err(err) = self.parse_function_statement(token) {
-                            Err(err)
-                        } else {
-                            //even if function is parsed successfully, we want to add its text to
-                            // deobfuscated script
-                            self.add_deobfuscated_statement(function_string);
-                            Ok(Val::Null)
-                        }
-                    }
+                match token.as_rule() {
                     Rule::statement_terminator => continue,
                     Rule::EOI => break,
-                    _ => {
-                        not_implemented!(token)
-                    }
+                    _ => {}
                 };
 
+                let result = self.eval_statement(token.clone());
                 self.variables.set_status(result.is_ok());
+
+                if let Ok(Val::NonDisplayed(_)) = &result {
+                    continue;
+                }
 
                 script_last_output = match result {
                     Ok(val) => {
                         if val != Val::Null {
                             self.add_output_statement(val.display().into());
+                            self.add_deobfuscated_statement(val.cast_to_script());
                         }
 
                         val
@@ -330,7 +304,25 @@ impl<'a> PowerShellSession {
         Ok((script_last_output, self.results.pop().unwrap_or_default()))
     }
 
-    pub(crate) fn parse_function_statement(&mut self, token: Pair<'a>) -> ParserResult<()> {
+    fn add_function(
+        &mut self,
+        name: String,
+        func: ScriptBlock,
+        scope: Option<Scope>,
+    ) -> ParserResult<Val> {
+        // let func_str= func.to_function(&name, &scope);
+        // self.add_deobfuscated_statement(func_str);
+
+        if let Some(Scope::Global) = &scope {
+            self.variables.add_global_function(name.clone(), func);
+        } else {
+            self.variables.add_script_function(name.clone(), func);
+        }
+
+        Err(ParserError::Skip)
+    }
+
+    pub(crate) fn parse_function_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::function_statement);
 
         let mut pair = token.into_inner();
@@ -338,25 +330,45 @@ impl<'a> PowerShellSession {
         let function_keyword_token = pair.next().unwrap();
         check_rule!(function_keyword_token, Rule::function_keyword);
 
-        let function_name_token = pair.next().unwrap();
-        check_rule!(function_name_token, Rule::function_name);
-
         let mut next_token = pair.next().unwrap();
+        let scope = if next_token.as_rule() == Rule::scope_keyword {
+            let scope = Scope::from(next_token.as_str());
+            next_token = pair.next().unwrap();
+            Some(scope)
+        } else {
+            None
+        };
+
+        let function_name_token = next_token;
+        check_rule!(function_name_token, Rule::function_name);
+        let fname = function_name_token.as_str().to_ascii_lowercase();
+
+        let Some(mut next_token) = pair.next() else {
+            //empty function
+            return self.add_function(fname, ScriptBlock::empty(), scope);
+        };
+
         let params = if next_token.as_rule() == Rule::parameter_list {
             let param_list = self.parse_parameter_list(next_token)?;
-            next_token = pair.next().unwrap();
+            if let Some(token) = pair.next() {
+                next_token = token;
+            } else {
+                return self.add_function(fname, ScriptBlock::empty(), scope);
+            }
+
             param_list
         } else {
             Vec::new()
         };
         check_rule!(next_token, Rule::script_block);
-        let script_block = self.parse_script_block(next_token)?;
-        let script_block = script_block.with_params(params);
-        self.variables.add_function(
-            function_name_token.as_str().to_ascii_lowercase(),
-            script_block.clone(),
-        );
-        Ok(())
+
+        let mut script_block = self.parse_script_block(next_token)?;
+
+        if script_block.params.0.is_empty() {
+            script_block = script_block.with_params(params);
+        }
+
+        self.add_function(fname, script_block, scope)
     }
 
     pub(crate) fn eval_if_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
@@ -364,7 +376,7 @@ impl<'a> PowerShellSession {
         let mut pair = token.into_inner();
         let condition_token = pair.next().unwrap();
         let true_token = pair.next().unwrap();
-        let condition_val = self.eval_pipeline(condition_token)?;
+        let condition_val = self.eval_pipeline(condition_token.clone())?;
         let res = if condition_val.cast_to_bool() {
             self.eval_statement_block(true_token)?
         } else if let Some(mut token) = pair.next() {
@@ -420,18 +432,33 @@ impl<'a> PowerShellSession {
             Rule::pipeline => self.eval_pipeline(token),
             Rule::if_statement => self.eval_if_statement(token),
             Rule::flow_control_statement => self.eval_flow_control_statement(token),
-            _ => not_implemented!(token)?,
+            Rule::function_statement => self.parse_function_statement(token),
+            Rule::statement_terminator => Ok(Val::Null),
+            Rule::EOI => Ok(Val::Null),
+            _ => {
+                not_implemented!(token)
+            }
         }
     }
 
     fn safe_eval_sub_expr(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        match self.eval_statements(token.clone()) {
-            Ok(vals) => Ok(Val::Array(vals)),
-            Err(err) => {
-                self.errors.push(err);
-                Ok(Val::ScriptText(token.as_str().to_string()))
-            }
+        // match self.eval_statements(token.clone()) {
+        //     Ok(vals) => Ok(Val::Array(vals)),
+        //     Err(err) => {
+        //         self.errors.push(err);
+        //         Ok(Val::ScriptText(token.as_str().to_string()))
+        //     }
+        // }
+        check_rule!(token, Rule::sub_expression);
+        let Some(inner_token) = token.into_inner().next() else {
+            return Ok(Val::Null);
+        };
+        let mut inner_val = self.eval_pipeline(inner_token)?;
+        if let Val::ScriptText(script) = &mut inner_val {
+            *script = format!("$({})", script);
+            //self.tokens.push(Token::SubExpression(script.clone()));
         }
+        Ok(inner_val)
     }
 
     fn eval_statement_block(&mut self, token: Pair<'a>) -> ParserResult<Val> {
@@ -1014,17 +1041,26 @@ impl<'a> PowerShellSession {
     }
 
     fn eval_range_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        fn range(left: i64, right: i64) -> Vec<Val> {
-            if left < right {
-                (left..=right).collect::<Vec<i64>>()
+        fn range(mut left: i64, right: i64) -> Vec<Val> {
+            let mut v = Vec::new();
+            if left <= right {
+                loop {
+                    v.push(left);
+                    if left == right {
+                        break;
+                    }
+                    left += 1;
+                }
             } else {
-                let mut v = (right..=left).collect::<Vec<i64>>();
-                v.reverse();
-                v
+                loop {
+                    v.push(left);
+                    if left == right {
+                        break;
+                    }
+                    left -= 1;
+                }
             }
-            .into_iter()
-            .map(Val::Int)
-            .collect::<Vec<Val>>()
+            v.into_iter().map(Val::Int).collect()
         }
         check_rule!(token, Rule::range_exp);
         let mut pairs = token.into_inner();
@@ -1317,15 +1353,37 @@ impl<'a> PowerShellSession {
         Ok(params)
     }
 
+    fn parse_attribute_list(&mut self, token: Pair<'a>) -> ParserResult<Option<ValType>> {
+        check_rule!(token, Rule::attribute_list);
+        let attribute_list_pairs = token.into_inner();
+        for attribute_token in attribute_list_pairs {
+            check_rule!(attribute_token, Rule::attribute);
+            let attribute_type_token = attribute_token.into_inner().next().unwrap();
+            match attribute_type_token.as_rule() {
+                Rule::attribute_info => {
+                    //skip for now
+                    continue;
+                }
+                Rule::type_literal => {
+                    return Ok(Some(self.eval_type_literal(attribute_type_token)?));
+                }
+                _ => unexpected_token!(attribute_type_token),
+            }
+        }
+        Ok(None)
+    }
     fn parse_script_parameter(&mut self, token: Pair<'a>) -> ParserResult<Param> {
         check_rule!(token, Rule::script_parameter);
         let mut pairs = token.into_inner();
         let mut token = pairs.next().unwrap();
 
-        if token.as_rule() == Rule::attribute_list {
-            //skip for now
+        let type_literal = if token.as_rule() == Rule::attribute_list {
+            let type_literal = self.parse_attribute_list(token)?;
             token = pairs.next().unwrap();
-        }
+            type_literal
+        } else {
+            None
+        };
 
         check_rule!(token, Rule::variable);
         let var_name = Self::parse_variable(token)?;
@@ -1333,12 +1391,12 @@ impl<'a> PowerShellSession {
         let default_value = if let Some(default_value_token) = pairs.next() {
             check_rule!(default_value_token, Rule::script_parameter_default);
             let default_value_expr = default_value_token.into_inner().next().unwrap();
-            let default_value = self.eval_expression(default_value_expr)?;
+            let default_value = self.eval_value(default_value_expr)?;
             Some(default_value)
         } else {
             None
         };
-        Ok(Param::new(var_name.name, default_value))
+        Ok(Param::new(type_literal, var_name.name, default_value))
     }
 
     fn eval_bitwise_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
@@ -1376,7 +1434,11 @@ impl<'a> PowerShellSession {
             _ => unexpected_token!(token),
         };
 
-        Ok(Command::cmdlet(command_name))
+        let mut command = Command::cmdlet(command_name);
+        if Rule::command_name == token.as_rule() {
+            command.set_session_scope(SessionScope::New);
+        }
+        Ok(command)
     }
 
     fn parse_command_args(&mut self, pairs: Pairs<'a>) -> ParserResult<Vec<CommandElem>> {
@@ -1399,7 +1461,9 @@ impl<'a> PowerShellSession {
                     };
                     args.push(CommandElem::Argument(arg));
                 }
-                Rule::command_parameter => args.push(CommandElem::Parameter(token_string)),
+                Rule::command_parameter => {
+                    args.push(CommandElem::Parameter(token_string.to_ascii_lowercase()))
+                }
                 Rule::argument_list => args.push(CommandElem::ArgList(token_string)),
                 Rule::redirection => { //todo: implement redirection
                 }
@@ -1416,7 +1480,7 @@ impl<'a> PowerShellSession {
         let mut pairs = token.into_inner();
 
         let command_token = pairs.next().unwrap();
-        let command = match command_token.as_rule() {
+        let mut command = match command_token.as_rule() {
             Rule::cmdlet_command => self.parse_cmdlet_command_name(command_token)?,
             Rule::invocation_command => self.parse_invocation_command(command_token)?,
             _ => unexpected_token!(command_token),
@@ -1427,25 +1491,21 @@ impl<'a> PowerShellSession {
             args.insert(0, CommandElem::Argument(arg));
         }
 
-        let x = command.execute(self, args)?;
-        let CommandOutput {
-            val,
-            deobfuscated,
-            stream,
-        } = x;
-
-        // Maybe we should log result of command as deobfuscated statement?
-        //self.add_deobfuscated_statement(val.cast_to_script());
-
-        if let Some(msg) = deobfuscated {
-            self.add_deobfuscated_statement(msg);
+        command.with_args(args);
+        match command.execute(self) {
+            Ok(CommandOutput {
+                val,
+                deobfuscated: _deobfuscated,
+            }) => Ok(val),
+            Err(e) => {
+                self.errors.push(e);
+                Ok(Val::ScriptText(command.to_string()))
+            }
         }
 
-        if let Some(msg) = stream {
-            self.add_output_statement(msg);
-        }
-
-        Ok(val)
+        // if let Some(msg) = deobfuscated {
+        //     self.add_deobfuscated_statement(msg);
+        // }
     }
 
     fn add_deobfuscated_statement(&mut self, msg: String) {
@@ -1598,7 +1658,7 @@ impl<'a> PowerShellSession {
         let val_type = self.eval_type_literal(type_token)?;
 
         let token = pairs.next().unwrap();
-        let mut res = match token.as_rule() {
+        let res = match token.as_rule() {
             Rule::parenthesized_expression => {
                 let token = token.into_inner().next().unwrap();
                 self.safe_eval_pipeline(token)?
@@ -1626,7 +1686,7 @@ impl<'a> PowerShellSession {
         let pred = ArithmeticPred::get(op.as_str());
 
         let right_token = pairs.next().unwrap();
-        let right_op = self.eval_pipeline(right_token.clone())?;
+        let right_op = self.eval_statement(right_token.clone())?;
 
         let Some(pred) = pred else {
             log::error!("No arithmetic function for operator: {}", op.as_str());
@@ -1641,7 +1701,7 @@ impl<'a> PowerShellSession {
         //we want save each assignment statement
         self.add_deobfuscated_statement(format!("{} = {}", var_name, op_result.cast_to_script()));
 
-        Ok(op_result)
+        Ok(Val::NonDisplayed(Box::new(op_result)))
     }
 
     fn push_scope_session(&mut self) {

@@ -4,7 +4,6 @@ Number: 42
 Float: 3.14159
 Boolean: True
 Null: 
-Mixed types: $(3 + "invalid")
 === Test 4: String Operations ===
 Concatenation: Hello World
 String multiplication: HelloHelloHello
@@ -45,7 +44,7 @@ Square of 5: 25
 Greeting: Hello, World!
 Greeting with name: Hello, Alice!
 === Test 16: Advanced Function ===
-$(Test-Parameters -Name "Bob" -Age 30 -Verbose)
+Name: Bob, Age: 30 (Verbose mode)
 === Test 17: String Matching ===
 Contains 'Shell': True
 Starts with 'Power': True
@@ -67,7 +66,7 @@ Even numbers: 2 4 6 8 10
 === Test 22: Special Variables ===
 PowerShell Version: $PSVersionTable.PSVersion
 Execution Policy: $(Get-ExecutionPolicy)
-Current Location: $(Get-Location)
+Current Location: C:\VSExclude\ps-parser
 === Test 23: Nested Structures ===
 First user: Alice
 First user skills: PowerShell, Python

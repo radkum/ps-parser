@@ -83,11 +83,7 @@ $env_empty = $env:EMPTY_VAR
 
 $range_same = @(5)
 $range_reverse = @(10,9,8,7,6,5,4,3,2,1)
-$range_negative = -5
-.-1     # Negative range
-
-# Test 25: Function Edge Cases
-
+$range_negative = @(-5,-4,-3,-2,-1)
 function Test-Empty() {
     # Empty function
 }
@@ -97,16 +93,17 @@ function Test-OneParam($p) {
 function Test-MultiParam($a, $b, $c) {
     return $a + $b + $c
 }
-$empty_result = Test-Empty
-
+$empty_result = $null
 $one_param_result = 10
 $multi_param_result = 6
 function Inner($x) { return $x + 1 }
 function Outer($y) { return Inner($y * 2) }
 $nested_func_result = 11
+11
 $global_var = "global"
 $block_var = "block"
 $scope_test = "globalblock"
+"globalblock"
 $switch_var = $null
 switch ($switch_var) {
     $null { $switch_null_result = "matched null" }
@@ -114,6 +111,10 @@ switch ($switch_var) {
     0 { $switch_zero_result = "matched zero" }
     default { $switch_default_result = "default case" }
 }
+$switch_null_result
+
+# Test 29: Loop Edge Cases
+
 for ($i = 10; $i -gt 10; $i--) {
     $never_executed = "should not run"
 }
@@ -134,11 +135,8 @@ $perf_sum = 0
 for ($i = 0; $i -lt $perf_array.Length; $i++) {
     $perf_sum += $perf_array[$i]
 }
-$complex_if = if 
-else { "complex false" }
-
-# Test 33: String Escape Sequences
-
+$complex_if = "complex true"
+"complex true"
 $escaped = "Quote: " Newline: n Tab: t Backslash: `"
 $final_good_operation = 300
 $final_status = $true

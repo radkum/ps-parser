@@ -20,34 +20,24 @@ impl From<ParserError> for CommandError {
         CommandError::ExecutionError(value.to_string())
     }
 }
-
-pub type CommandResult<T> = core::result::Result<T, CommandError>;
+use crate::parser::ParserResult;
+pub type CallablePredType =
+    Box<dyn Fn(Vec<CommandElem>, &mut PowerShellSession) -> ParserResult<CommandOutput>>;
 
 #[derive(Debug, Clone)]
 pub struct CommandOutput {
-    pub val: Val,                      // Regular return value
-    pub deobfuscated: Option<String>,  // Message to a specific stream
-    pub stream: Option<StreamMessage>, // Message to a specific stream
+    pub val: Val,                     // Regular return value
+    pub deobfuscated: Option<String>, // Message to a specific stream
 }
 
 impl CommandOutput {
-    pub fn new(val: Val, streams: Vec<StreamMessage>, deobfuscated: Vec<String>) -> Self {
+    pub fn new(val: Val, deobfuscated: Vec<String>) -> Self {
         Self {
             val,
             deobfuscated: if deobfuscated.is_empty() {
                 None
             } else {
                 Some(deobfuscated.join(crate::NEWLINE))
-            },
-            stream: if streams.is_empty() {
-                None
-            } else {
-                let stream_msg = streams
-                    .into_iter()
-                    .map(|stream| stream.content)
-                    .collect::<Vec<_>>()
-                    .join(crate::NEWLINE);
-                Some(stream_msg.into())
             },
         }
     }
@@ -58,7 +48,6 @@ impl From<ScriptResult> for CommandOutput {
         CommandOutput {
             val: script_result.result().into(),
             deobfuscated: script_result.deobfuscated().into(),
-            stream: StreamMessage::success(script_result.output()).into(),
         }
     }
 }
@@ -68,7 +57,6 @@ impl From<Val> for CommandOutput {
         CommandOutput {
             val,
             deobfuscated: None,
-            stream: None,
         }
     }
 }
@@ -83,6 +71,7 @@ pub enum CommandInner {
 #[derive(Debug)]
 pub struct Command {
     command_inner: CommandInner,
+    args: Vec<CommandElem>,
     scope: SessionScope,
 }
 
@@ -90,6 +79,7 @@ impl Command {
     pub(crate) fn script_block(script_block: ScriptBlock) -> Self {
         Self {
             command_inner: CommandInner::ScriptBlock(script_block),
+            args: Vec::new(),
             scope: SessionScope::Current,
         }
     }
@@ -97,6 +87,7 @@ impl Command {
     pub(crate) fn cmdlet(cmdlet: &str) -> Self {
         Self {
             command_inner: CommandInner::Cmdlet(cmdlet.to_string()),
+            args: Vec::new(),
             scope: SessionScope::Current,
         }
     }
@@ -104,6 +95,7 @@ impl Command {
     pub(crate) fn path(path: &str) -> Self {
         Self {
             command_inner: CommandInner::Path(path.to_string()),
+            args: Vec::new(),
             scope: SessionScope::Current,
         }
     }
@@ -111,59 +103,78 @@ impl Command {
     pub(crate) fn set_session_scope(&mut self, scope: SessionScope) {
         self.scope = scope;
     }
+
+    pub(crate) fn with_args(&mut self, args: Vec<CommandElem>) {
+        self.args.extend(args);
+    }
 }
 
-pub(crate) type CommandPredType =
-    fn(Vec<CommandElem>, Option<&mut PowerShellSession>) -> CommandResult<CommandOutput>;
+impl std::fmt::Display for Command {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let mut command = match &self.command_inner {
+            CommandInner::Cmdlet(name) => name.clone(),
+            CommandInner::Path(path) => path.clone(),
+            CommandInner::ScriptBlock(sb) => sb.deobfuscated_string(),
+        };
+
+        if !self.args.is_empty() {
+            let args_str = self
+                .args
+                .iter()
+                .map(|arg| arg.display())
+                .collect::<Vec<_>>()
+                .join(" ");
+            command = format!("{} {}", command, args_str);
+        }
+        write!(f, "{}", command)
+    }
+}
+
+pub(crate) type FunctionPredType =
+    fn(Vec<CommandElem>, &mut PowerShellSession) -> ParserResult<CommandOutput>;
 
 impl Command {
-    const COMMAND_MAP: LazyLock<HashMap<&'static str, CommandPredType>> = LazyLock::new(|| {
+    const COMMAND_MAP: LazyLock<HashMap<&'static str, FunctionPredType>> = LazyLock::new(|| {
         HashMap::from([
-            ("write-output", write_output as CommandPredType),
-            ("write-warning", write_warning as CommandPredType),
-            ("write-host", write_host as CommandPredType),
-            ("write-error", write_error as CommandPredType),
-            ("write-verbose", write_verbose as CommandPredType),
-            ("where-object", where_object as CommandPredType),
+            ("write-output", write_output as FunctionPredType),
+            ("write-warning", write_warning as FunctionPredType),
+            ("write-host", write_host as FunctionPredType),
+            ("write-error", write_error as FunctionPredType),
+            ("write-verbose", write_verbose as FunctionPredType),
+            ("where-object", where_object as FunctionPredType),
+            ("get-location", get_location as FunctionPredType),
         ])
     });
 
-    pub(crate) fn get(name: &str) -> Option<CommandPredType> {
-        Self::COMMAND_MAP.get(name).copied()
+    pub(crate) fn get(name: &str) -> Option<FunctionPredType> {
+        Self::COMMAND_MAP.get(name).cloned()
     }
 
-    pub(crate) fn execute(
-        &self,
-        ps: &mut PowerShellSession,
-        args: Vec<CommandElem>,
-    ) -> CommandResult<CommandOutput> {
+    fn impl_execute(&mut self, ps: &mut PowerShellSession) -> ParserResult<CommandOutput> {
+        match &mut self.command_inner {
+            CommandInner::ScriptBlock(sb) => sb.run(self.args.clone(), ps, None),
+            CommandInner::Cmdlet(name) => {
+                if let Some(fun) = ps.variables.get_function(&name.to_ascii_lowercase()) {
+                    fun(self.args.clone(), ps)
+                } else if let Some(cmdlet) = Self::get(&name.to_ascii_lowercase()) {
+                    cmdlet(self.args.clone(), ps)
+                } else {
+                    Err(ParserError::from(CommandError::NotFound(name.clone())))?
+                }
+            }
+            CommandInner::Path(path) => {
+                Err(ParserError::from(CommandError::NotFound(path.clone())))?
+            }
+        }
+    }
+
+    pub(crate) fn execute(&mut self, ps: &mut PowerShellSession) -> ParserResult<CommandOutput> {
         let new_scope = matches!(self.scope, SessionScope::New);
 
         if new_scope {
             ps.push_scope_session();
         }
-        let res = match &self.command_inner {
-            CommandInner::ScriptBlock(sb) => sb
-                .run(
-                    args.iter().filter_map(CommandElem::into_val).collect(),
-                    ps,
-                    None,
-                )
-                .map_err(|e| e.into()),
-            CommandInner::Cmdlet(name) => {
-                if let Some(fun) = ps.variables.get_function(&name.to_ascii_lowercase()) {
-                    return fun(args.iter().filter_map(CommandElem::into_val).collect(), ps)
-                        .map_err(|e| e.into());
-                }
-                if let Some(cmdlet) = Self::get(&name.to_ascii_lowercase()) {
-                    return cmdlet(args, Some(ps));
-                }
-
-                Err(CommandError::NotFound(name.into()))
-            }
-            CommandInner::Path(path) => Err(CommandError::NotFound(path.into())),
-        };
-
+        let res = self.impl_execute(ps);
         if new_scope {
             ps.pop_scope_session();
         }
@@ -171,7 +182,7 @@ impl Command {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub(crate) enum CommandElem {
     Parameter(String),
     Argument(Val),
@@ -189,46 +200,30 @@ impl CommandElem {
     pub fn display(&self) -> String {
         match self {
             CommandElem::Parameter(s) => s.clone(),
-            CommandElem::Argument(v) => v.cast_to_script(),
+            CommandElem::Argument(v) => v.cast_to_string(),
             CommandElem::ArgList(s) => s.clone(),
-        }
-    }
-
-    pub fn into_val(value: &CommandElem) -> Option<Val> {
-        if let CommandElem::Argument(v) = value {
-            Some(v.clone())
-        } else {
-            None
         }
     }
 }
 
 // Where-Object cmdlet implementation
-fn where_object(
-    args: Vec<CommandElem>,
-    ps: Option<&mut PowerShellSession>,
-) -> CommandResult<CommandOutput> {
+fn where_object(args: Vec<CommandElem>, ps: &mut PowerShellSession) -> ParserResult<CommandOutput> {
     log::debug!("args: {:?}", args);
     if args.len() != 2 {
         return Err(CommandError::IncorrectArgs(
             "Where-Object requires exactly two arguments".into(),
-        ));
+        )
+        .into());
     }
 
     let CommandElem::Argument(Val::Array(elements)) = &args[0] else {
-        return Err(CommandError::IncorrectArgs(
-            "First argument must be an array".into(),
-        ));
+        return Err(CommandError::IncorrectArgs("First argument must be an array".into()).into());
     };
 
     let CommandElem::Argument(Val::ScriptBlock(sb)) = &args[1] else {
-        return Err(CommandError::IncorrectArgs(
-            "Second argument must be a script block".into(),
-        ));
-    };
-
-    let Some(ps) = ps else {
-        return Err(CommandError::IncorrectArgs("Where-Object".into()));
+        return Err(
+            CommandError::IncorrectArgs("Second argument must be a script block".into()).into(),
+        );
     };
 
     let filtered_elements = elements
@@ -246,10 +241,21 @@ fn where_object(
     Ok(CommandOutput {
         val: Val::Array(filtered_elements),
         deobfuscated: None,
-        stream: None,
     })
 }
 
+fn get_location(_: Vec<CommandElem>, _: &mut PowerShellSession) -> ParserResult<CommandOutput> {
+    let Ok(dir) = std::env::current_dir() else {
+        return Err(CommandError::ExecutionError(
+            "Failed to get current directory".into(),
+        ))?;
+    };
+
+    Ok(CommandOutput {
+        val: Val::String(dir.display().to_string().into()),
+        deobfuscated: Some(format!("Get-Location \"{}\"", dir.display())),
+    })
+}
 // Helper function to extract message from command arguments
 fn extract_message(args: &[CommandElem]) -> String {
     let mut output = Vec::new();
@@ -274,10 +280,7 @@ fn extract_message(args: &[CommandElem]) -> String {
     output.join(" ")
 }
 // Write-Host cmdlet implementation (goes directly to console, not capturable)
-fn write_host(
-    args: Vec<CommandElem>,
-    _: Option<&mut PowerShellSession>,
-) -> CommandResult<CommandOutput> {
+fn write_host(args: Vec<CommandElem>, ps: &mut PowerShellSession) -> ParserResult<CommandOutput> {
     let message = extract_message(&args);
     let deobfuscated = format!(
         "Write-Host {}",
@@ -287,17 +290,14 @@ fn write_host(
             .join(" ")
     );
 
+    ps.add_output_statement(StreamMessage::success(message));
     Ok(CommandOutput {
         val: Val::Null,
         deobfuscated: Some(deobfuscated),
-        stream: Some(StreamMessage::success(message)),
     })
 }
 // Write-Output cmdlet implementation
-fn write_output(
-    args: Vec<CommandElem>,
-    _: Option<&mut PowerShellSession>,
-) -> CommandResult<CommandOutput> {
+fn write_output(args: Vec<CommandElem>, _: &mut PowerShellSession) -> ParserResult<CommandOutput> {
     let message = extract_message(&args);
     let deobfuscated = format!(
         "Write-Output {}",
@@ -310,15 +310,11 @@ fn write_output(
     Ok(CommandOutput {
         val: Val::String(message.clone().into()),
         deobfuscated: Some(deobfuscated),
-        stream: None,
     })
 }
 
 // Write-Warning cmdlet implementation (mimics PowerShell's Write-Warning)
-fn write_warning(
-    args: Vec<CommandElem>,
-    _: Option<&mut PowerShellSession>,
-) -> CommandResult<CommandOutput> {
+fn write_warning(args: Vec<CommandElem>, _: &mut PowerShellSession) -> ParserResult<CommandOutput> {
     let message = extract_message(&args);
     let deobfuscated = format!(
         "Write-Warning {}",
@@ -331,15 +327,11 @@ fn write_warning(
     Ok(CommandOutput {
         val: Val::String(message.clone().into()),
         deobfuscated: Some(deobfuscated),
-        stream: None,
     })
 }
 
 // Write-Error cmdlet implementation
-fn write_error(
-    args: Vec<CommandElem>,
-    _: Option<&mut PowerShellSession>,
-) -> CommandResult<CommandOutput> {
+fn write_error(args: Vec<CommandElem>, _: &mut PowerShellSession) -> ParserResult<CommandOutput> {
     let message = extract_message(&args);
     let deobfuscated = format!(
         "Write-Error {}",
@@ -352,15 +344,11 @@ fn write_error(
     Ok(CommandOutput {
         val: Val::String(message.clone().into()),
         deobfuscated: Some(deobfuscated),
-        stream: None,
     })
 }
 
 // Write-Verbose cmdlet implementation
-fn write_verbose(
-    args: Vec<CommandElem>,
-    _: Option<&mut PowerShellSession>,
-) -> CommandResult<CommandOutput> {
+fn write_verbose(args: Vec<CommandElem>, _: &mut PowerShellSession) -> ParserResult<CommandOutput> {
     let message = extract_message(&args);
     let deobfuscated = format!(
         "Write-Verbose {}",
@@ -372,7 +360,6 @@ fn write_verbose(
     Ok(CommandOutput {
         val: Val::String(message.clone().into()),
         deobfuscated: Some(deobfuscated),
-        stream: None,
     })
 }
 
@@ -409,10 +396,7 @@ mod tests {
                     "$global:var = \"{}\"",
                     std::env::var("PROGRAMFILES").unwrap()
                 ),
-                format!(
-                    "Write-Output \"{}\"",
-                    std::env::var("PROGRAMFILES").unwrap()
-                )
+                format!("\"{}\"", std::env::var("PROGRAMFILES").unwrap())
             ]
             .join(NEWLINE)
         );
@@ -421,63 +405,49 @@ mod tests {
     }
 
     #[test]
-    fn test_script_block() {
+    fn cmdlets() {
         let mut p = PowerShellSession::new();
-        let input = r#"$elo = 3;$sb = { param($x, $y = 4); $x+$y+$elo};&$sb 1 2"#;
-        let script_res = p.parse_input(input).unwrap();
-        assert_eq!(script_res.result().to_string(), "6".to_string());
-        assert_eq!(
-            script_res.deobfuscated(),
-            vec!["$elo = 3", "$sb = {param($x, $y = 4); $x+$y+$elo}",].join(NEWLINE)
-        );
-        assert_eq!(script_res.output(), "6".to_string());
-        assert_eq!(script_res.errors().len(), 0);
-    }
-
-    #[test]
-    fn test_script_block_default_args() {
-        let mut p = PowerShellSession::new();
-        let input = r#"$elo = 3;$sb = { param($x, $y = 4); $x+$y+$elo};.$sb 1"#;
+        let input = r#""Execution Policy: $(Get-ExecutionPolicy)"
+"Current Location: $(Get-Location)""#;
         let s = p.parse_input(input).unwrap();
-        assert_eq!(s.result().to_string(), "8".to_string());
-    }
 
-    #[test]
-    fn test_non_existing_script_block() {
-        let mut p = PowerShellSession::new();
-        let input = r#"$elo = 3;$sb = { param($x, $y = 4); $x+$y+$elo};.$sb2 1"#;
-        let script_res = p.parse_input(input).unwrap();
-        assert!(script_res.result().to_string().is_empty(),);
+        // Get-ExecutionPolicy is built-in function
         assert_eq!(
-            script_res.deobfuscated(),
+            s.deobfuscated().trim(),
             vec![
-                "$elo = 3",
-                "$sb = {param($x, $y = 4); $x+$y+$elo}",
-                ".$sb2 1",
+                "\"Execution Policy: $(Get-ExecutionPolicy)\"",
+                &format!(
+                    "\"Current Location: {}\"",
+                    std::env::current_dir().unwrap().display()
+                )
             ]
             .join(NEWLINE)
         );
-        assert!(script_res.output().is_empty(),);
-        assert_eq!(script_res.errors().len(), 1);
+    }
+
+    #[test]
+    fn param_from_var() {
+        let mut p = PowerShellSession::new();
+        let input = r#"$x = "Process";Get-ExecutionPolicy -Scope $x"#;
+        let s = p.parse_input(input).unwrap();
+
+        // Get-ExecutionPolicy is built-in function
         assert_eq!(
-            script_res.errors()[0].to_string(),
-            "VariableError: Variable \"sb2\" is not defined"
+            s.deobfuscated().trim(),
+            vec!["$x = \"Process\"", "Get-ExecutionPolicy -scope Process",].join(NEWLINE)
         );
     }
 
     #[test]
-    fn test_script_block_value_assignment() {
+    fn double_quoted_string() {
         let mut p = PowerShellSession::new();
-        let input = r#"$scriptBlock = {param($x, $y) return $x + $y};& $scriptBlock 10 20"#;
+        let input = r#"$x = 5;$y = 3;$result = "Sum: $($x + $y)""#;
         let s = p.parse_input(input).unwrap();
-        assert_eq!(s.result().to_string(), "30".to_string());
-    }
 
-    #[test]
-    fn test_script_block_without_assignment() {
-        let mut p = PowerShellSession::new();
-        let input = r#"& {param($x, $y) return $x + $y} 10 20 40"#;
-        let s = p.parse_input(input).unwrap();
-        assert_eq!(s.result().to_string(), "30".to_string());
+        // Get-ExecutionPolicy is built-in function
+        assert_eq!(
+            s.deobfuscated().trim(),
+            vec!["$x = 5", "$y = 3", "$result = \"Sum: 8\"",].join(NEWLINE)
+        );
     }
 }

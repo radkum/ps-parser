@@ -1,4 +1,5 @@
 mod method_error;
+mod params;
 mod ps_string;
 mod runtime_object;
 mod script_block;
@@ -14,11 +15,12 @@ use std::{
 };
 
 pub(crate) use method_error::{MethodError, MethodResult};
+pub(crate) use params::Param;
 pub(crate) use ps_string::PsString;
 use ps_string::str_cmp;
 pub(super) use runtime_object::RuntimeObject;
 use runtime_object::{MethodCallType, StaticFnCallType};
-pub(crate) use script_block::{Param, ScriptBlock};
+pub(crate) use script_block::ScriptBlock;
 use smart_default::SmartDefault;
 use system_convert::Convert;
 use system_encoding::Encoding;
@@ -41,6 +43,7 @@ pub enum ValType {
     ScriptBlock,
     ScriptText,
     RuntimeType(String),
+    Switch,
 }
 
 impl std::fmt::Display for ValType {
@@ -67,6 +70,7 @@ impl ValType {
             "float" | "double" => Self::Float,
             "string" => Self::String,
             "array" => Self::Array,
+            "switch" => Self::Switch,
             _ => {
                 if !Self::STATIC_OBJECT_MAP.contains_key(s.as_str()) {
                     Err(ValError::UnknownType(s.clone()))?;
@@ -93,6 +97,7 @@ pub(crate) enum Val {
     RuntimeObject(Box<dyn RuntimeObject>),
     ScriptBlock(ScriptBlock),
     ScriptText(String),
+    NonDisplayed(Box<Val>),
 }
 
 impl std::fmt::Display for Val {
@@ -137,6 +142,7 @@ impl std::fmt::Display for Val {
                     String::new()
                 }
             }
+            Val::NonDisplayed(_) => String::new(),
         };
         write!(f, "{}", str)
     }
@@ -153,6 +159,7 @@ impl PartialEq for Val {
             (Val::String(a), Val::String(b)) => a == b,
             (Val::Array(a), Val::Array(b)) => a == b,
             (Val::RuntimeObject(a), Val::RuntimeObject(b)) => a.name() == b.name(),
+            (Val::NonDisplayed(box_a), Val::NonDisplayed(box_b)) => *box_a == *box_b,
             _ => false,
         }
     }
@@ -178,6 +185,7 @@ impl Clone for Val {
             }
             Val::ScriptBlock(a) => Val::ScriptBlock(a.clone()),
             Val::ScriptText(a) => Val::ScriptText(a.clone()),
+            Val::NonDisplayed(box_val) => Val::NonDisplayed(box_val.clone()),
         }
     }
 }
@@ -222,6 +230,7 @@ impl Val {
                 }
             }
             Val::ScriptText(_) => false,
+            Val::NonDisplayed(box_val) => box_val.lt(val, case_insensitive)?,
         })
     }
 
@@ -241,6 +250,7 @@ impl Val {
             Val::RuntimeObject(_) => todo!(),
             Val::ScriptBlock(_) => false, // ScriptBlocks can't be compared
             Val::ScriptText(_) => false,
+            Val::NonDisplayed(box_val) => box_val.gt(val, case_insensitive)?,
         })
     }
 
@@ -260,6 +270,7 @@ impl Val {
             Val::RuntimeObject(_) => todo!(),
             Val::ScriptBlock(_) => false, // ScriptBlocks can't be compared
             Val::ScriptText(_) => false,
+            Val::NonDisplayed(box_val) => box_val.lt(val, case_insensitive)?,
         })
     }
 
@@ -275,7 +286,8 @@ impl Val {
             Val::HashTable(_) => ValType::HashTable,
             Val::ScriptBlock(_) => ValType::ScriptBlock,
             Val::ScriptText(_) => ValType::ScriptText,
-            Val::RuntimeObject(_) => todo!(),
+            Val::RuntimeObject(rt) => ValType::RuntimeType(rt.name()),
+            Val::NonDisplayed(box_val) => box_val.ttype(),
         }
     }
 
@@ -313,6 +325,7 @@ impl Val {
                     val.ttype().to_string(),
                 ));
             }
+            Val::NonDisplayed(box_val) => box_val.add(val)?,
         }
         Ok(())
     }
@@ -337,6 +350,7 @@ impl Val {
                     self.ttype().to_string(),
                 ))?
             }
+            Val::NonDisplayed(box_val) => box_val.inc_or_dec_operation(amount, op)?,
         }
         Ok(())
     }
@@ -536,11 +550,12 @@ impl Val {
                 self.ttype().to_string(),
                 self.ttype().to_string(),
             ))?,
+            Val::NonDisplayed(box_val) => box_val.neg()?,
         }
         Ok(())
     }
 
-    pub(crate) fn cast(&mut self, ttype: ValType) -> ValResult<Self> {
+    pub(crate) fn cast(&self, ttype: ValType) -> ValResult<Self> {
         Ok(match ttype {
             ValType::Null => Err(ValError::UnknownType("Null".to_string()))?,
             ValType::Bool => Val::Bool(self.cast_to_bool()),
@@ -555,6 +570,10 @@ impl Val {
             ValType::RuntimeType(_) => Err(ValError::InvalidCast(
                 self.ttype().to_string(),
                 "RuntimeType".to_string(),
+            ))?,
+            ValType::Switch => Err(ValError::InvalidCast(
+                self.ttype().to_string(),
+                "Switch".to_string(),
             ))?,
         })
     }
@@ -578,6 +597,7 @@ impl Val {
                     Err(ValError::UnknownType(s.to_string()))?
                 }
             }
+            ValType::Switch => Err(ValError::UnknownType("Can't init switch".into()))?,
         })
     }
 
@@ -594,6 +614,7 @@ impl Val {
             Val::RuntimeObject(rt) => !rt.name().is_empty(),
             Val::ScriptBlock(_) => true,
             Val::ScriptText(st) => !st.is_empty(),
+            Val::NonDisplayed(box_val) => box_val.cast_to_bool(),
         }
     }
 
@@ -635,6 +656,7 @@ impl Val {
                 "ScriptText".to_string(),
                 "Char".to_string(),
             ))?,
+            Val::NonDisplayed(box_val) => box_val.cast_to_char()?,
         };
         Ok(res)
     }
@@ -673,6 +695,7 @@ impl Val {
                 "ScriptText".to_string(),
                 "Int".to_string(),
             ))?,
+            Val::NonDisplayed(box_val) => box_val.cast_to_int()?,
         })
     }
 
@@ -701,6 +724,7 @@ impl Val {
                 "ScriptText".to_string(),
                 "Float".to_string(),
             ))?,
+            Val::NonDisplayed(box_val) => box_val.cast_to_float()?,
         })
     }
 
@@ -721,6 +745,7 @@ impl Val {
             Val::RuntimeObject(s) => s.name(),
             Val::ScriptBlock(sb) => sb.to_string(),
             Val::ScriptText(st) => st.clone(),
+            Val::NonDisplayed(box_val) => box_val.cast_to_string(),
         }
     }
 
@@ -743,6 +768,7 @@ impl Val {
             Val::RuntimeObject(a) => vec![Val::String(a.name().into())],
             Val::ScriptBlock(sb) => vec![Val::String(sb.to_string().into())],
             Val::ScriptText(s) => vec![Val::String(s.clone().into())],
+            Val::NonDisplayed(s) => s.cast_to_array(),
         }
     }
 
@@ -866,6 +892,7 @@ impl Val {
             Val::RuntimeObject(s) => format!("[{}]", s.name()),
             Val::ScriptBlock(sb) => format!("{{{}}}", sb),
             Val::ScriptText(st) => st.clone(),
+            Val::NonDisplayed(box_val) => (*box_val).cast_to_script(),
         }
     }
 }
@@ -900,6 +927,9 @@ impl From<&String> for Val {
 
 impl TypeInfoTrait for Val {
     fn type_info(&self) -> MethodResult<TypeInfo> {
+        if let Val::NonDisplayed(inner) = self {
+            return inner.type_info();
+        }
         let (is_public, is_serial, base_type) = match self {
             Val::Null => Err(MethodError::NullExpression("GetType".to_string()))?,
             Val::Char(_)
@@ -912,6 +942,7 @@ impl TypeInfoTrait for Val {
             | Val::ScriptBlock(_) => (true, true, "System.Object"),
             Val::Array(_) => (true, true, "System.Array"),
             Val::RuntimeObject(_) => (false, true, "System.Reflection.TypeInfo"),
+            _ => panic!("Unreachable"),
         };
 
         let name = match self {
@@ -926,6 +957,7 @@ impl TypeInfoTrait for Val {
             Val::ScriptText(_) => "ScriptText",
             Val::Array(_) => "Object[]",
             Val::RuntimeObject(_) => "RuntimeType",
+            _ => panic!("Unreachable"),
         };
 
         Ok(TypeInfo {

@@ -84,7 +84,11 @@ $bnot = -6
 $shl = 16
 $shr = 4
 $inc_test = 5
+5
+7
 $dec_test = 10
+10
+8
 $paren_result = 21
 $sub_expr = @(20)
 $neg_number = -42

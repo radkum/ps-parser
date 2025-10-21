@@ -210,18 +210,16 @@ Expression("5", Int(5))
 ## Future plans
 
 version 0.2.0
-- eval empty function statement
-- eval function with param block
-- eval filter function
 - consider not reporting error: not implemented?
 - make benchmarks
 - documentation for script_block and global, script, local values
 
 version 0.2.1
+- "filter" functions
 - eval "switch" statements
 - parse "enum" and "class" statements
-
 - maybe more token kinds?
+- implement Get-ExecutionPolicy cmdlet using registry
 
 ## Documentation
 

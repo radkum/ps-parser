@@ -31,7 +31,8 @@ pub struct Variables {
     state: State,
     force_var_eval: bool,
     values_persist: bool,
-    functions: FunctionMap,
+    global_functions: FunctionMap,
+    script_functions: FunctionMap,
     //special variables
     // status: bool, // $?
     // first_token: Option<String>,
@@ -166,8 +167,16 @@ impl Variables {
         self.global_scope.clone()
     }
 
-    pub(crate) fn add_function(&mut self, name: String, func: ScriptBlock) {
-        self.functions.insert(name, func);
+    pub(crate) fn add_script_function(&mut self, name: String, func: ScriptBlock) {
+        self.script_functions.insert(name, func);
+    }
+
+    pub(crate) fn add_global_function(&mut self, name: String, func: ScriptBlock) {
+        self.global_functions.insert(name, func);
+    }
+
+    pub(crate) fn clear_script_functions(&mut self) {
+        self.script_functions.clear();
     }
 
     /// Creates a new empty Variables container.
@@ -505,7 +514,7 @@ impl Variables {
 
     pub(crate) fn pop_scope_session(&mut self) {
         match self.scope_sessions_stack.len() {
-            0 => todo!(),
+            0 => {} /* unreachable */
             1 => {
                 self.scope_sessions_stack.pop();
                 self.state = State::Script;
@@ -626,7 +635,7 @@ mod tests {
             PsValue::String("global".into())
         );
 
-        let global_variables = p.global_variables();
+        let global_variables = p.session_variables();
         assert_eq!(global_variables.get("var_int").unwrap(), &PsValue::Int(5));
         assert_eq!(
             global_variables.get("var_string").unwrap(),
