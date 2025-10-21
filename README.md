@@ -41,7 +41,8 @@ use ps_parser::PowerShellSession;
 
 let mut ps = PowerShellSession::new(); 
 let script = r#"
-$arg = 20MB*2/4
+$y = 2/4
+$arg = 20MB*$y
 
 # Get-Process is not "safe" to evaluate, so Where-Object is also not evaluated
 Get-Process | Where-Object WorkingSet -GT $arg  
@@ -54,63 +55,54 @@ println!("{}", result);
 
 Output: 
 ```powershell
+$y = 0.5
 $arg = 10485760
-Get-Process | Where-Object WorkingSet -GT $arg
+Get-Process | Where-Object WorkingSet -GT 10485760
 
 $evennumbers = @(2,4,6,8,10)
 ```
 
-### Evaluate arithmetic and variables
-```rust
-use ps_parser::{Val, eval_expression};
-
-let mut ps = PowerShellSession::new(); 
-let script = r#"
-$x = 5; $y = $x * 8/2; $y%=3;$y
-"#;
-
-let result = ps.parse_input(script)?.deobfuscated();
-println!("{}", result);
-```
-
-Output: 
-```powershell
-$x = 5
-$y = 20
-$y = 2
-```
-
-### Work with arrays and hashtables
+### Work with arrays, hashtables, scriptBlocks, functions and cmdlets
 ```rust
 use ps_parser::PowerShellSession;
 
 let mut ps = PowerShellSession::new(); 
 let script = r#"
-$a = @('a', 'b', 'c');$b=$a[2];$b
+function Mul-By-Global($x) {return $x * $global:c}
+$a = @('a', 'b', 'c');$b=$a[2]
+$global:c = & {param($x, $y) return $x + $y} 1 2
+$d = Mul-By-Global 5
+$c + $d
 "#;
 
 let script_result = ps.parse_input(script)?;
 println!("Deobfuscated:\n{}\n", script_result.deobfuscated());
-println!("Result:\n{}", script_result.result());
+println!("Output:\n{}\n", script_result.output());
 ```
 
 Output: 
 ```powershell
 Deobfuscated:
+function Mul-By-Global($x) {return $x * $global:c}
 $a = @('a','b','c')
 $b = 'c'
+$c = 3
+$d = 15
+40
 
-Result:
-c
+Output:
+40
 ```
 
-### Deal with simple deobfuscation
+### Deal with deobfuscation
 ```rust
 use ps_parser::PowerShellSession;
 
 let mut ps = PowerShellSession::new(); 
 let script = r#"
-$ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([byTE]0x61)+[cHaR](103)+[cHar](101*64/64)+[chaR]([byTE]0x6d)+[cHAr](101)+[CHAr]([byTE]0x6e)+[Char](116*103/103)).$([Char]([ByTe]0x41)+[Char](117+70-70)+[CHAr]([ByTE]0x74)+[CHar]([bYte]0x6f)+[CHar]([bytE]0x6d)+[ChaR]([ByTe]0x61)+[CHar]([bYte]0x74)+[CHAR]([byte]0x69)+[Char](111*26/26)+[chAr]([BYTe]0x6e)).$(('Ârmí'+'Ùtìl'+'s').NORmalizE([ChAR](44+26)+[chAR](111*9/9)+[cHar](82+32)+[ChaR](109*34/34)+[cHaR](68+24-24)) -replace [ChAr](92)+[CHaR]([BYTe]0x70)+[Char]([BytE]0x7b)+[CHaR]([BYTe]0x4d)+[chAR](110)+[ChAr](15+110))";$ilryNQSTt
+$ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([byTE]0x61)+[cHaR](103)+[cHar](101*64/64)+[chaR]([byTE]0x6d)+[cHAr](101)+[CHAr]([byTE]0x6e)+[Char](116*103/103)).$([Char]([ByTe]0x41)+[Char](117+70-70)+[CHAr]([ByTE]0x74)+[CHar]([bYte]0x6f)+[CHar]([bytE]0x6d)+[ChaR]([ByTe]0x61)+[CHar]([bYte]0x74)+[CHAR]([byte]0x69)+[Char](111*26/26)+[chAr]([BYTe]0x6e)).$(('Ârmí'+'Ùtìl'+'s').NORmalizE([ChAR](44+26)+[chAR](111*9/9)+[cHar](82+32)+[ChaR](109*34/34)+[cHaR](68+24-24)) -replace [ChAr](92)+[CHaR]([BYTe]0x70)+[Char]([BytE]0x7b)+[CHaR]([BYTe]0x4d)+[chAR](110)+[ChAr](15+110))";
+
+$encoded = [syStem.texT.EncoDInG]::unIcoDe.geTstRiNg([SYSTem.cOnVERT]::froMbasE64striNg("ZABlAGMAbwBkAGUAZAA="));
 "#;
 
 let script_result = ps.parse_input(script)?;
@@ -120,34 +112,6 @@ println!("{}", script_result.deobfuscated());
 Output: 
 ```powershell
 $ilrynqstt = 'System.Management.Automation.ArmiUtils'
-```
-
-### Deal with encoding deobfuscation
-```rust
-use ps_parser::PowerShellSession;
-
-let mut ps = PowerShellSession::new(); 
-let script_printed_to_output = r#"
-[syStem.texT.EncoDInG]::unIcoDe.geTstRiNg([SYSTem.cOnVERT]::froMbasE64striNg("ZABlAGMAbwBkAGUAZAA="))
-"#;
-
-let script_result = ps.parse_input(script_printed_to_output)?;
-println!("Output:\n{}\n", script_result.output());
-
-let script_assigned_to_variable = r#"
-$encoded = [syStem.texT.EncoDInG]::unIcoDe.geTstRiNg([SYSTem.cOnVERT]::froMbasE64striNg("ZABlAGMAbwBkAGUAZAA="));
-"#;
-
-let script_result = ps.parse_input(script_assigned_to_variable)?;
-println!("Deobfuscated:\n{}", script_result.deobfuscated());
-```
-
-Output: 
-```powershell
-Output:
-decoded
-
-Deobfuscated:
 $encoded = 'decoded'
 ```
 
@@ -167,58 +131,38 @@ Output:
 C:\Program Files
 ```
 
-### Check errors
+### Get tokens and errors
 
 ```rust
 use ps_parser::PowerShellSession;
 
 let mut ps = PowerShellSession::new(); 
-let input = r#" 
-$var = 1 + "Hello, World!" # Powershell cannot cast string to int
-"#;
-let script_result = ps.parse_input(input)?;
-println!("{:?}", script_result.errors());
-```
-
-Output: 
-```rust
-[ValError(InvalidCast("String", "Int"))]
-```
-
-### Get tokens
-
-```rust
-use ps_parser::PowerShellSession;
-
-let mut ps = PowerShellSession::new(); 
-let input = r#" 
+let input = r#"
 $a = 5
 $b = $a * 2
 Write-Output "Addition: $($a + $b)"
+$var = 1 + "Hello, World!" # Powershell cannot cast string to int
 "#;
 let script_result = ps.parse_input(input)?;
 println!("{}", script_result.tokens().expandable_strings()[0]);
 println!("{}", script_result.tokens().expression()[0]);
+println!("errors: {:?}", script_result.errors());
 ```
 
 Output: 
 ```rust
 StringExpandable("\"Addition: $($a + $b)\"", "Addition: 15")
 Expression("5", Int(5))
+errors: [ValError(InvalidCast("String", "Int"))]
 ```
 
 ## Future plans
-
-version 0.2.0
 - consider not reporting error: not implemented?
-- make benchmarks
-- documentation for script_block and global, script, local values
-
-version 0.2.1
+- benchmarks
 - "filter" functions
 - eval "switch" statements
 - parse "enum" and "class" statements
-- maybe more token kinds?
+- more token kinds
 - implement Get-ExecutionPolicy cmdlet using registry
 
 ## Documentation

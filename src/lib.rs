@@ -406,7 +406,7 @@ Write-Output "Modulo: $(($a % $b))"
                     .map(|s| s.trim_end())
                     .collect::<Vec<&str>>();
 
-                save_files(&dir_entry, &current_deobfuscated, &current_output);
+                //save_files(&dir_entry, &current_deobfuscated, &current_output);
                 let current_deobfuscated_vec = current_deobfuscated
                     .lines()
                     .map(|s| s.trim_end())
@@ -427,15 +427,15 @@ Write-Output "Modulo: $(($a % $b))"
                     );
                 }
 
-                // for i in 0..expected_output_vec.len() {
-                //     assert_eq!(
-                //         expected_output_vec[i],
-                //         current_output_vec[i],
-                //         "File: {}, Output line: {}",
-                //         file_name(&dir_entry),
-                //         i + 1
-                //     );
-                // }
+                for i in 0..expected_output_vec.len() {
+                    assert_eq!(
+                        expected_output_vec[i],
+                        current_output_vec[i],
+                        "File: {}, Output line: {}",
+                        file_name(&dir_entry),
+                        i + 1
+                    );
+                }
             }
         }
     }
