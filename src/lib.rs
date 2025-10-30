@@ -579,4 +579,36 @@ if ($score -ge 90) {
         );
         assert_eq!(script_res.errors().len(), 0);
     }
+
+    #[test]
+    fn format_operator() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+        let input = r#" ("{5}{2}{0}{1}{3}{6}{4}" -f 'ut',('oma'+'t'+'ion.'),'.A',('Ems'+'iUt'),'ls',('S'+'ystem.'+'Danage'+'men'+'t'),'i')"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::String("System.Danagement.Automation.EmsiUtils".into())
+        );
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec![r#""System.Danagement.Automation.EmsiUtils""#].join(NEWLINE)
+        );
+        assert_eq!(script_res.errors().len(), 0);
+    }
+
+    #[test]
+    fn encod_command() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+        let input = r#" ("{5}{2}{0}{1}{3}{6}{4}" -f 'ut',('oma'+'t'+'ion.'),'.A',('Ems'+'iUt'),'ls',('S'+'ystem.'+'Danage'+'men'+'t'),'i')"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::String("System.Danagement.Automation.EmsiUtils".into())
+        );
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec![r#""System.Danagement.Automation.EmsiUtils""#].join(NEWLINE)
+        );
+        assert_eq!(script_res.errors().len(), 0);
+    }
 }

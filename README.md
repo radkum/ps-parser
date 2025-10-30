@@ -29,7 +29,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ps-parser = "0.2.1"
+ps-parser = "0.2.2"
 ```
 
 ## Usage
@@ -157,6 +157,7 @@ errors: [ValError(InvalidCast("String", "Int"))]
 ```
 
 ## Future plans
+- deobfuscate -encodedArguments
 - consider not reporting error: not implemented?
 - benchmarks
 - "filter" functions

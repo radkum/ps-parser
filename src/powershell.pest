@@ -261,7 +261,8 @@ command = ${(
 }
 foreach_command_name = { "%" | ^"foreach-object" }
 where_command_name = { "?" | ^"where-object" | ^"where" }
-cmdlet_command = ${ (where_command_name | foreach_command_name | command_name) }
+powershell_command_name = { (^"powershell" | ^"pwsh") ~ ^".exe"? }
+cmdlet_command = ${ (powershell_command_name | where_command_name | foreach_command_name | command_name) }
 invocation_command = !{ current_scope_invocation_command | new_scope_invocation_command }
 current_scope_invocation_command = { "." ~ invocation_command_exp }
 new_scope_invocation_command = { "&" ~ invocation_command_exp }
@@ -273,7 +274,8 @@ command_element = _{
     | redirection
     | command_argument ~ argument_list?
 }
-command_parameter = @{
+
+command_parameter = @{    
     "-"+ ~ command_parameter_chars+
     | "--"
 }
@@ -338,7 +340,7 @@ value = {
     | type_literal
     | variable
 }
-parenthesized_expression = { "(" ~ pipeline ~ ")"}
+parenthesized_expression = !{ "(" ~ pipeline ~ ")"}
 //sub_expression = !{ "$(" ~ statements? ~ ")" } - maybe statemetnts?
 sub_expression = !{ "$(" ~ pipeline? ~ ")" }
 array_expression = { "@(" ~ statements? ~ ")" }

@@ -1431,6 +1431,7 @@ impl<'a> PowerShellSession {
             Rule::command_name => token.as_str(),
             Rule::where_command_name => "where-object",
             Rule::foreach_command_name => "foreach-object",
+            Rule::powershell_command_name => "powershell",
             _ => unexpected_token!(token),
         };
 
@@ -1540,12 +1541,11 @@ impl<'a> PowerShellSession {
             }
             Rule::primary_expression => {
                 let primary = self.eval_primary_expression(token_inner)?;
-                let script_block = if let Val::ScriptBlock(script_block) = primary {
-                    script_block
+                if let Val::ScriptBlock(script_block) = primary {
+                    Command::script_block(script_block)
                 } else {
-                    ScriptBlock::new(vec![], primary.cast_to_script(), primary.cast_to_script())
-                };
-                Command::script_block(script_block)
+                    Command::cmdlet(&primary.cast_to_script())
+                }
             }
             Rule::path_command_name => Command::path(token_inner.as_str()),
             _ => unexpected_token!(token_inner),
