@@ -389,9 +389,9 @@ fn write_verbose(
 // process, only deobfuscates the command.
 fn powershell(
     args: &mut Vec<CommandElem>,
-    _: &mut PowerShellSession,
+    ps: &mut PowerShellSession,
 ) -> ParserResult<CommandOutput> {
-    fn deobfuscate_command(args: &mut Vec<CommandElem>) {
+    fn deobfuscate_command(args: &mut Vec<CommandElem>, ps: &mut PowerShellSession) {
         use base64::prelude::*;
         let mut index_to_decode = vec![];
         let mut args = args.into_iter().map(|a| Some(a)).collect::<Vec<_>>();
@@ -406,7 +406,6 @@ fn powershell(
         }
 
         for i in index_to_decode {
-            println!("s: {:?}", &args[i]);
             if let Some(CommandElem::Argument(Val::ScriptText(s))) = &mut args[i] {
                 if let Ok(decoded_bytes) = BASE64_STANDARD.decode(s.clone()) {
                     if let Ok(decoded_str) = String::from_utf16(
@@ -415,14 +414,23 @@ fn powershell(
                             .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
                             .collect::<Vec<u16>>(),
                     ) {
-                        *s = decoded_str.into();
+                        if let Ok(script_result) = ps.parse_input(&decoded_str) {
+                            if script_result.deobfuscated().is_empty() {
+                                *s = decoded_str.into();
+                            } else {
+                                *s = script_result.deobfuscated();
+                            }
+                        } else {
+                            log::warn!("Failed to deobfuscate: {}", &decoded_str);
+                            *s = decoded_str.into();
+                        }
                     }
                 }
             }
         }
     }
 
-    deobfuscate_command(args);
+    deobfuscate_command(args, ps);
 
     Err(CommandError::ExecutionError(
         "Powershell invocation is not supported".into(),
@@ -526,6 +534,31 @@ mod tests {
         assert_eq!(
             s.deobfuscated().trim(),
             vec![r#"powershell -command Write-Host "tweet, tweet!""#,].join(NEWLINE)
+        );
+    }
+
+    #[test]
+    fn encoded_command2() {
+        let mut p = PowerShellSession::new();
+        let input = r#"powershell.exe -e JgAgACgAZwBjAG0AIAAoACcAaQBlAHsAMAB9ACcAIAAtAGYAIAAnAHgAJwApACkAIAAoACIAVwByACIAKwAiAGkAdAAiACsAIgBlAC0ASAAiACsAIgBvAHMAdAAgACcASAAiACsAIgBlAGwAIgArACIAbABvACwAIABmAHIAIgArACIAbwBtACAAUAAiACsAIgBvAHcAIgArACIAZQByAFMAIgArACIAaAAiACsAIgBlAGwAbAAhACcAIgApAA=="#;
+        let s = p.parse_input(input).unwrap();
+
+        assert_eq!(
+            s.deobfuscated().trim(),
+            vec![r#"powershell -command gcm iex Write-Host 'Hello, from PowerShell!'"#,]
+                .join(NEWLINE)
+        );
+    }
+
+    #[test]
+    fn encoded_command3() {
+        let mut p = PowerShellSession::new();
+        let input = r#"& (gcm ('ie{0}' -f 'x')) ("Wr"+"it"+"e-H"+"ost 'H"+"el"+"lo, fr"+"om P"+"ow"+"erS"+"h"+"ell!'")"#;
+        let s = p.parse_input(input).unwrap();
+
+        assert_eq!(
+            s.deobfuscated().trim(),
+            vec![r#"gcm iex Write-Host 'Hello, from PowerShell!'"#,].join(NEWLINE)
         );
     }
 }

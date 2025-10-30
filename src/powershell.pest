@@ -340,7 +340,7 @@ value = {
     | type_literal
     | variable
 }
-parenthesized_expression = { "(" ~ pipeline ~ ")"}
+parenthesized_expression = !{ "(" ~ pipeline ~ ")"}
 //sub_expression = !{ "$(" ~ statements? ~ ")" } - maybe statemetnts?
 sub_expression = !{ "$(" ~ pipeline? ~ ")" }
 array_expression = { "@(" ~ statements? ~ ")" }

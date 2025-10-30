@@ -157,6 +157,7 @@ errors: [ValError(InvalidCast("String", "Int"))]
 ```
 
 ## Future plans
+- deobfuscate -encodedArguments
 - consider not reporting error: not implemented?
 - benchmarks
 - "filter" functions
