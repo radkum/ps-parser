@@ -1431,6 +1431,7 @@ impl<'a> PowerShellSession {
             Rule::command_name => token.as_str(),
             Rule::where_command_name => "where-object",
             Rule::foreach_command_name => "foreach-object",
+            Rule::powershell_command_name => "powershell",
             _ => unexpected_token!(token),
         };
 

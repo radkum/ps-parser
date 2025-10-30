@@ -131,7 +131,7 @@ impl std::fmt::Display for Command {
 }
 
 pub(crate) type FunctionPredType =
-    fn(Vec<CommandElem>, &mut PowerShellSession) -> ParserResult<CommandOutput>;
+    fn(&mut Vec<CommandElem>, &mut PowerShellSession) -> ParserResult<CommandOutput>;
 
 impl Command {
     const COMMAND_MAP: LazyLock<HashMap<&'static str, FunctionPredType>> = LazyLock::new(|| {
@@ -143,6 +143,7 @@ impl Command {
             ("write-verbose", write_verbose as FunctionPredType),
             ("where-object", where_object as FunctionPredType),
             ("get-location", get_location as FunctionPredType),
+            ("powershell", powershell as FunctionPredType),
         ])
     });
 
@@ -157,7 +158,7 @@ impl Command {
                 if let Some(fun) = ps.variables.get_function(&name.to_ascii_lowercase()) {
                     fun(self.args.clone(), ps)
                 } else if let Some(cmdlet) = Self::get(&name.to_ascii_lowercase()) {
-                    cmdlet(self.args.clone(), ps)
+                    cmdlet(&mut self.args, ps)
                 } else {
                     Err(ParserError::from(CommandError::NotFound(name.clone())))?
                 }
@@ -207,7 +208,10 @@ impl CommandElem {
 }
 
 // Where-Object cmdlet implementation
-fn where_object(args: Vec<CommandElem>, ps: &mut PowerShellSession) -> ParserResult<CommandOutput> {
+fn where_object(
+    args: &mut Vec<CommandElem>,
+    ps: &mut PowerShellSession,
+) -> ParserResult<CommandOutput> {
     log::debug!("args: {:?}", args);
     if args.len() != 2 {
         return Err(CommandError::IncorrectArgs(
@@ -244,7 +248,10 @@ fn where_object(args: Vec<CommandElem>, ps: &mut PowerShellSession) -> ParserRes
     })
 }
 
-fn get_location(_: Vec<CommandElem>, _: &mut PowerShellSession) -> ParserResult<CommandOutput> {
+fn get_location(
+    _args: &mut Vec<CommandElem>,
+    _: &mut PowerShellSession,
+) -> ParserResult<CommandOutput> {
     let Ok(dir) = std::env::current_dir() else {
         return Err(CommandError::ExecutionError(
             "Failed to get current directory".into(),
@@ -280,7 +287,10 @@ fn extract_message(args: &[CommandElem]) -> String {
     output.join(" ")
 }
 // Write-Host cmdlet implementation (goes directly to console, not capturable)
-fn write_host(args: Vec<CommandElem>, ps: &mut PowerShellSession) -> ParserResult<CommandOutput> {
+fn write_host(
+    args: &mut Vec<CommandElem>,
+    ps: &mut PowerShellSession,
+) -> ParserResult<CommandOutput> {
     let message = extract_message(&args);
     let deobfuscated = format!(
         "Write-Host {}",
@@ -297,7 +307,10 @@ fn write_host(args: Vec<CommandElem>, ps: &mut PowerShellSession) -> ParserResul
     })
 }
 // Write-Output cmdlet implementation
-fn write_output(args: Vec<CommandElem>, _: &mut PowerShellSession) -> ParserResult<CommandOutput> {
+fn write_output(
+    args: &mut Vec<CommandElem>,
+    _: &mut PowerShellSession,
+) -> ParserResult<CommandOutput> {
     let message = extract_message(&args);
     let deobfuscated = format!(
         "Write-Output {}",
@@ -314,7 +327,10 @@ fn write_output(args: Vec<CommandElem>, _: &mut PowerShellSession) -> ParserResu
 }
 
 // Write-Warning cmdlet implementation (mimics PowerShell's Write-Warning)
-fn write_warning(args: Vec<CommandElem>, _: &mut PowerShellSession) -> ParserResult<CommandOutput> {
+fn write_warning(
+    args: &mut Vec<CommandElem>,
+    _: &mut PowerShellSession,
+) -> ParserResult<CommandOutput> {
     let message = extract_message(&args);
     let deobfuscated = format!(
         "Write-Warning {}",
@@ -331,7 +347,10 @@ fn write_warning(args: Vec<CommandElem>, _: &mut PowerShellSession) -> ParserRes
 }
 
 // Write-Error cmdlet implementation
-fn write_error(args: Vec<CommandElem>, _: &mut PowerShellSession) -> ParserResult<CommandOutput> {
+fn write_error(
+    args: &mut Vec<CommandElem>,
+    _: &mut PowerShellSession,
+) -> ParserResult<CommandOutput> {
     let message = extract_message(&args);
     let deobfuscated = format!(
         "Write-Error {}",
@@ -348,7 +367,10 @@ fn write_error(args: Vec<CommandElem>, _: &mut PowerShellSession) -> ParserResul
 }
 
 // Write-Verbose cmdlet implementation
-fn write_verbose(args: Vec<CommandElem>, _: &mut PowerShellSession) -> ParserResult<CommandOutput> {
+fn write_verbose(
+    args: &mut Vec<CommandElem>,
+    _: &mut PowerShellSession,
+) -> ParserResult<CommandOutput> {
     let message = extract_message(&args);
     let deobfuscated = format!(
         "Write-Verbose {}",
@@ -361,6 +383,50 @@ fn write_verbose(args: Vec<CommandElem>, _: &mut PowerShellSession) -> ParserRes
         val: Val::String(message.clone().into()),
         deobfuscated: Some(deobfuscated),
     })
+}
+
+// Powershell cmdlet implementation. It don't actually invoke a new PowerShell
+// process, only deobfuscates the command.
+fn powershell(
+    args: &mut Vec<CommandElem>,
+    _: &mut PowerShellSession,
+) -> ParserResult<CommandOutput> {
+    fn deobfuscate_command(args: &mut Vec<CommandElem>) {
+        use base64::prelude::*;
+        let mut index_to_decode = vec![];
+        let mut args = args.into_iter().map(|a| Some(a)).collect::<Vec<_>>();
+        for (i, arg) in args.iter_mut().enumerate() {
+            if let Some(CommandElem::Parameter(s)) = arg {
+                let p = s.to_ascii_lowercase();
+                if let Some(_stripped) = "-encodedcommand".strip_prefix(&p) {
+                    index_to_decode.push(i + 1);
+                    *s = "-command".to_string();
+                }
+            }
+        }
+
+        for i in index_to_decode {
+            println!("s: {:?}", &args[i]);
+            if let Some(CommandElem::Argument(Val::ScriptText(s))) = &mut args[i] {
+                if let Ok(decoded_bytes) = BASE64_STANDARD.decode(s.clone()) {
+                    if let Ok(decoded_str) = String::from_utf16(
+                        &decoded_bytes
+                            .chunks(2)
+                            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                            .collect::<Vec<u16>>(),
+                    ) {
+                        *s = decoded_str.into();
+                    }
+                }
+            }
+        }
+    }
+
+    deobfuscate_command(args);
+
+    Err(CommandError::ExecutionError(
+        "Powershell invocation is not supported".into(),
+    ))?
 }
 
 #[cfg(test)]
@@ -448,6 +514,18 @@ mod tests {
         assert_eq!(
             s.deobfuscated().trim(),
             vec!["$x = 5", "$y = 3", "$result = \"Sum: 8\"",].join(NEWLINE)
+        );
+    }
+
+    #[test]
+    fn encoded_command() {
+        let mut p = PowerShellSession::new();
+        let input = r#"powershell.exe -encodedc VwByAGkAdABlAC0ASABvAHMAdAAgACIAdAB3AGUAZQB0ACwAIAB0AHcAZQBlAHQAIQAiAA=="#;
+        let s = p.parse_input(input).unwrap();
+
+        assert_eq!(
+            s.deobfuscated().trim(),
+            vec![r#"powershell -command Write-Host "tweet, tweet!""#,].join(NEWLINE)
         );
     }
 }
