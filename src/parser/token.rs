@@ -39,12 +39,25 @@ impl Tokens {
             .collect()
     }
 
-    pub fn string_set(&self) -> BTreeSet<&String> {
+    pub fn string_set(&self) -> BTreeSet<String> {
         let mut string_set = BTreeSet::new();
         for token in self.0.iter() {
             match token {
                 Token::String(deobfuscated) | Token::StringExpandable(_, deobfuscated) => {
-                    let _ = string_set.insert(deobfuscated);
+                    let _ = string_set.insert(deobfuscated.to_string());
+                }
+                _ => {}
+            }
+        }
+        string_set
+    }
+
+    pub fn lowercased_string_set(&self) -> BTreeSet<String> {
+        let mut string_set = BTreeSet::new();
+        for token in self.0.iter() {
+            match token {
+                Token::String(deobfuscated) | Token::StringExpandable(_, deobfuscated) => {
+                    let _ = string_set.insert(deobfuscated.to_ascii_lowercase());
                 }
                 _ => {}
             }
