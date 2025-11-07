@@ -82,6 +82,7 @@ pub struct PowerShellSession {
     tokens: Tokens,
     errors: Vec<ParserError>,
     results: Vec<Results>,
+    skip_error: u32,
 }
 
 impl Default for PowerShellSession {
@@ -116,6 +117,7 @@ impl<'a> PowerShellSession {
             tokens: Tokens::new(),
             errors: Vec::new(),
             results: Vec::new(),
+            skip_error: 0,
         }
     }
 
@@ -653,14 +655,19 @@ impl<'a> PowerShellSession {
 
     fn eval_argument_list(&mut self, token: Pair<'a>) -> ParserResult<Vec<Val>> {
         check_rule!(token, Rule::argument_list);
-        let pairs = token.into_inner();
+        let mut pairs = token.into_inner();
+        let token = pairs.next().unwrap();
 
-        let mut args = Vec::new();
-        for token in pairs {
-            args.push(self.eval_expression(token)?);
+        self.skip_error += 1;
+
+        let arg = self.eval_expression(token.clone())?;
+        self.skip_error -= 1;
+
+        if let Val::Array(vec) = arg {
+            Ok(vec)
+        } else {
+            Ok(vec![arg])
         }
-
-        Ok(args)
     }
 
     fn eval_member_access(&mut self, token: Pair<'a>) -> ParserResult<String> {
@@ -757,7 +764,10 @@ impl<'a> PowerShellSession {
         let mut pairs = token.into_inner();
         let token = pairs.next().unwrap();
 
-        let mut object = token.as_str().to_string();
+        let mut object = self
+            .eval_value(token.clone())
+            .map(|v| v.cast_to_script())
+            .unwrap_or(token.as_str().to_string());
 
         for token in pairs {
             match token.as_rule() {
@@ -771,8 +781,10 @@ impl<'a> PowerShellSession {
                 }
                 Rule::method_invocation => {
                     let static_method = self.method_is_static(token.clone());
-                    let (method_name, args) = self.eval_method_invokation(token)?;
-
+                    println!("before");
+                    let (method_name, args) = self.eval_method_invokation(token.clone())?;
+                    println!("method_name: {}", method_name);
+                    println!("args: {:?}", args);
                     let separator = if static_method { "::" } else { "." };
                     object = format!(
                         "{}{separator}{}({:?})",
@@ -1033,6 +1045,20 @@ impl<'a> PowerShellSession {
         Ok(Val::Array(vec![val]))
     }
 
+    fn safe_parse_arg(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        Ok(if self.skip_error > 0 {
+            match self.eval_unary_exp(token.clone()) {
+                Ok(val) => val,
+                Err(err) => {
+                    self.errors.push(err);
+                    Val::ScriptText(token.as_str().to_string())
+                }
+            }
+        } else {
+            self.eval_unary_exp(token.clone())?
+        })
+    }
+
     fn eval_array_literal_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::array_literal_exp);
         let mut arr = Vec::new();
@@ -1044,9 +1070,11 @@ impl<'a> PowerShellSession {
             return self.eval_array_literal_exp_special_case(token);
         }
 
-        arr.push(self.eval_unary_exp(token)?);
+        println!("asdf");
+
+        arr.push(self.safe_parse_arg(token)?);
         for token in pairs {
-            arr.push(self.eval_unary_exp(token)?);
+            arr.push(self.safe_parse_arg(token)?);
         }
 
         Ok(if arr.len() == 1 {
@@ -1603,6 +1631,10 @@ impl<'a> PowerShellSession {
         self.tokens
             .push(Token::Expression(token_string, res.clone().into()));
 
+        if let Val::String(value::PsString(s)) = &res {
+            self.tokens.push(Token::String(s.clone()));
+        }
+
         Ok(res)
     }
 
@@ -1683,8 +1715,7 @@ impl<'a> PowerShellSession {
             Rule::unary_exp => self.eval_unary_exp(token)?,
             _ => unexpected_token!(token),
         };
-
-        Ok(res.cast(val_type)?)
+        Ok(res.cast(&val_type)?)
     }
 
     fn eval_assigment_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {

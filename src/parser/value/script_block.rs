@@ -129,7 +129,7 @@ impl ScriptBlock {
                         let next_arg =
                             if let Some(CommandElem::Argument(val)) = command_args.get(i + 1) {
                                 let v = val.clone();
-                                v.cast(param.ttype().unwrap_or(ValType::String))
+                                v.cast(&param.ttype().unwrap_or(ValType::String))
                                     .unwrap_or(Val::Null)
                             } else {
                                 Val::Null

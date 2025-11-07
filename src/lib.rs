@@ -347,7 +347,6 @@ Write-Output "Modulo: $(($a % $b))"
             .join(NEWLINE)
         );
         assert_eq!(script_result.errors().len(), 0);
-        assert_eq!(script_result.tokens().strings(), vec![]);
         assert_eq!(script_result.tokens().expandable_strings().len(), 6);
         assert_eq!(
             script_result.tokens().expandable_strings()[1],

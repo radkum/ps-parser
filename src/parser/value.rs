@@ -561,7 +561,7 @@ impl Val {
         Ok(())
     }
 
-    pub(crate) fn cast(&self, ttype: ValType) -> ValResult<Self> {
+    pub(crate) fn cast(&self, ttype: &ValType) -> ValResult<Self> {
         Ok(match ttype {
             ValType::Null => Err(ValError::UnknownType("Null".to_string()))?,
             ValType::Bool => Val::Bool(self.cast_to_bool()),

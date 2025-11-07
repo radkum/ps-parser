@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{collections::BTreeSet, fmt::Display};
 
 use super::script_result::PsValue;
 
@@ -37,6 +37,19 @@ impl Tokens {
             .filter(|token| matches!(token, Token::String(..)))
             .cloned()
             .collect()
+    }
+
+    pub fn string_set(&self) -> BTreeSet<&String> {
+        let mut string_set = BTreeSet::new();
+        for token in self.0.iter() {
+            match token {
+                Token::String(deobfuscated) | Token::StringExpandable(_, deobfuscated) => {
+                    let _ = string_set.insert(deobfuscated);
+                }
+                _ => {}
+            }
+        }
+        string_set
     }
 
     pub fn expandable_strings(&self) -> Vec<Token> {
