@@ -1024,11 +1024,27 @@ impl<'a> PowerShellSession {
         }
     }
 
+    fn eval_array_literal_exp_special_case(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::array_literal_exp_special_case);
+        let mut pairs = token.into_inner();
+        let token = pairs.next().unwrap();
+
+        let val = self.eval_array_literal_exp(token)?;
+        Ok(Val::Array(vec![val]))
+    }
+
     fn eval_array_literal_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::array_literal_exp);
         let mut arr = Vec::new();
         let mut pairs = token.into_inner();
-        arr.push(self.eval_unary_exp(pairs.next().unwrap())?);
+        let token = pairs.next().unwrap();
+
+        //if array literal starts with ',' we must eval single element as array too
+        if let Rule::array_literal_exp_special_case = token.as_rule() {
+            return self.eval_array_literal_exp_special_case(token);
+        }
+
+        arr.push(self.eval_unary_exp(token)?);
         for token in pairs {
             arr.push(self.eval_unary_exp(token)?);
         }

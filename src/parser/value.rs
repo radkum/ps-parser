@@ -306,7 +306,13 @@ impl Val {
                     self.cast_to_string() + val.cast_to_string().as_str(),
                 ))
             }
-            Val::Array(arr) => arr.push(val),
+            Val::Array(arr) => {
+                if let Val::Array(val_arr) = val {
+                    arr.extend(val_arr);
+                } else {
+                    arr.push(val);
+                }
+            }
             Val::HashTable(ht) => {
                 if val.ttype() != ValType::HashTable {
                     return Err(ValError::OperationNotDefined(
@@ -458,10 +464,10 @@ impl Val {
         }
 
         // check dividing by zero
-        if let Ok(v) = val.cast_to_float() {
-            if v == 0. {
-                Err(ValError::DividingByZero)?
-            }
+        if let Ok(v) = val.cast_to_float()
+            && v == 0.
+        {
+            Err(ValError::DividingByZero)?
         }
 
         *self = match self {
@@ -496,10 +502,10 @@ impl Val {
         }
 
         // check dividing by zero
-        if let Ok(v) = val.cast_to_float() {
-            if v == 0. {
-                Err(ValError::DividingByZero)?
-            }
+        if let Ok(v) = val.cast_to_float()
+            && v == 0.
+        {
+            Err(ValError::DividingByZero)?
         }
 
         *self = match self {

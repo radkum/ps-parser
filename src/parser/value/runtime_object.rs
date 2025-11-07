@@ -54,15 +54,11 @@ impl RuntimeObject for Val {
     }
     fn get_member(&self, name: &str) -> MethodResult<Val> {
         // first check the members
-        match self {
-            //Val::String(ps) => ps.get_member(name),
-            Val::HashTable(ps) => {
-                return Ok(ps
-                    .get(&name.to_ascii_lowercase())
-                    .cloned()
-                    .unwrap_or_default());
-            }
-            _ => {}
+        if let Val::HashTable(ps) = self {
+            return Ok(ps
+                .get(&name.to_ascii_lowercase())
+                .cloned()
+                .unwrap_or_default());
         }
 
         // then check the length property

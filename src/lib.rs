@@ -308,6 +308,14 @@ $nestedData = @{
             p.safe_eval("$nesteddata.users[0].NAME").unwrap(),
             "Alice".to_string()
         );
+
+        let input = r#" $a=@{val = 4};$a.val"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::Int(4));
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec!["$a = @{", "\tval = 4", "}", "4"].join(NEWLINE)
+        );
     }
 
     #[test]
@@ -509,10 +517,10 @@ Write-Output "Modulo: $(($a % $b))"
         let mut p = PowerShellSession::new().with_variables(Variables::env());
         let input = r#" $numbers = 1..10; $numbers | Where { $_ % 2 -eq 0 } | ? { $_ % 3 -eq 0 }"#;
         let script_res = p.parse_input(input).unwrap();
-        assert_eq!(script_res.result(), PsValue::Array(vec![PsValue::Int(6),]));
+        assert_eq!(script_res.result(), PsValue::Int(6));
         assert_eq!(
             script_res.deobfuscated(),
-            vec!["$numbers = @(1,2,3,4,5,6,7,8,9,10)", "@(6)"].join(NEWLINE)
+            vec!["$numbers = @(1,2,3,4,5,6,7,8,9,10)", "6"].join(NEWLINE)
         );
         assert_eq!(script_res.errors().len(), 0);
     }
@@ -610,5 +618,239 @@ if ($score -ge 90) {
             vec![r#""System.Danagement.Automation.EmsiUtils""#].join(NEWLINE)
         );
         assert_eq!(script_res.errors().len(), 0);
+    }
+
+    #[test]
+    fn array_literals() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        //integers
+        let input = r#" $a = 1,2,3;$a"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![PsValue::Int(1), PsValue::Int(2), PsValue::Int(3)])
+        );
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec!["$a = @(1,2,3)", "@(1,2,3)"].join(NEWLINE)
+        );
+
+        // strings
+        let input = r#" $a = "x", 'yyy', "z";$a"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![
+                PsValue::String("x".into()),
+                PsValue::String("yyy".into()),
+                PsValue::String("z".into())
+            ])
+        );
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec![r#"$a = @("x","yyy","z")"#, r#"@("x","yyy","z")"#].join(NEWLINE)
+        );
+
+        // expresssions
+        let input = r#" $a = 1,2+ 3,[long]4;$a"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![
+                PsValue::Int(1),
+                PsValue::Int(2),
+                PsValue::Int(3),
+                PsValue::Int(4),
+            ])
+        );
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec!["$a = @(1,2,3,4)", "@(1,2,3,4)"].join(NEWLINE)
+        );
+
+        // variables
+        let input = r#" $x = 3; $a = $x, $x+1, "count=$x";$a"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![
+                PsValue::Int(3),
+                PsValue::Int(3),
+                PsValue::Int(1),
+                PsValue::String("count=3".into()),
+            ])
+        );
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec![
+                "$x = 3",
+                "$a = @(3,3,1,\"count=3\")",
+                "@(3,3,1,\"count=3\")"
+            ]
+            .join(NEWLINE)
+        );
+
+        // nested arrays
+        let input = r#" $a = (1, 2), (3, 4);$a"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![
+                PsValue::Array(vec![PsValue::Int(1), PsValue::Int(2)]),
+                PsValue::Array(vec![PsValue::Int(3), PsValue::Int(4)]),
+            ])
+        );
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec!["$a = @(@(1,2),@(3,4))", "@(@(1,2),@(3,4))"].join(NEWLINE)
+        );
+
+        // nested arrays
+        let input = r#" $a = 1, "two", 3.0, $false, (Get-Date);$a"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![
+                PsValue::Int(1),
+                PsValue::String("two".into()),
+                PsValue::Float(3.0),
+                PsValue::Bool(false),
+                PsValue::String("Get-Date".into()),
+            ])
+        );
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec![
+                "$a = @(1,\"two\",3,$false,Get-Date)",
+                "@(1,\"two\",3,$false,Get-Date)"
+            ]
+            .join(NEWLINE)
+        );
+
+        // array assign to another array
+        let input = r#" $a = 1, 2,3;$b = $a,4,5;$b"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![
+                PsValue::Array(vec![PsValue::Int(1), PsValue::Int(2), PsValue::Int(3)]),
+                PsValue::Int(4),
+                PsValue::Int(5),
+            ])
+        );
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec!["$a = @(1,2,3)", "$b = @(@(1,2,3),4,5)", "@(@(1,2,3),4,5)"].join(NEWLINE)
+        );
+
+        // forEach-Object
+        let input = r#"  $a = 1,-2,(-3) | ForEach-Object { $_ * 2 };$a"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![PsValue::Int(2), PsValue::Int(-4), PsValue::Int(-6),])
+        );
+
+        // forEach-Object - parentheses
+        let input = r#"  $a = (1,2,3) | ForEach-Object { $_ };$a"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![PsValue::Int(1), PsValue::Int(2), PsValue::Int(3),])
+        );
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec!["$a = @(1,2,3)", "@(1,2,3)"].join(NEWLINE)
+        );
+
+        // array assign to another array
+        let input = r#" $a = @{
+    A = 1,2,3
+    B = (4,5),6
+}
+$a"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::HashTable(HashMap::from([
+                (
+                    "a".into(),
+                    PsValue::Array(vec![PsValue::Int(1), PsValue::Int(2), PsValue::Int(3),])
+                ),
+                (
+                    "b".into(),
+                    PsValue::Array(vec![
+                        PsValue::Array(vec![PsValue::Int(4), PsValue::Int(5)]),
+                        PsValue::Int(6),
+                    ])
+                ),
+            ]))
+        );
+
+        // function argument as array
+        let input = r#" function Foo($x) { $x.GetType().name + $x[2]};Foo(1,2,3)"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::String("Object[]3".into()));
+
+        // function argument as array
+        let input = r#" $a = ,(42,2);$a"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![PsValue::Array(vec![
+                PsValue::Int(42),
+                PsValue::Int(2)
+            ])])
+        );
+
+        // function argument as array
+        let input = r#" function Foo($x) { $x.GetType().name + $x[2]};Foo(1,2,3)"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::String("Object[]3".into()));
+
+        // function argument as array
+        let input = r#" function b($x) {$x};b(1,2+3,4)"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![
+                PsValue::Int(1),
+                PsValue::Int(2),
+                PsValue::Int(3),
+                PsValue::Int(4),
+            ])
+        );
+
+        // function argument as array
+        let input =
+            r#" $a=@{val = 4};function b($x) {$x};b(1, [long]($a | Where-Object val -eq 4).val)"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![PsValue::Int(1), PsValue::Int(4)])
+        );
+    }
+
+    #[test]
+    fn cast_expression() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        //simple
+        let input = r#" $a=@{val = 4};[long]($a).val"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::Int(4));
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec!["$a = @{", "\tval = 4", "}", "4"].join(NEWLINE)
+        );
+
+        let input = r#" $a=@{val = 4};[long]($a | Where-Object Val -eq 4).val"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::Int(4));
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec!["$a = @{", "\tval = 4", "}", "4"].join(NEWLINE)
+        );
     }
 }

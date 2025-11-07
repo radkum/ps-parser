@@ -59,10 +59,10 @@ fn string_from_vec(mut buf: Vec<u8>) -> String {
     let u16_buffer = unsafe { buf.align_to_mut::<u16>().1 };
 
     let mut ends_with_null = false;
-    if let Some(c) = u16_buffer.last() {
-        if *c == 0 {
-            ends_with_null = true;
-        }
+    if let Some(c) = u16_buffer.last()
+        && *c == 0
+    {
+        ends_with_null = true;
     }
 
     let mut res_string = String::from_utf16_lossy(u16_buffer);

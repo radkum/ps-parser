@@ -31,6 +31,21 @@ impl ScriptBlock {
             deobfuscated: Vec::new(),
         }
     }
+
+    pub fn from_command_elements(command_elements: &[CommandElem]) -> Self {
+        let elements = command_elements
+            .iter()
+            .map(|arg| arg.display())
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        Self {
+            params: Params::new(Vec::new()),
+            body: format!("$_.{}", elements),
+            raw_text: String::new(),
+            deobfuscated: Vec::new(),
+        }
+    }
     // pub fn to_function(&self, name: &str, scope: &Option<Scope>) -> String {
     //     if let Some(scope) = scope {
     //         format!("function {scope}:{name}(){}", self.deobfuscated_string())
