@@ -306,7 +306,13 @@ impl Val {
                     self.cast_to_string() + val.cast_to_string().as_str(),
                 ))
             }
-            Val::Array(arr) => arr.push(val),
+            Val::Array(arr) => {
+                if let Val::Array(val_arr) = val {
+                    arr.extend(val_arr);
+                } else {
+                    arr.push(val);
+                }
+            }
             Val::HashTable(ht) => {
                 if val.ttype() != ValType::HashTable {
                     return Err(ValError::OperationNotDefined(

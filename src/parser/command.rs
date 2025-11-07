@@ -144,6 +144,7 @@ impl Command {
             ("where-object", where_object as FunctionPredType),
             ("get-location", get_location as FunctionPredType),
             ("powershell", powershell as FunctionPredType),
+            ("foreach-object", foreach_object as FunctionPredType),
         ])
     });
 
@@ -240,6 +241,46 @@ fn where_object(
             Ok(b) => b.val.cast_to_bool(),
         })
         .cloned()
+        .collect::<Vec<_>>();
+
+    Ok(CommandOutput {
+        val: Val::Array(filtered_elements),
+        deobfuscated: None,
+    })
+}
+
+// Where-Object cmdlet implementation
+fn foreach_object(
+    args: &mut Vec<CommandElem>,
+    ps: &mut PowerShellSession,
+) -> ParserResult<CommandOutput> {
+    log::debug!("args: {:?}", args);
+    if args.len() != 2 {
+        return Err(CommandError::IncorrectArgs(
+            "Where-Object requires exactly two arguments".into(),
+        )
+        .into());
+    }
+
+    let CommandElem::Argument(Val::Array(elements)) = &args[0] else {
+        return Err(CommandError::IncorrectArgs("First argument must be an array".into()).into());
+    };
+
+    let CommandElem::Argument(Val::ScriptBlock(sb)) = &args[1] else {
+        return Err(
+            CommandError::IncorrectArgs("Second argument must be a script block".into()).into(),
+        );
+    };
+
+    let filtered_elements = elements
+        .into_iter()
+        .map(|element| match sb.run(vec![], ps, Some(element.clone())) {
+            Err(er) => {
+                ps.errors.push(er);
+                Val::Null
+            }
+            Ok(b) => b.val,
+        })
         .collect::<Vec<_>>();
 
     Ok(CommandOutput {
