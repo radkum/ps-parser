@@ -110,7 +110,7 @@ mod tests {
         let mut p = PowerShellSession::new();
         assert_eq!(p.safe_eval(r#" [string](1..1.3) "#).unwrap().as_str(), "1");
         assert_eq!(p.safe_eval(r#" [string](1...3) "#).unwrap().as_str(), "1 0");
-        assert_eq!(p.safe_eval(r#" [string]1...3 "#).unwrap().as_str(), "1 0");
+        assert_eq!(p.safe_eval(r#" [string]1...3 "#).unwrap().as_str(), "1\n0");
     }
 
     #[test]

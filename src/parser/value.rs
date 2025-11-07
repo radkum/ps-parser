@@ -464,10 +464,10 @@ impl Val {
         }
 
         // check dividing by zero
-        if let Ok(v) = val.cast_to_float() {
-            if v == 0. {
-                Err(ValError::DividingByZero)?
-            }
+        if let Ok(v) = val.cast_to_float()
+            && v == 0.
+        {
+            Err(ValError::DividingByZero)?
         }
 
         *self = match self {
@@ -502,10 +502,10 @@ impl Val {
         }
 
         // check dividing by zero
-        if let Ok(v) = val.cast_to_float() {
-            if v == 0. {
-                Err(ValError::DividingByZero)?
-            }
+        if let Ok(v) = val.cast_to_float()
+            && v == 0.
+        {
+            Err(ValError::DividingByZero)?
         }
 
         *self = match self {

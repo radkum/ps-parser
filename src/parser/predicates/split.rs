@@ -72,10 +72,10 @@ pub fn powershell_split_preserve_delimeter(
     let mut last_end = 0;
 
     for (splits, mat) in re.find_iter(input).enumerate() {
-        if let Some(limit) = max_splits {
-            if splits >= limit {
-                break;
-            }
+        if let Some(limit) = max_splits
+            && splits >= limit
+        {
+            break;
         }
 
         // Push text before the match

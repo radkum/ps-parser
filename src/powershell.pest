@@ -166,7 +166,7 @@ enum_statement = { ^"enum" ~ simple_name ~ "{" ~ (enum_member ~ statement_termin
 enum_member = { simple_name ~ (("=" ~ decimal_integer) | ("=" ~ hex_integer) )? }
 
 // ---------------------- EXPRESSSION
-expression  = { bitwise_exp ~ (logical_operator ~ bitwise_exp)? }
+expression = { bitwise_exp ~ (logical_operator ~ bitwise_exp)? }
 logical_operator = { ^"-and" | ^"-or" | ^"-xor" }
 
 bitwise_exp = { comparison_exp ~ (bitwise_operator ~ comparison_exp)* }
@@ -216,7 +216,7 @@ expression_with_unary_operator = {
 
 pre_inc_expression = { "++" ~ variable }
 pre_dec_expression = { "--" ~ variable }
-cast_expression = { type_literal ~ (parenthesized_expression | range_exp | unary_exp) }
+cast_expression = { type_literal ~ (unary_exp | parenthesized_expression) }
 
 //------------------------------------PRIMARY EXPRESSSION
 primary_expression = {
@@ -261,7 +261,7 @@ command = ${(
     invocation_command
   | cmdlet_command) ~ command_element*
 }
-foreach_command_name = { "%" | ^"foreach-object" }
+foreach_command_name = { "%" | ^"foreach-object" | ^"foreach" }
 where_command_name = { "?" | ^"where-object" | ^"where" }
 powershell_command_name = { (^"powershell" | ^"pwsh") ~ ^".exe"? }
 cmdlet_command = ${ (powershell_command_name | where_command_name | foreach_command_name | command_name) }
@@ -369,17 +369,7 @@ var_name = @{ identifier | "?" }
 scope_keyword = { ^"global" | ^"local" | ^"private" | ^"script" | ^"using" | ^"workflow" | ^"env" | ^"alias" | ^"function" | ^"variable" }
 braced_variable_content = @{ (!"}" ~ ANY)+ }
 
-member_suffix = _{
-      dot_member
-    | static_member
-    | index_access
-    | method_invocation
-}
-dot_member         = { "." ~ expression }
-static_member      = { "::" ~ identifier }
-index_access       = { "[" ~ expression ~ "]" }
-
-argument_list      = { !redirection ~ expression ~ ("," ~ expression)* }
+argument_list      = { !redirection ~ expression }
 command_ident = @{ ASCII_ALPHANUMERIC ~ (ASCII_ALPHANUMERIC | "-")* }
 identifier = @{ (ASCII_ALPHANUMERIC | "_")+ }
 qualified_ident = { identifier ~ ("." ~ identifier)* }

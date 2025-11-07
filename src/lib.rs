@@ -308,6 +308,14 @@ $nestedData = @{
             p.safe_eval("$nesteddata.users[0].NAME").unwrap(),
             "Alice".to_string()
         );
+
+        let input = r#" $a=@{val = 4};$a.val"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::Int(4));
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec!["$a = @{", "\tval = 4", "}", "4"].join(NEWLINE)
+        );
     }
 
     #[test]
@@ -509,10 +517,10 @@ Write-Output "Modulo: $(($a % $b))"
         let mut p = PowerShellSession::new().with_variables(Variables::env());
         let input = r#" $numbers = 1..10; $numbers | Where { $_ % 2 -eq 0 } | ? { $_ % 3 -eq 0 }"#;
         let script_res = p.parse_input(input).unwrap();
-        assert_eq!(script_res.result(), PsValue::Array(vec![PsValue::Int(6),]));
+        assert_eq!(script_res.result(), PsValue::Int(6));
         assert_eq!(
             script_res.deobfuscated(),
-            vec!["$numbers = @(1,2,3,4,5,6,7,8,9,10)", "@(6)"].join(NEWLINE)
+            vec!["$numbers = @(1,2,3,4,5,6,7,8,9,10)", "6"].join(NEWLINE)
         );
         assert_eq!(script_res.errors().len(), 0);
     }
@@ -794,6 +802,55 @@ $a"#;
                 PsValue::Int(42),
                 PsValue::Int(2)
             ])])
+        );
+
+        // function argument as array
+        let input = r#" function Foo($x) { $x.GetType().name + $x[2]};Foo(1,2,3)"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::String("Object[]3".into()));
+
+        // function argument as array
+        let input = r#" function b($x) {$x};b(1,2+3,4)"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![
+                PsValue::Int(1),
+                PsValue::Int(2),
+                PsValue::Int(3),
+                PsValue::Int(4),
+            ])
+        );
+
+        // function argument as array
+        let input =
+            r#" $a=@{val = 4};function b($x) {$x};b(1, [long]($a | Where-Object val -eq 4).val)"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![PsValue::Int(1), PsValue::Int(4)])
+        );
+    }
+
+    #[test]
+    fn cast_expression() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        //simple
+        let input = r#" $a=@{val = 4};[long]($a).val"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::Int(4));
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec!["$a = @{", "\tval = 4", "}", "4"].join(NEWLINE)
+        );
+
+        let input = r#" $a=@{val = 4};[long]($a | Where-Object Val -eq 4).val"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::Int(4));
+        assert_eq!(
+            script_res.deobfuscated(),
+            vec!["$a = @{", "\tval = 4", "}", "4"].join(NEWLINE)
         );
     }
 }

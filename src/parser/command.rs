@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::LazyLock};
+use std::{collections::HashMap, sync::LazyLock, vec};
 
 use thiserror_no_std::Error;
 
@@ -214,42 +214,59 @@ fn where_object(
     ps: &mut PowerShellSession,
 ) -> ParserResult<CommandOutput> {
     log::debug!("args: {:?}", args);
-    if args.len() != 2 {
+
+    let CommandElem::Argument(argument) = args[0].clone() else {
         return Err(CommandError::IncorrectArgs(
-            "Where-Object requires exactly two arguments".into(),
+            "First argument must be an CommandElem::Argument".into(),
         )
         .into());
-    }
-
-    let CommandElem::Argument(Val::Array(elements)) = &args[0] else {
-        return Err(CommandError::IncorrectArgs("First argument must be an array".into()).into());
     };
 
-    let CommandElem::Argument(Val::ScriptBlock(sb)) = &args[1] else {
-        return Err(
-            CommandError::IncorrectArgs("Second argument must be a script block".into()).into(),
-        );
+    let sb = if let CommandElem::Argument(Val::ScriptBlock(sb)) = &args[1] {
+        sb
+    } else {
+        &ScriptBlock::from_command_elements(&args[1..])
     };
 
-    let filtered_elements = elements
-        .iter()
-        .filter(|&element| match sb.run(vec![], ps, Some(element.clone())) {
-            Err(er) => {
-                ps.errors.push(er);
-                false
-            }
-            Ok(b) => b.val.cast_to_bool(),
-        })
-        .cloned()
-        .collect::<Vec<_>>();
+    let filtered_elements = if let Val::Array(elements) = argument {
+        elements
+            .iter()
+            .filter(|&element| match sb.run(vec![], ps, Some(element.clone())) {
+                Err(er) => {
+                    ps.errors.push(er);
+                    false
+                }
+                Ok(b) => b.val.cast_to_bool(),
+            })
+            .cloned()
+            .collect::<Vec<_>>()
+    } else {
+        if sb
+            .run(vec![], ps, Some(argument.clone()))?
+            .val
+            .cast_to_bool()
+        {
+            vec![argument.clone()]
+        } else {
+            vec![]
+        }
+    };
+
+    let val = if filtered_elements.len() == 0 {
+        Val::Null
+    } else if filtered_elements.len() == 1 {
+        filtered_elements[0].to_owned()
+    } else {
+        Val::Array(filtered_elements)
+    };
 
     Ok(CommandOutput {
-        val: Val::Array(filtered_elements),
+        val,
         deobfuscated: None,
     })
 }
 
-// Where-Object cmdlet implementation
+// Foreach-Object cmdlet implementation
 fn foreach_object(
     args: &mut Vec<CommandElem>,
     ps: &mut PowerShellSession,
@@ -257,13 +274,16 @@ fn foreach_object(
     log::debug!("args: {:?}", args);
     if args.len() != 2 {
         return Err(CommandError::IncorrectArgs(
-            "Where-Object requires exactly two arguments".into(),
+            "Foreach-Object requires exactly two arguments".into(),
         )
         .into());
     }
 
-    let CommandElem::Argument(Val::Array(elements)) = &args[0] else {
-        return Err(CommandError::IncorrectArgs("First argument must be an array".into()).into());
+    let CommandElem::Argument(argument) = args[0].clone() else {
+        return Err(CommandError::IncorrectArgs(
+            "First argument must be an CommandElem::Argument".into(),
+        )
+        .into());
     };
 
     let CommandElem::Argument(Val::ScriptBlock(sb)) = &args[1] else {
@@ -272,19 +292,31 @@ fn foreach_object(
         );
     };
 
-    let filtered_elements = elements
-        .into_iter()
-        .map(|element| match sb.run(vec![], ps, Some(element.clone())) {
-            Err(er) => {
-                ps.errors.push(er);
-                Val::Null
-            }
-            Ok(b) => b.val,
-        })
-        .collect::<Vec<_>>();
+    let transformed_elements = if let Val::Array(elements) = argument {
+        elements
+            .into_iter()
+            .map(|element| match sb.run(vec![], ps, Some(element.clone())) {
+                Err(er) => {
+                    ps.errors.push(er);
+                    Val::Null
+                }
+                Ok(b) => b.val,
+            })
+            .collect::<Vec<_>>()
+    } else {
+        vec![sb.run(vec![], ps, Some(argument))?.val]
+    };
+
+    let val = if transformed_elements.len() == 0 {
+        Val::Null
+    } else if transformed_elements.len() == 1 {
+        transformed_elements[0].to_owned()
+    } else {
+        Val::Array(transformed_elements)
+    };
 
     Ok(CommandOutput {
-        val: Val::Array(filtered_elements),
+        val,
         deobfuscated: None,
     })
 }
@@ -490,6 +522,57 @@ mod tests {
         assert_eq!(
             s.result().to_string(),
             vec!["2", "4", "6", "8", "10"].join(NEWLINE)
+        );
+
+        let input = r#"5 | where-object {$_ -eq 5}"#;
+        let s = p.parse_input(input).unwrap();
+        assert_eq!(s.result(), PsValue::Int(5));
+
+        let input = r#"5,4 | where-object {$_ -eq 5}"#;
+        let s = p.parse_input(input).unwrap();
+        assert_eq!(s.result(), PsValue::Int(5));
+
+        let input = r#"5,4 | where {$_ -gt 3}"#;
+        let s = p.parse_input(input).unwrap();
+        assert_eq!(
+            s.result(),
+            PsValue::Array(vec![PsValue::Int(5), PsValue::Int(4)])
+        );
+
+        let input = r#"5,4 | where {$_ -lt 3}"#;
+        let s = p.parse_input(input).unwrap();
+        assert_eq!(s.result(), PsValue::Null);
+
+        let input = r#"@(@{val = 4},@{val = 3}) | where val -lt 4"#;
+        let s = p.parse_input(input).unwrap();
+        assert_eq!(
+            s.result(),
+            PsValue::HashTable(std::collections::HashMap::from([(
+                "val".to_string(),
+                PsValue::Int(3)
+            )]))
+        );
+    }
+
+    #[test]
+    fn test_foreach_object() {
+        let mut p = PowerShellSession::new();
+        let input = r#"1..5 | foreach { $_ *2 }"#;
+        let s = p.parse_input(input).unwrap();
+        assert_eq!(
+            s.result().to_string(),
+            vec!["2", "4", "6", "8", "10"].join(NEWLINE)
+        );
+
+        let input = r#"5 | % {$_ + 5}"#;
+        let s = p.parse_input(input).unwrap();
+        assert_eq!(s.result(), PsValue::Int(10));
+
+        let input = r#"5,4 | foreach {$_ /2}"#;
+        let s = p.parse_input(input).unwrap();
+        assert_eq!(
+            s.result(),
+            PsValue::Array(vec![PsValue::Float(2.5), PsValue::Int(2)])
         );
     }
 

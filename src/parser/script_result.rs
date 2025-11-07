@@ -120,7 +120,6 @@ impl ScriptResult {
             result: result.into(),
             stream: stream
                 .iter()
-                .cloned()
                 .map(|msg| msg.to_string())
                 .collect::<Vec<String>>(),
             evaluated_statements,
