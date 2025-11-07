@@ -781,10 +781,7 @@ impl<'a> PowerShellSession {
                 }
                 Rule::method_invocation => {
                     let static_method = self.method_is_static(token.clone());
-                    println!("before");
                     let (method_name, args) = self.eval_method_invokation(token.clone())?;
-                    println!("method_name: {}", method_name);
-                    println!("args: {:?}", args);
                     let separator = if static_method { "::" } else { "." };
                     object = format!(
                         "{}{separator}{}({:?})",
@@ -1069,8 +1066,6 @@ impl<'a> PowerShellSession {
         if let Rule::array_literal_exp_special_case = token.as_rule() {
             return self.eval_array_literal_exp_special_case(token);
         }
-
-        println!("asdf");
 
         arr.push(self.safe_parse_arg(token)?);
         for token in pairs {
