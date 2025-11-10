@@ -3,10 +3,10 @@ block_comment = _{ "<#" ~ (!"#>" ~ ANY)* ~ "#>" }
 COMMENT = _{ single_line_comment | block_comment }
 WHITESPACE     = _{ " " | "\t" | NEWLINE }
 
-program = { SOI ~ param_block? ~ statements ~ EOI }
+program = { SOI ~ param_block? ~ statements? ~ EOI }
 
 //---------------------------------- BLOCKS
-param_block = { ^"param" ~ "(" ~ parameter_list? ~ ")" }
+param_block = { attribute_list? ~ ^"param" ~ "(" ~ parameter_list? ~ ")" }
 parameter_list = { script_parameter ~ ("," ~ script_parameter)* }
 script_parameter = { attribute_list? ~ variable ~ script_parameter_default? }
 //script_parameter_default = { "=" ~ expression } - maybe expression?
