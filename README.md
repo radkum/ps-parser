@@ -29,7 +29,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ps-parser = "0.3.3"
+ps-parser = "0.3.4"
 ```
 
 ## Usage
@@ -157,8 +157,8 @@ errors: [ValError(InvalidCast("String", "Int"))]
 ```
 
 ## Future plans
+- change Val::Array from Vec to struct
 - deobfuscate -encodedArguments
-- consider not reporting error: not implemented?
 - benchmarks
 - "filter" functions
 - eval "switch" statements
