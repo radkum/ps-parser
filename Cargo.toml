@@ -1,6 +1,6 @@
 [package]
 name = "ps-parser"
-version = "0.3.4"
+version = "0.3.5"
 description = "The Powershell Parser"
 homepage = "https://github.com/radkum/ps-parser"
 repository = "https://github.com/radkum/ps-parser"

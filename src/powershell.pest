@@ -252,7 +252,7 @@ pipeline_with_tail = {(redirected_expression | command) ~ pipeline_tail?}
 redirected_expression = { expression ~ redirection? }
 pipeline_tail = { ("|" ~ command)+ }
 
-assignment_exp = { type_literal? ~ variable ~ assignement_op ~ (if_statement | pipeline) }
+assignment_exp = { type_literal? ~ value ~ assignement_op ~ (if_statement | pipeline) }
 prefix_assign_op = { (additive_op | multiplicative_op) }
 assign_op = { "=" }
 assignement_op = {prefix_assign_op? ~ assign_op }
