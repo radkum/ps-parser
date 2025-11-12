@@ -169,9 +169,10 @@ enum_member = { simple_name ~ (("=" ~ decimal_integer) | ("=" ~ hex_integer) )? 
 expression = { bitwise_exp ~ (logical_operator ~ bitwise_exp)? }
 logical_operator = { ^"-and" | ^"-or" | ^"-xor" }
 
-bitwise_exp = { comparison_exp ~ (bitwise_operator ~ comparison_exp)* }
+bitwise_exp = { as_expression ~ (bitwise_operator ~ as_expression)* }
 bitwise_operator = { ^"-band" | ^"-bor" | ^"-bxor" | ^"-shl" | ^"-shr" }
 
+as_expression = {comparison_exp ~ ("-as" ~ (type_literal|comparison_exp))*}
 // strange case. -split and -join can be invoke without previous expression, eg. "-join 'some'"
 comparison_exp = {
     additive_exp ~split_op ~ script_block_expression |
@@ -216,7 +217,7 @@ expression_with_unary_operator = {
 
 pre_inc_expression = { "++" ~ variable }
 pre_dec_expression = { "--" ~ variable }
-cast_expression = { type_literal ~ (unary_exp | parenthesized_expression) }
+cast_expression = { !WHITESPACE ~ type_literal ~(unary_exp | parenthesized_expression) }
 
 //------------------------------------PRIMARY EXPRESSSION
 primary_expression = {
@@ -275,12 +276,15 @@ command_element = _{
     | command_parameter
     | redirection
     | command_argument ~ argument_list?
+    | splatten_arg
 }
 
 command_parameter = @{    
     "-"+ ~ command_parameter_chars+
     | "--"
 }
+splatten_arg = ${ "@" ~ (scope_keyword ~ ":")? ~ var_name }
+
 command_parameter_chars = _{ ASCII_ALPHA | ASCII_DIGIT | "_" | "?" | "-" | "`" }
 stop_parsing = @{ "--%" ~ (!(NEWLINE) ~ ANY)* }
 command_argument_sep = { ":" }
@@ -318,7 +322,7 @@ immediate_chars = @{ (!SECOND_FORBIDDEN_CHARS ~ ANY)+ }
 path_command_name = @{ (ASCII_ALPHANUMERIC | "_" | "?" | "-" | "." | "\\")+ }
 
 //-------------------------------------STRING OPERATORS
-string_op = { replace_op | split_op | cmp_op | contain_op | join_op | type_check_op | as_op }
+string_op = { replace_op | split_op | cmp_op | contain_op | join_op | type_check_op }
 replace_op = { ^"-replace" | ^"-ireplace" | ^"-creplace" }
 split_op = { ^"-split" | ^"-isplit" | ^"-csplit" }
 join_op = { ^"-join" }
@@ -329,7 +333,6 @@ cmp_op = {
     | ^"-like"| ^"-clike" | ^"-ilike" | ^"-notlike" | ^"-inotlike" | ^"-cnotlike" }
 contain_op = { ^"-inotin" | ^"-notin" | ^"-inotin" | ^"-cnotin" | ^"-contains" | ^"-ccontains" | ^"-icontains" | ^"-notcontains" | ^"-inotcontains" | ^"-cnotcontains" | ^"-in" | ^"-iin" | ^"-cin" }
 type_check_op = { ^"-isnot" | ^"-is" }
-as_op = { ^"-as" }
 
 simple_operator = _{ "-" | "+" | "*" | "/" | "%" }
 
@@ -341,6 +344,7 @@ value = {
     | hash_literal_expression 
     | literal 
     | type_literal
+    | variable_access
     | variable
 }
 parenthesized_expression = !{ "(" ~ pipeline ~ ")"}
@@ -352,7 +356,7 @@ script_block = { param_block? ~ ";"* ~ script_block_body? }
 
 hash_literal_expression = { "@{" ~ hash_literal_body? ~ "}" }
 hash_literal_body = _{ hash_entry* }
-hash_entry = { key_expression ~ "=" ~ statement ~ ";"*}
+hash_entry = { key_expression ~ "=" ~ (type_literal | statement) ~ ";"*}
 key_expression = { simple_name | unary_exp }
 
 variable = {
@@ -361,6 +365,7 @@ variable = {
     | scoped_variable
     | braced_variable
 }
+variable_access = {variable ~ element_access}
 parenthesized_variable = { "(" ~ variable ~ ")" }
 special_variable = { "$$" | "$^" | "$?" | "$_" }
 scoped_variable = { "$" ~ (scope_keyword ~ ":")? ~ var_name }

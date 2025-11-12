@@ -929,4 +929,14 @@ $a"#;
             PsValue::Array(vec![PsValue::Char(49), PsValue::Char(50)])
         );
     }
+
+    #[test]
+    fn splatten_arg() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#" $a = @{ elo= 2; name= "radek"}; write-output @a "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert!(script_res.output().contains("-elo 2"));
+        assert!(script_res.output().contains("-name radek"));
+    }
 }

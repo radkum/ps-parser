@@ -347,6 +347,8 @@ fn extract_message(args: &[CommandElem]) -> String {
             CommandElem::Parameter(s) => {
                 if s.to_ascii_lowercase().as_str() == "-foregroundcolor" {
                     skip = 1
+                } else {
+                    output.push(s.clone());
                 }
             }
             CommandElem::Argument(val) => {
