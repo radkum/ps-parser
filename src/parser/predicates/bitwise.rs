@@ -1,8 +1,26 @@
 use std::{collections::HashMap, sync::LazyLock};
 
-use super::Val;
+use thiserror_no_std::Error;
 
-pub(crate) type BitwisePredType = fn(Val, Val) -> Val;
+use super::Val;
+use crate::parser::{ValType, value::ValError};
+#[derive(Error, Debug, PartialEq, Clone)]
+pub enum BitwiseError {
+    #[error("{0} not defined for {1}")]
+    NotDefined(String, ValType),
+    #[error("Failed casting to int: {0}")]
+    CastToInt(ValError),
+}
+
+impl From<ValError> for BitwiseError {
+    fn from(value: ValError) -> Self {
+        Self::CastToInt(value)
+    }
+}
+
+type BitwiseResult<T> = core::result::Result<T, BitwiseError>;
+
+pub(crate) type BitwisePredType = fn(Val, Val) -> BitwiseResult<Val>;
 
 pub(crate) struct BitwisePred;
 
@@ -25,59 +43,64 @@ impl BitwisePred {
     }
 }
 
+pub fn prepare(a: Val, b: Val) -> BitwiseResult<(i64, i64)> {
+    if let Val::RuntimeObject(a) = a {
+        return Err(BitwiseError::NotDefined(
+            "band".into(),
+            a.type_definition().unwrap_or_default(),
+        ));
+    }
+    Ok((a.cast_to_int()?, b.cast_to_int()?))
+}
+
 fn band_imp(a: i64, b: i64) -> i64 {
     a & b
 }
 
-pub fn band(a: Val, b: Val) -> Val {
-    let (Ok(a), Ok(b)) = (a.cast_to_int(), b.cast_to_int()) else {
-        return Val::Null;
-    };
-    Val::Int(band_imp(a, b))
+pub fn band(a: Val, b: Val) -> BitwiseResult<Val> {
+    let (a, b) = prepare(a, b)?;
+    let res = band_imp(a, b);
+    Ok(Val::Int(res))
 }
 
 fn bor_imp(a: i64, b: i64) -> i64 {
     a | b
 }
 
-pub fn bor(a: Val, b: Val) -> Val {
-    let (Ok(a), Ok(b)) = (a.cast_to_int(), b.cast_to_int()) else {
-        return Val::Null;
-    };
-    Val::Int(bor_imp(a, b))
+pub fn bor(a: Val, b: Val) -> BitwiseResult<Val> {
+    let (a, b) = prepare(a, b)?;
+    let res = bor_imp(a, b);
+    Ok(Val::Int(res))
 }
 
 fn bxor_imp(a: i64, b: i64) -> i64 {
     a ^ b
 }
 
-pub fn bxor(a: Val, b: Val) -> Val {
-    let (Ok(a), Ok(b)) = (a.cast_to_int(), b.cast_to_int()) else {
-        return Val::Null;
-    };
-    Val::Int(bxor_imp(a, b))
+pub fn bxor(a: Val, b: Val) -> BitwiseResult<Val> {
+    let (a, b) = prepare(a, b)?;
+    let res = bxor_imp(a, b);
+    Ok(Val::Int(res))
 }
 
 fn shl_imp(a: i64, b: i64) -> i64 {
     a << b
 }
 
-pub fn shl(a: Val, b: Val) -> Val {
-    let (Ok(a), Ok(b)) = (a.cast_to_int(), b.cast_to_int()) else {
-        return Val::Null;
-    };
-    Val::Int(shl_imp(a, b))
+pub fn shl(a: Val, b: Val) -> BitwiseResult<Val> {
+    let (a, b) = prepare(a, b)?;
+    let res = shl_imp(a, b);
+    Ok(Val::Int(res))
 }
 
 fn shr_imp(a: i64, b: i64) -> i64 {
     a >> b
 }
 
-pub fn shr(a: Val, b: Val) -> Val {
-    let (Ok(a), Ok(b)) = (a.cast_to_int(), b.cast_to_int()) else {
-        return Val::Null;
-    };
-    Val::Int(shr_imp(a, b))
+pub fn shr(a: Val, b: Val) -> BitwiseResult<Val> {
+    let (a, b) = prepare(a, b)?;
+    let res = shr_imp(a, b);
+    Ok(Val::Int(res))
 }
 
 #[cfg(test)]

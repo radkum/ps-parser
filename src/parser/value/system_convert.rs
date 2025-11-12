@@ -1,13 +1,14 @@
 use super::{MethodError, MethodResult, PsString, RuntimeObject, StaticFnCallType, Val};
+use crate::parser::value::runtime_object::RuntimeResult;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Convert {}
 
 impl RuntimeObject for Convert {
-    fn get_static_fn(&self, name: &str) -> MethodResult<StaticFnCallType> {
+    fn get_static_fn(&self, name: &str) -> RuntimeResult<StaticFnCallType> {
         match name.to_ascii_lowercase().as_str() {
             "frombase64string" => Ok(from_base_64_string),
-            _ => Err(MethodError::MethodNotFound(name.to_string())),
+            _ => Err(MethodError::MethodNotFound(name.to_string()).into()),
         }
     }
 }

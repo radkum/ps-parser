@@ -9,7 +9,7 @@ mod split;
 mod type_check;
 
 pub(crate) use arithmetic::ArithmeticPred;
-pub(crate) use bitwise::BitwisePred;
+pub(crate) use bitwise::{BitwiseError, BitwisePred};
 pub(crate) use comparison::ComparisonPred;
 pub(crate) use contain::ContainPred;
 pub(crate) use join::JoinPred;
@@ -19,12 +19,25 @@ pub(crate) use split::SplitPred;
 use thiserror_no_std::Error;
 pub(crate) use type_check::TypeCheckPred;
 
-use super::{Val, ValResult, ValType};
+use super::{Val, ValResult, ValType, value::ValError};
+const AS_PREDICATE: &str = "-as";
 
 #[derive(Error, Debug, PartialEq, Clone)]
 pub enum OpError {
     #[error("The -ireplace operator allows only two elements to follow it, not {0}")]
     ReplaceInvalidArgsNumber(usize),
+    #[error("-is and -isnot needs to have type on ther right side, not {0}")]
+    NotType(String),
+    #[error("ValError: {0}")]
+    ValError(ValError),
+    #[error("Unknown type: {0}")]
+    UnknownType(String),
+}
+
+impl From<ValError> for OpError {
+    fn from(value: ValError) -> Self {
+        Self::ValError(value)
+    }
 }
 
 type OpResult<T> = core::result::Result<T, OpError>;
@@ -35,6 +48,12 @@ pub(crate) struct StringPred;
 impl StringPred {
     pub(crate) fn get(name: &str) -> Option<StringPredType> {
         let name_lowercase = name.to_ascii_lowercase();
+
+        //-as is very simple, thats why there is no single module for that
+        if name_lowercase.as_str() == AS_PREDICATE {
+            return Some(Box::new(move |v1, v2| Ok(v1.cast(&v2)?)));
+        }
+
         if let Some(compare) = ComparisonPred::get(name_lowercase.as_str()) {
             return Some(Box::new(move |v1, v2| Ok(Val::Bool(compare(v1, v2)))));
         }
@@ -58,7 +77,13 @@ impl StringPred {
 
         if let Some(type_check) = TypeCheckPred::get(name_lowercase.as_str()) {
             return Some(Box::new(move |v1, v2| {
-                Ok(Val::Bool(type_check(v1, v2.ttype())))
+                if let Val::RuntimeObject(object) = &v2
+                    && let Ok(v2_type) = object.type_definition()
+                {
+                    return Ok(Val::Bool(type_check(v1, v2_type)));
+                }
+
+                Err(OpError::NotType(v2.cast_to_string()))
             }));
         }
 

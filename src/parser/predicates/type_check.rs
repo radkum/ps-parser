@@ -26,14 +26,14 @@ fn isnot(var: Val, ttype: ValType) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::PowerShellSession;
+    use crate::{PowerShellSession, PsValue};
 
     #[test]
     fn test_typecheck() {
         let mut p = PowerShellSession::new();
         assert_eq!(
-            p.safe_eval(r#" 42 -iSnot [string] "#).unwrap(),
-            "True".to_string()
+            p.parse_input(r#" 42 -iSnot [string] "#).unwrap().result(),
+            PsValue::Bool(true)
         );
 
         let mut p = PowerShellSession::new();

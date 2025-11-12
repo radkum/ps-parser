@@ -166,7 +166,7 @@ mod tests {
         assert_eq!(script_res.errors().len(), 1);
         assert_eq!(
             script_res.errors()[0].to_string(),
-            "ValError: Cannot convert value \"String\" to type \"Int\""
+            "ValError: Failed to convert value \"a\" to type Int"
         );
 
         // the same but do it in two parts
@@ -185,7 +185,7 @@ mod tests {
         assert_eq!(script_res.errors().len(), 1);
         assert_eq!(
             script_res.errors()[0].to_string(),
-            "ValError: Cannot convert value \"String\" to type \"Int\""
+            "ValError: Failed to convert value \"a\" to type Int"
         );
     }
 
@@ -207,7 +207,7 @@ mod tests {
         );
         assert_eq!(
             script_res.errors()[1].to_string(),
-            "ValError: Cannot convert value \"String\" to type \"Int\""
+            "ValError: Failed to convert value \"a\" to type Int"
         );
         assert_eq!(
             script_res.errors()[2].to_string(),
@@ -850,6 +850,83 @@ $a"#;
         assert_eq!(
             script_res.deobfuscated(),
             vec!["$a = @{", "\tval = 4", "}", "4"].join(NEWLINE)
+        );
+    }
+
+    #[test]
+    fn as_expression() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        //simple
+        let input = r#" '1a1' -replace 'a' -as [int] "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::Int(11));
+
+        let input = r#" '1a1' -replace ('a' -as [int])"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::String("1a1".into()));
+
+        let input = r#" '2' -as [int] -shl 1"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::Int(4));
+
+        let input = r#" [int] -shl 1 "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::Null);
+        assert_eq!(
+            script_res.errors()[0].to_string(),
+            String::from("BitwiseError: band not defined for Int")
+        );
+
+        let input = r#" '2' -as ([string] -shl 1) "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::Null);
+        assert_eq!(
+            script_res.errors()[0].to_string(),
+            String::from("BitwiseError: band not defined for String")
+        );
+
+        let input = r#" '2' -as ([int]) "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::Int(2));
+    }
+
+    #[test]
+    fn cast_assignment() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#" [int] $elo = "1"; $elo "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::Int(1));
+
+        let input = r#" [int] $elo = "1a": $elo"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::Null);
+        assert_eq!(
+            script_res.errors()[0].to_string(),
+            String::from("ValError: Failed to convert value \"1a\" to type Int")
+        );
+
+        let input = r#" [double] $elo = "1a": $elo"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::Null);
+        assert_eq!(
+            script_res.errors()[0].to_string(),
+            String::from("ValError: Failed to convert value \"1a\" to type Float")
+        );
+
+        let input = r#" [int[]] $elo = "1", "2"; $elo"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![PsValue::Int(1), PsValue::Int(2)])
+        );
+
+        let input = r#" [byte[]] $elo = "1", "2"; $elo"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![PsValue::Char(49), PsValue::Char(50)])
         );
     }
 }

@@ -1,15 +1,15 @@
 use super::{MethodError, MethodResult, RuntimeObject, Val};
-use crate::parser::value::runtime_object::MethodCallType;
+use crate::parser::value::runtime_object::{MethodCallType, RuntimeResult};
 
 #[derive(Debug, Clone)]
 pub(crate) struct Encoding {}
 
 impl RuntimeObject for Encoding {
-    fn get_static_member(&self, name: &str) -> MethodResult<Val> {
+    fn get_static_member(&self, name: &str) -> RuntimeResult<Val> {
         log::debug!("get_static_member called with name: {}", name);
         match name.to_ascii_lowercase().as_str() {
             "unicode" => Ok(Val::RuntimeObject(Box::new(UnicodeEncoding {}))),
-            _ => Err(MethodError::MemberNotFound(name.to_string())),
+            _ => Err(MethodError::MemberNotFound(name.to_string()).into()),
         }
     }
 }
@@ -23,10 +23,10 @@ impl UnicodeEncoding {
 }
 
 impl RuntimeObject for UnicodeEncoding {
-    fn get_method(&self, name: &str) -> MethodResult<MethodCallType> {
+    fn get_method(&self, name: &str) -> RuntimeResult<MethodCallType> {
         match name.to_ascii_lowercase().as_str() {
             "getstring" => Ok(get_string),
-            _ => Err(MethodError::MethodNotFound(name.to_string())),
+            _ => Err(MethodError::MethodNotFound(name.to_string()).into()),
         }
     }
 }

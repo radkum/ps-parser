@@ -4,8 +4,8 @@ use thiserror_no_std::Error;
 
 use super::{
     CommandError, PestError,
-    predicates::OpError,
-    value::{MethodError, ValError},
+    predicates::{BitwiseError, OpError},
+    value::{MethodError, RuntimeError, ValError},
     variables::VariableError,
 };
 
@@ -28,6 +28,12 @@ pub enum ParserError {
 
     #[error("CommandError: {0}")]
     CommandError(CommandError),
+
+    #[error("BitwiseError: {0}")]
+    BitwiseError(BitwiseError),
+
+    #[error("RuntimeError: {0}")]
+    RuntimeError(RuntimeError),
 
     #[error("ParseFloatError: {0}")]
     ParseFloatError(ParseFloatError),
@@ -72,6 +78,18 @@ impl From<MethodError> for ParserError {
 impl From<CommandError> for ParserError {
     fn from(value: CommandError) -> Self {
         Self::CommandError(value)
+    }
+}
+
+impl From<BitwiseError> for ParserError {
+    fn from(value: BitwiseError) -> Self {
+        Self::BitwiseError(value)
+    }
+}
+
+impl From<RuntimeError> for ParserError {
+    fn from(value: RuntimeError) -> Self {
+        Self::RuntimeError(value)
     }
 }
 

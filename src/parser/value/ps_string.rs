@@ -2,8 +2,8 @@ use std::{cmp::Ordering, sync::LazyLock};
 
 use smart_default::SmartDefault;
 
-use super::{MethodCallType, MethodError, MethodResult, RuntimeObject, Val};
-
+use super::{MethodCallType, MethodError, MethodResult, RuntimeObject, Val, ValType};
+use crate::parser::value::runtime_object::RuntimeResult;
 #[derive(Clone, Debug, SmartDefault, PartialEq)]
 pub(crate) struct PsString(pub String);
 
@@ -20,11 +20,19 @@ impl From<String> for PsString {
 }
 
 impl RuntimeObject for PsString {
-    fn get_method(&self, name: &str) -> MethodResult<MethodCallType> {
+    fn get_method(&self, name: &str) -> RuntimeResult<MethodCallType> {
         match name.to_ascii_lowercase().as_str() {
             "normalize" => Ok(normalize),
-            _ => Err(MethodError::MethodNotFound(name.to_string())),
+            _ => Err(MethodError::MethodNotFound(name.to_string()).into()),
         }
+    }
+
+    fn type_definition(&self) -> RuntimeResult<super::ValType> {
+        Ok(ValType::String)
+    }
+
+    fn name(&self) -> String {
+        ValType::String.name()
     }
 }
 

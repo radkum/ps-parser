@@ -251,7 +251,7 @@ pipeline_with_tail = {(redirected_expression | command) ~ pipeline_tail?}
 redirected_expression = { expression ~ redirection? }
 pipeline_tail = { ("|" ~ command)+ }
 
-assignment_exp = { variable ~ assignement_op ~ (if_statement | pipeline) }
+assignment_exp = { type_literal? ~ variable ~ assignement_op ~ (if_statement | pipeline) }
 prefix_assign_op = { (additive_op | multiplicative_op) }
 assign_op = { "=" }
 assignement_op = {prefix_assign_op? ~ assign_op }
@@ -318,7 +318,7 @@ immediate_chars = @{ (!SECOND_FORBIDDEN_CHARS ~ ANY)+ }
 path_command_name = @{ (ASCII_ALPHANUMERIC | "_" | "?" | "-" | "." | "\\")+ }
 
 //-------------------------------------STRING OPERATORS
-string_op = { replace_op | split_op | cmp_op | contain_op | join_op | type_check_op }
+string_op = { replace_op | split_op | cmp_op | contain_op | join_op | type_check_op | as_op }
 replace_op = { ^"-replace" | ^"-ireplace" | ^"-creplace" }
 split_op = { ^"-split" | ^"-isplit" | ^"-csplit" }
 join_op = { ^"-join" }
@@ -329,6 +329,7 @@ cmp_op = {
     | ^"-like"| ^"-clike" | ^"-ilike" | ^"-notlike" | ^"-inotlike" | ^"-cnotlike" }
 contain_op = { ^"-inotin" | ^"-notin" | ^"-inotin" | ^"-cnotin" | ^"-contains" | ^"-ccontains" | ^"-icontains" | ^"-notcontains" | ^"-inotcontains" | ^"-cnotcontains" | ^"-in" | ^"-iin" | ^"-cin" }
 type_check_op = { ^"-isnot" | ^"-is" }
+as_op = { ^"-as" }
 
 simple_operator = _{ "-" | "+" | "*" | "/" | "%" }
 

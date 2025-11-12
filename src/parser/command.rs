@@ -240,19 +240,17 @@ fn where_object(
             })
             .cloned()
             .collect::<Vec<_>>()
+    } else if sb
+        .run(vec![], ps, Some(argument.clone()))?
+        .val
+        .cast_to_bool()
+    {
+        vec![argument.clone()]
     } else {
-        if sb
-            .run(vec![], ps, Some(argument.clone()))?
-            .val
-            .cast_to_bool()
-        {
-            vec![argument.clone()]
-        } else {
-            vec![]
-        }
+        vec![]
     };
 
-    let val = if filtered_elements.len() == 0 {
+    let val = if filtered_elements.is_empty() {
         Val::Null
     } else if filtered_elements.len() == 1 {
         filtered_elements[0].to_owned()
@@ -307,7 +305,7 @@ fn foreach_object(
         vec![sb.run(vec![], ps, Some(argument))?.val]
     };
 
-    let val = if transformed_elements.len() == 0 {
+    let val = if transformed_elements.is_empty() {
         Val::Null
     } else if transformed_elements.len() == 1 {
         transformed_elements[0].to_owned()
@@ -364,7 +362,7 @@ fn write_host(
     args: &mut Vec<CommandElem>,
     ps: &mut PowerShellSession,
 ) -> ParserResult<CommandOutput> {
-    let message = extract_message(&args);
+    let message = extract_message(args);
     let deobfuscated = format!(
         "Write-Host {}",
         args.iter()
@@ -384,7 +382,7 @@ fn write_output(
     args: &mut Vec<CommandElem>,
     _: &mut PowerShellSession,
 ) -> ParserResult<CommandOutput> {
-    let message = extract_message(&args);
+    let message = extract_message(args);
     let deobfuscated = format!(
         "Write-Output {}",
         args.iter()
@@ -404,7 +402,7 @@ fn write_warning(
     args: &mut Vec<CommandElem>,
     _: &mut PowerShellSession,
 ) -> ParserResult<CommandOutput> {
-    let message = extract_message(&args);
+    let message = extract_message(args);
     let deobfuscated = format!(
         "Write-Warning {}",
         args.iter()
@@ -424,7 +422,7 @@ fn write_error(
     args: &mut Vec<CommandElem>,
     _: &mut PowerShellSession,
 ) -> ParserResult<CommandOutput> {
-    let message = extract_message(&args);
+    let message = extract_message(args);
     let deobfuscated = format!(
         "Write-Error {}",
         args.iter()
@@ -444,7 +442,7 @@ fn write_verbose(
     args: &mut Vec<CommandElem>,
     _: &mut PowerShellSession,
 ) -> ParserResult<CommandOutput> {
-    let message = extract_message(&args);
+    let message = extract_message(args);
     let deobfuscated = format!(
         "Write-Verbose {}",
         args.iter()
@@ -467,7 +465,7 @@ fn powershell(
     fn deobfuscate_command(args: &mut Vec<CommandElem>, ps: &mut PowerShellSession) {
         use base64::prelude::*;
         let mut index_to_decode = vec![];
-        let mut args = args.into_iter().map(|a| Some(a)).collect::<Vec<_>>();
+        let mut args = args.iter_mut().map(Some).collect::<Vec<_>>();
         for (i, arg) in args.iter_mut().enumerate() {
             if let Some(CommandElem::Parameter(s)) = arg {
                 let p = s.to_ascii_lowercase();

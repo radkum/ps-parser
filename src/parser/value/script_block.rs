@@ -1,17 +1,28 @@
 use super::{
-    Val,
+    RuntimeObject, RuntimeResult, Val, ValType,
     params::{Param, Params},
 };
 use crate::{
     PowerShellSession,
-    parser::{CommandElem, CommandOutput, ParserError, ParserResult, Results, ValType},
+    parser::{CommandElem, CommandOutput, ParserError, ParserResult, Results},
 };
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ScriptBlock {
     pub params: Params,
     pub body: String,
     pub raw_text: String,
     pub deobfuscated: Vec<String>,
+}
+
+impl RuntimeObject for ScriptBlock {
+    fn type_definition(&self) -> RuntimeResult<ValType> {
+        Ok(ValType::ScriptBlock)
+    }
+
+    fn name(&self) -> String {
+        ValType::ScriptBlock.name()
+    }
 }
 
 impl ScriptBlock {
@@ -129,7 +140,7 @@ impl ScriptBlock {
                         let next_arg =
                             if let Some(CommandElem::Argument(val)) = command_args.get(i + 1) {
                                 let v = val.clone();
-                                v.cast(&param.ttype().unwrap_or(ValType::String))
+                                v.cast_from_type(&param.ttype().unwrap_or(ValType::String))
                                     .unwrap_or(Val::Null)
                             } else {
                                 Val::Null
@@ -175,6 +186,14 @@ impl ScriptBlock {
 #[cfg(test)]
 mod tests {
     use crate::{NEWLINE, PowerShellSession};
+
+    #[test]
+    fn simple() {
+        let mut p = PowerShellSession::new();
+        let input = r#"$scriptblock = {3};$scriptblock"#;
+        let s = p.parse_input(input).unwrap();
+        assert_eq!(s.result().to_string(), "3".to_string());
+    }
 
     #[test]
     fn test_script_block() {

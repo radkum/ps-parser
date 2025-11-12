@@ -1,6 +1,7 @@
 use thiserror_no_std::Error;
 
-use super::Val;
+use super::{TypeError, Val};
+use crate::parser::value::runtime_object::RuntimeError;
 
 #[derive(Error, Debug, Clone)]
 pub enum MethodError {
@@ -22,14 +23,26 @@ pub enum MethodError {
     #[error("RuntimeError: {}", .0.to_string())]
     RuntimeError(String),
 
-    #[error("You cannot call a method \"{0}\" on a null-valued expression.")]
-    NullExpression(String),
+    #[error("TypeError: {}", .0.to_string())]
+    TypeError(TypeError),
 }
 pub type MethodResult<T> = core::result::Result<T, MethodError>;
 
 impl From<Box<dyn std::error::Error + Send + Sync>> for MethodError {
     fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
         MethodError::RuntimeError(err.to_string())
+    }
+}
+
+impl From<RuntimeError> for MethodError {
+    fn from(err: RuntimeError) -> Self {
+        MethodError::RuntimeError(err.to_string())
+    }
+}
+
+impl From<TypeError> for MethodError {
+    fn from(err: TypeError) -> Self {
+        MethodError::TypeError(err)
     }
 }
 

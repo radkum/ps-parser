@@ -846,12 +846,12 @@ impl<'a> PowerShellSession {
         Ok(res)
     }
 
-    fn eval_type_literal(&mut self, token: Pair<'a>) -> ParserResult<ValType> {
+    fn eval_type_literal(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::type_literal);
 
         let token = token.into_inner().next().unwrap();
         check_rule!(token, Rule::type_spec);
-        Ok(ValType::cast(token.as_str())?)
+        Ok(ValType::runtime(token.as_str())?)
     }
 
     fn parse_script_block(&mut self, token: Pair<'a>) -> ParserResult<ScriptBlock> {
@@ -945,8 +945,12 @@ impl<'a> PowerShellSession {
             }
             Rule::sub_expression | Rule::array_expression => {
                 let statements = self.eval_statements(token)?;
-                if statements.len() == 1 && statements[0].ttype() == ValType::Array {
-                    statements[0].clone()
+                if statements.len() == 1 {
+                    if let Val::Array(_) = statements[0] {
+                        statements[0].clone()
+                    } else {
+                        Val::Array(statements)
+                    }
                 } else {
                     Val::Array(statements)
                 }
@@ -957,7 +961,7 @@ impl<'a> PowerShellSession {
             Rule::hash_literal_expression => self.eval_hash_literal(token)?,
             Rule::string_literal => self.eval_string_literal(token)?,
             Rule::number_literal => self.eval_number_literal(token)?,
-            Rule::type_literal => Val::init(self.eval_type_literal(token)?)?,
+            Rule::type_literal => self.eval_type_literal(token)?,
             Rule::variable => self.get_variable(token)?,
             _ => unexpected_token!(token),
         };
@@ -1404,7 +1408,8 @@ impl<'a> PowerShellSession {
                     continue;
                 }
                 Rule::type_literal => {
-                    return Ok(Some(self.eval_type_literal(attribute_type_token)?));
+                    let runtime_type = self.eval_type_literal(attribute_type_token)?;
+                    return Ok(Some(runtime_type.type_definition()?));
                 }
                 _ => unexpected_token!(attribute_type_token),
             }
@@ -1455,11 +1460,24 @@ impl<'a> PowerShellSession {
 
             let mult = pairs.next().unwrap();
             let right_op = self.eval_comparison_exp(mult)?;
-            res = fun(res, right_op);
+            res = fun(res, right_op)?;
         }
 
         Ok(res)
     }
+
+    // fn eval_as_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+    //     check_rule!(token, Rule::as_exp);
+
+    //     let mut pairs = token.into_inner();
+    //     let mut res = self.eval_comparison_exp(pairs.next().unwrap())?;
+    //     for type_token in pairs {
+    //         let runtime_object = self.eval_value(type_token)?;
+    //         res = res.cast(&runtime_object).unwrap_or_default();
+    //     }
+
+    //     Ok(res)
+    // }
 
     fn parse_cmdlet_command_name(&mut self, token: Pair<'a>) -> ParserResult<Command> {
         check_rule!(token, Rule::cmdlet_command);
@@ -1699,14 +1717,12 @@ impl<'a> PowerShellSession {
         let type_token = pairs.next().unwrap();
         check_rule!(type_token, Rule::type_literal);
         let val_type = self.eval_type_literal(type_token)?;
-
         let token = pairs.next().unwrap();
         let res = match token.as_rule() {
             Rule::parenthesized_expression => {
                 let token = token.into_inner().next().unwrap();
                 self.safe_eval_pipeline(token)?
             }
-            Rule::range_exp => self.eval_range_exp(token)?,
             Rule::unary_exp => self.eval_unary_exp(token)?,
             _ => unexpected_token!(token),
         };
@@ -1716,9 +1732,15 @@ impl<'a> PowerShellSession {
     fn eval_assigment_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::assignment_exp);
 
+        let mut specified_type = None;
+
         let mut pairs = token.into_inner();
-        let variable_token = pairs.next().unwrap();
-        let var_name = Self::parse_variable(variable_token)?;
+        let mut token = pairs.next().unwrap();
+        if token.as_rule() == Rule::type_literal {
+            specified_type = Some(self.eval_type_literal(token)?);
+            token = pairs.next().unwrap();
+        }
+        let var_name = Self::parse_variable(token)?;
         let var = self.variables.get(&var_name).unwrap_or_default();
 
         let assignement_op = pairs.next().unwrap();
@@ -1737,7 +1759,10 @@ impl<'a> PowerShellSession {
                 op.as_str()
             )));
         };
-        let op_result = pred(var, right_op)?;
+        let mut op_result = pred(var, right_op)?;
+        if let Some(runtime_type) = specified_type {
+            op_result = op_result.cast(&runtime_type)?
+        }
         self.variables.set(&var_name, op_result.clone())?;
 
         //we want save each assignment statement
