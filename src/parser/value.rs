@@ -590,7 +590,7 @@ impl Val {
     }
 
     pub(crate) fn cast(&self, runtime_type: &Val) -> ValResult<Self> {
-        Ok(self.cast_from_type(&runtime_type.type_definition()?)?)
+        self.cast_from_type(&runtime_type.type_definition()?)
     }
 
     pub(crate) fn cast_from_type(&self, ttype: &ValType) -> ValResult<Self> {
@@ -811,7 +811,7 @@ impl Val {
         };
         if let Some(ttype) = ttype {
             for elem in arr.iter_mut() {
-                *elem = elem.cast_from_type(&*ttype)?;
+                *elem = elem.cast_from_type(&ttype)?;
             }
         }
         Ok(arr)
@@ -875,28 +875,34 @@ impl Val {
         }
     }
 
-    pub fn get_index(&self, index: Val) -> ValResult<Val> {
-        Ok(match self {
+    pub fn get_index(&mut self, index: Val) -> ValResult<&mut Val> {
+        let self_string = self.to_string();
+        match self {
             Val::Null => Err(ValError::IndexedNullArray)?,
             Val::Array(v) => {
-                if v.len() > index.cast_to_int()? as usize {
-                    v[index.cast_to_int()? as usize].clone()
+                let i = index.cast_to_int()? as usize;
+                if v.len() > i {
+                    Ok(&mut v[i])
                 } else {
-                    Val::Null
+                    Err(RuntimeError::IndexOutOfBounds(self_string, i).into())
                 }
             }
             Val::HashTable(v) => v
-                .get(&index.cast_to_string().to_ascii_lowercase())
-                .cloned()
-                .unwrap_or_default(),
+                .get_mut(&index.cast_to_string().to_ascii_lowercase())
+                .ok_or(RuntimeError::MemberNotFound(index.cast_to_string()).into()),
             _ => {
                 if let Ok(i) = index.cast_to_int() {
-                    if i == 0 { self.clone() } else { Val::Null }
+                    if i == 0 {
+                        Ok(self)
+                    } else {
+                        Err(RuntimeError::IndexOutOfBounds(self_string, i as usize).into())
+                    }
                 } else {
-                    Val::Null
+                    let member_name = index.cast_to_string();
+                    Err(RuntimeError::MemberNotFound(member_name).into())
                 }
             }
-        })
+        }
     }
 
     pub fn flatten(&self) -> Vec<Self> {

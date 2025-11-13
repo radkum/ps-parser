@@ -3,10 +3,11 @@ block_comment = _{ "<#" ~ (!"#>" ~ ANY)* ~ "#>" }
 COMMENT = _{ single_line_comment | block_comment }
 WHITESPACE     = _{ " " | "\t" | NEWLINE }
 
-program = { SOI ~ param_block? ~ statements? ~ EOI }
+program = { SOI ~ script_param_block ~ named_blocks? ~statements? ~ EOI }
 
 //---------------------------------- BLOCKS
 param_block = { attribute_list? ~ ^"param" ~ "(" ~ parameter_list? ~ ")" }
+script_param_block ={param_block?}
 parameter_list = { script_parameter ~ ("," ~ script_parameter)* }
 script_parameter = { attribute_list? ~ variable ~ script_parameter_default? }
 //script_parameter_default = { "=" ~ expression } - maybe expression?
@@ -221,7 +222,7 @@ cast_expression = { !WHITESPACE ~ type_literal ~(unary_exp | parenthesized_expre
 
 //------------------------------------PRIMARY EXPRESSSION
 primary_expression = {
-    access
+    value_access
     | post_inc_expression
     | post_dec_expression
     | value 
@@ -229,7 +230,7 @@ primary_expression = {
 post_inc_expression = { variable ~ "++" }
 post_dec_expression = { variable ~ "--" }
 
-access = { value ~ 
+value_access = { value ~ 
     (
         method_invocation
         | member_access
@@ -252,7 +253,15 @@ pipeline_with_tail = {(redirected_expression | command) ~ pipeline_tail?}
 redirected_expression = { expression ~ redirection? }
 pipeline_tail = { ("|" ~ command)+ }
 
-assignment_exp = { type_literal? ~ value ~ assignement_op ~ (if_statement | pipeline) }
+assignment_exp = { type_literal? ~ assignable_variable ~ assignement_op ~ (if_statement | pipeline) }
+assignable_variable = { variable_access | value_access | variable}
+variable_access = { variable ~ 
+    (
+        member_access
+        | static_access
+        | element_access
+    )+
+}
 prefix_assign_op = { (additive_op | multiplicative_op) }
 assign_op = { "=" }
 assignement_op = {prefix_assign_op? ~ assign_op }
@@ -344,7 +353,6 @@ value = {
     | hash_literal_expression 
     | literal 
     | type_literal
-    | variable_access
     | variable
 }
 parenthesized_expression = !{ "(" ~ pipeline ~ ")"}
@@ -352,7 +360,7 @@ parenthesized_expression = !{ "(" ~ pipeline ~ ")"}
 sub_expression = !{ "$(" ~ pipeline? ~ ")" }
 array_expression = { "@(" ~ statements? ~ ")" }
 script_block_expression = !{ "{" ~ script_block ~ "}" }
-script_block = { param_block? ~ ";"* ~ script_block_body? }
+script_block = { script_param_block ~ ";"* ~ script_block_body? }
 
 hash_literal_expression = { "@{" ~ hash_literal_body? ~ "}" }
 hash_literal_body = _{ hash_entry* }
@@ -365,7 +373,6 @@ variable = {
     | scoped_variable
     | braced_variable
 }
-variable_access = {variable ~ element_access}
 parenthesized_variable = { "(" ~ variable ~ ")" }
 special_variable = { "$$" | "$^" | "$?" | "$_" }
 scoped_variable = { "$" ~ (scope_keyword ~ ":")? ~ var_name }

@@ -20,7 +20,7 @@ impl From<String> for PsString {
 }
 
 impl RuntimeObject for PsString {
-    fn get_method(&self, name: &str) -> RuntimeResult<MethodCallType> {
+    fn method(&self, name: &str) -> RuntimeResult<MethodCallType> {
         match name.to_ascii_lowercase().as_str() {
             "normalize" => Ok(normalize),
             _ => Err(MethodError::MethodNotFound(name.to_string()).into()),

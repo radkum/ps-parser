@@ -11,6 +11,10 @@ pub enum RuntimeError {
     ValNotDefinesAnyType(String),
     #[error("MethodErro: \"{0}\"")]
     Method(MethodError),
+    #[error("Member \"{0}\" not found")]
+    MemberNotFound(String),
+    #[error("Index out of bounds: {0}, {1}")]
+    IndexOutOfBounds(String, usize),
 }
 
 impl From<MethodError> for RuntimeError {
@@ -22,16 +26,19 @@ impl From<MethodError> for RuntimeError {
 pub type RuntimeResult<T> = core::result::Result<T, RuntimeError>;
 
 pub(crate) trait RuntimeObject: std::fmt::Debug {
-    fn get_method(&self, name: &str) -> RuntimeResult<MethodCallType> {
+    fn method(&self, name: &str) -> RuntimeResult<MethodCallType> {
         Err(MethodError::NotImplemented(name.to_string()).into())
     }
-    fn get_static_fn(&self, name: &str) -> RuntimeResult<StaticFnCallType> {
+    fn static_method(&self, name: &str) -> RuntimeResult<StaticFnCallType> {
         Err(MethodError::NotImplemented(name.to_string()).into())
     }
-    fn get_member(&self, name: &str) -> RuntimeResult<Val> {
+    fn member(&mut self, name: &str) -> RuntimeResult<&mut Val> {
         Err(MethodError::NotImplemented(name.to_string()).into())
     }
-    fn get_static_member(&self, name: &str) -> RuntimeResult<Val> {
+    fn readonly_member(&self, name: &str) -> RuntimeResult<Val> {
+        Err(MethodError::NotImplemented(name.to_string()).into())
+    }
+    fn readonly_static_member(&self, name: &str) -> RuntimeResult<Val> {
         Err(MethodError::NotImplemented(name.to_string()).into())
     }
     fn name(&self) -> String {
@@ -47,24 +54,36 @@ fn get_type(object: Val, _: Vec<Val>) -> MethodResult<Val> {
 }
 
 impl RuntimeObject for Val {
-    fn get_method(&self, name: &str) -> RuntimeResult<MethodCallType> {
+    fn method(&self, name: &str) -> RuntimeResult<MethodCallType> {
         match name {
             "gettype" => return Ok(get_type),
             _ => {}
         }
         match self {
-            Val::String(ps) => ps.get_method(name),
-            Val::RuntimeObject(s) => s.get_method(name),
+            Val::String(ps) => ps.method(name),
+            Val::RuntimeObject(s) => s.method(name),
             _ => Err(super::MethodError::MethodNotFound(name.to_string()).into()),
         }
     }
-    fn get_static_fn(&self, name: &str) -> RuntimeResult<StaticFnCallType> {
+    fn static_method(&self, name: &str) -> RuntimeResult<StaticFnCallType> {
         match self {
-            Val::RuntimeObject(runtime_object) => runtime_object.get_static_fn(name),
+            Val::RuntimeObject(runtime_object) => runtime_object.static_method(name),
             _ => Err(MethodError::MethodNotFound(name.to_string()).into()),
         }
     }
-    fn get_member(&self, name: &str) -> RuntimeResult<Val> {
+
+    fn member(&mut self, name: &str) -> RuntimeResult<&mut Val> {
+        // first check the members
+        if let Val::HashTable(hashtable) = self {
+            return hashtable
+                .get_mut(&name.to_ascii_lowercase())
+                .ok_or_else(|| RuntimeError::MemberNotFound(name.to_string()));
+        }
+
+        Err(RuntimeError::MemberNotFound(name.to_string()))
+    }
+
+    fn readonly_member(&self, name: &str) -> RuntimeResult<Val> {
         // first check the members
         if let Val::HashTable(ps) = self {
             return Ok(ps
@@ -84,12 +103,13 @@ impl RuntimeObject for Val {
             }));
         }
 
-        Err(MethodError::MemberNotFound(name.to_string()).into())
+        Err(RuntimeError::MemberNotFound(name.to_string()))
     }
-    fn get_static_member(&self, name: &str) -> RuntimeResult<Val> {
+
+    fn readonly_static_member(&self, name: &str) -> RuntimeResult<Val> {
         match self {
-            Val::RuntimeObject(runtime_object) => runtime_object.get_static_member(name),
-            _ => Err(super::MethodError::MemberNotFound(name.to_string()).into()),
+            Val::RuntimeObject(runtime_object) => runtime_object.readonly_static_member(name),
+            _ => Err(RuntimeError::MemberNotFound(name.to_string())),
         }
     }
 

@@ -268,8 +268,14 @@ impl<'a> PowerShellSession {
         let mut script_last_output = Val::default();
 
         if let Rule::program = program_token.as_rule() {
-            let pairs = program_token.into_inner();
-
+            let mut pairs = program_token.into_inner();
+            let _script_param_block_token = pairs.next().unwrap();
+            if let Some(named_blocks) = pairs.peek()
+                && named_blocks.as_rule() == Rule::named_blocks
+            {
+                //todo
+                let _ = pairs.next();
+            }
             for token in pairs {
                 let token_str = token.as_str();
                 match token.as_rule() {
@@ -588,6 +594,54 @@ impl<'a> PowerShellSession {
         Ok(VarName::new(scope, token.as_str().to_ascii_lowercase()))
     }
 
+    fn skip_value_access(&mut self, token: Pair<'a>) -> ParserResult<()> {
+        check_rule!(token, Rule::value_access);
+        let mut pair = token.into_inner();
+        let token = pair.next().unwrap();
+        let mut val = self.eval_value(token)?;
+        let _ = self.eval_element_access(pair.next().unwrap(), &mut val)?;
+        Err(ParserError::Skip)
+    }
+
+    // fn get_assignable_variable<'b>(&mut self, pairs: Pairs<'a>, object: &'b mut
+    // Val) -> ParserResult<&'b mut Val> {     let mut var = object;
+    //     for token in pairs {
+    //             let tmp = self.variable_access(token, &mut var)?;
+    //             var = tmp;
+    //     }
+    //     Ok(var)
+    // }
+
+    fn parse_assignable_variable(
+        &mut self,
+        token: Pair<'a>,
+    ) -> ParserResult<(VarName, Option<Pairs<'a>>)> {
+        check_rule!(token, Rule::assignable_variable);
+        let mut pair = token.into_inner();
+        let token = pair.next().unwrap();
+        match token.as_rule() {
+            Rule::variable => {
+                let var_name = Self::parse_variable(token)?;
+
+                Ok((var_name, None))
+            }
+            Rule::variable_access => {
+                let mut pairs = token.into_inner();
+                let var_token = pairs.next().unwrap();
+                let var_name = Self::parse_variable(var_token)?;
+                // let mut object = &mut var;
+                // for token in pairs {
+                //     object = self.variable_access(token, &mut object)?;
+                // }
+                Ok((var_name, Some(pairs)))
+            }
+            Rule::value_access => self
+                .skip_value_access(token)
+                .map(|()| (Default::default(), None)),
+            _ => unexpected_token!(token),
+        }
+    }
+
     fn parse_variable(token: Pair<'a>) -> ParserResult<VarName> {
         check_rule!(token, Rule::variable);
         let mut pair = token.into_inner();
@@ -718,7 +772,11 @@ impl<'a> PowerShellSession {
         Ok((method_name, args))
     }
 
-    fn eval_element_access(&mut self, token: Pair<'a>, object: Val) -> ParserResult<Val> {
+    fn eval_element_access<'b>(
+        &mut self,
+        token: Pair<'a>,
+        object: &'b mut Val,
+    ) -> ParserResult<&'b mut Val> {
         let mut pairs = token.into_inner();
         let index_token = pairs.next().unwrap();
         check_rule!(index_token, Rule::expression);
@@ -726,48 +784,66 @@ impl<'a> PowerShellSession {
         Ok(object.get_index(index)?)
     }
 
-    fn eval_access(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+    fn variable_access<'b>(
+        &mut self,
+        token: Pair<'a>,
+        object: &'b mut Val,
+    ) -> ParserResult<&'b mut Val> {
         fn get_member_name(token: Pair<'_>) -> &'_ str {
             token.into_inner().next().unwrap().as_str()
         }
-        check_rule!(token, Rule::access);
+        match token.as_rule() {
+            Rule::static_access => {
+                //todo
+                Err(ParserError::NotImplemented(
+                    "modificable static_member".into(),
+                ))
+            }
+            Rule::member_access => Ok(object.member(get_member_name(token))?),
+            Rule::element_access => Ok(self.eval_element_access(token, object)?),
+            _ => unexpected_token!(token),
+        }
+    }
+
+    fn value_access(&mut self, token: Pair<'a>, object: &mut Val) -> ParserResult<Val> {
+        fn get_member_name(token: Pair<'_>) -> &'_ str {
+            token.into_inner().next().unwrap().as_str()
+        }
+        Ok(match token.as_rule() {
+            Rule::static_access => object.readonly_static_member(get_member_name(token))?,
+            Rule::member_access => object.readonly_member(get_member_name(token))?.clone(),
+            Rule::method_invocation => {
+                let static_method = self.method_is_static(token.clone());
+                let (function_name, args) = self.eval_method_invokation(token)?;
+                log::trace!("Method: {:?} {:?}", &function_name, &args);
+                if static_method {
+                    let call = object.static_method(function_name.as_str())?;
+                    call(args)?
+                } else {
+                    let call = object.method(function_name.as_str())?;
+                    call(object.clone(), args)?
+                }
+            }
+            Rule::element_access => self.eval_element_access(token, object)?.clone(),
+            _ => unexpected_token!(token),
+        })
+    }
+
+    fn eval_value_access(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::value_access);
         let mut pairs = token.into_inner();
         let token = pairs.next().unwrap();
 
         let mut object = self.eval_value(token)?;
-
         for token in pairs {
-            match token.as_rule() {
-                Rule::static_access => {
-                    object = object.get_static_member(get_member_name(token))?;
-                }
-                Rule::member_access => {
-                    object = object.get_member(get_member_name(token))?;
-                }
-                Rule::method_invocation => {
-                    let static_method = self.method_is_static(token.clone());
-                    let (function_name, args) = self.eval_method_invokation(token)?;
-                    log::trace!("Method: {:?} {:?}", &function_name, &args);
-                    object = if static_method {
-                        let call = object.get_static_fn(function_name.as_str())?;
-                        call(args)?
-                    } else {
-                        let call = object.get_method(function_name.as_str())?;
-                        call(object, args)?
-                    };
-                }
-                Rule::element_access => {
-                    object = self.eval_element_access(token, object)?;
-                }
-                _ => unexpected_token!(token),
-            }
+            object = self.value_access(token, &mut object)?;
         }
         log::debug!("Success eval_access: {:?}", object);
         Ok(object)
     }
 
     fn parse_access(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        check_rule!(token, Rule::access);
+        check_rule!(token, Rule::value_access);
         let mut pairs = token.into_inner();
         let token = pairs.next().unwrap();
 
@@ -815,7 +891,7 @@ impl<'a> PowerShellSession {
         let mut pair = token.into_inner();
         let token = pair.next().unwrap();
         let res = match token.as_rule() {
-            Rule::access => match self.eval_access(token.clone()) {
+            Rule::value_access => match self.eval_value_access(token.clone()) {
                 Ok(res) => res,
                 Err(err) => {
                     log::info!("eval_access error: {:?}", err);
@@ -867,22 +943,19 @@ impl<'a> PowerShellSession {
         let raw_text = token.as_str().to_string();
 
         let mut pairs = token.into_inner();
-        let Some(mut token) = pairs.next() else {
+        let Some(token) = pairs.next() else {
             return Ok(ScriptBlock::new(vec![], String::new(), raw_text));
         };
-        //let mut token = pairs.next().unwrap();
 
-        let (params, _params_str) = if token.as_rule() == Rule::param_block {
-            let params = self.parse_param_block(token.clone())?;
-            let params_str = token.as_str().to_string();
-            token = pairs.next().unwrap();
-            (params, params_str)
+        let params = self.parse_script_param_block(token.clone())?;
+        //let params_str = token.as_str().to_string();
+
+        let script_body = if let Some(token) = pairs.next() {
+            check_rule!(token, Rule::script_block_body);
+            token.as_str().to_string()
         } else {
-            (vec![], String::new())
+            String::new()
         };
-
-        check_rule!(token, Rule::script_block_body);
-        let script_body = token.as_str().to_string();
 
         Ok(ScriptBlock::new(params, script_body, raw_text))
 
@@ -942,14 +1015,14 @@ impl<'a> PowerShellSession {
         Ok(Val::HashTable(hash))
     }
 
-    fn get_variable_access(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        check_rule!(token, Rule::variable_access);
-        let mut pair = token.into_inner();
-        let var_token = pair.next().unwrap();
-        let object = self.get_variable(var_token)?;
-        let access_token = pair.next().unwrap();
-        Ok(self.eval_element_access(access_token, object)?)
-    }
+    // fn get_variable_access(&mut self, token: Pair<'a>) -> ParserResult<&mut Val>
+    // {     check_rule!(token, Rule::variable_access);
+    //     let mut pair = token.into_inner();
+    //     let var_token = pair.next().unwrap();
+    //     let mut object = self.get_variable(var_token)?;
+    //     let access_token = pair.next().unwrap();
+    //     Ok(self.eval_element_access(access_token, &mut object)?)
+    // }
 
     fn eval_value(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::value);
@@ -980,7 +1053,6 @@ impl<'a> PowerShellSession {
             Rule::string_literal => self.eval_string_literal(token)?,
             Rule::number_literal => self.eval_number_literal(token)?,
             Rule::type_literal => self.eval_type_literal(token)?,
-            Rule::variable_access => self.get_variable_access(token)?,
             Rule::variable => self.get_variable(token)?,
             _ => unexpected_token!(token),
         };
@@ -1395,14 +1467,36 @@ impl<'a> PowerShellSession {
         Ok(res)
     }
 
+    fn parse_script_param_block(&mut self, token: Pair<'a>) -> ParserResult<Vec<Param>> {
+        check_rule!(token, Rule::script_param_block);
+        let mut pairs = token.into_inner();
+        let Some(param_block_token) = pairs.next() else {
+            return Ok(vec![]);
+        };
+        self.parse_param_block(param_block_token)
+    }
+
     fn parse_param_block(&mut self, token: Pair<'a>) -> ParserResult<Vec<Param>> {
         check_rule!(token, Rule::param_block);
         let mut pairs = token.into_inner();
+
         let Some(token) = pairs.next() else {
             return Ok(vec![]);
         };
 
-        self.parse_parameter_list(token)
+        let option_param_token = match token.as_rule() {
+            Rule::attribute_list => {
+                //self.parse_attribute_list(token)?;
+                pairs.next()
+            }
+            Rule::parameter_list => Some(token),
+            _ => unexpected_token!(token),
+        };
+
+        let Some(param_token) = option_param_token else {
+            return Ok(vec![]);
+        };
+        self.parse_parameter_list(param_token)
     }
 
     fn parse_parameter_list(&mut self, token: Pair<'a>) -> ParserResult<Vec<Param>> {
@@ -1777,9 +1871,17 @@ impl<'a> PowerShellSession {
             specified_type = Some(self.eval_type_literal(token)?);
             token = pairs.next().unwrap();
         }
-        let var_name = Self::parse_variable(token)?;
-        let var = self.variables.get(&var_name).unwrap_or_default();
+        let (var_name, access) = self.parse_assignable_variable(token)?;
+        let mut variable = self.variables.get(&var_name).unwrap_or_default();
+        let mut accessed_elem = &mut variable;
 
+        // sometimes we have variable access like $a[0].Property, and we need access
+        // property by reference
+        if let Some(access) = access {
+            for token in access {
+                accessed_elem = self.variable_access(token, accessed_elem)?;
+            }
+        }
         let assignement_op = pairs.next().unwrap();
 
         //get operand
@@ -1796,16 +1898,16 @@ impl<'a> PowerShellSession {
                 op.as_str()
             )));
         };
-        let mut op_result = pred(var, right_op)?;
+        *accessed_elem = pred(accessed_elem.clone(), right_op)?;
         if let Some(runtime_type) = specified_type {
-            op_result = op_result.cast(&runtime_type)?
+            *accessed_elem = accessed_elem.cast(&runtime_type)?;
         }
-        self.variables.set(&var_name, op_result.clone())?;
+        self.variables.set(&var_name, variable.clone())?;
 
         //we want save each assignment statement
-        self.add_deobfuscated_statement(format!("{} = {}", var_name, op_result.cast_to_script()));
+        self.add_deobfuscated_statement(format!("{} = {}", var_name, variable.cast_to_script()));
 
-        Ok(Val::NonDisplayed(Box::new(op_result)))
+        Ok(Val::NonDisplayed(Box::new(variable)))
     }
 
     fn push_scope_session(&mut self) {

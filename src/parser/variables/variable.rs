@@ -1,4 +1,4 @@
-#[derive(Debug, Eq, Hash, PartialEq, Clone)]
+#[derive(Debug, Eq, Hash, PartialEq, Clone, Default)]
 pub(crate) struct VarName {
     pub scope: Option<Scope>,
     pub name: String,

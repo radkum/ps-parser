@@ -939,4 +939,68 @@ $a"#;
         assert!(script_res.output().contains("-elo 2"));
         assert!(script_res.output().contains("-name radek"));
     }
+
+    #[test]
+    fn strange_assignment() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#" @(1,2)[0] = 1 "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.errors()[0].to_string(), "Skip".to_string());
+
+        let input = r#" "elo"[0] = 1 "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.errors()[0].to_string(), "Skip".to_string());
+
+        let input = r#" $a = @(1,2); $a[1] = 5; $a "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![PsValue::Int(1), PsValue::Int(5)])
+        );
+
+        let input = r#" $a = @(1,@(2,3));$a[1] = 6;$a "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![PsValue::Int(1), PsValue::Int(6)])
+        );
+
+        let input = r#" $a = @(1,@(2,3));$a[1][1] = 6;$a "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![
+                PsValue::Int(1),
+                PsValue::Array(vec![PsValue::Int(2), PsValue::Int(6)])
+            ])
+        );
+    }
+
+    #[test]
+    fn script_param_block() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#" 
+[CmdletBinding(DefaultParameterSetName = "Path", HelpURI = "https://go.microsoft.com/fwlink/?LinkId=517145")]
+param(
+	[Parameter(ParameterSetName="Path", Position = 0)]
+	[System.String[]]
+	$Path
+
+
+)
+
+begin
+{
+	# Construct the strongly-typed crypto object
+}
+
+process
+{
+	Write-output elo
+}
+"#;
+        let _script_res = p.parse_input(input).unwrap();
+    }
 }

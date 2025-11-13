@@ -8,9 +8,6 @@ pub enum MethodError {
     #[error("Method \"{0}\" not found")]
     MethodNotFound(String),
 
-    #[error("Member \"{0}\" not found")]
-    MemberNotFound(String),
-
     #[error("Method \"{0}\" not implemented")]
     NotImplemented(String),
 
