@@ -31,7 +31,7 @@ pub fn xor(a: Val, b: Val) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::{PowerShellSession, parser::ParserError};
+    use crate::PowerShellSession;
 
     #[test]
     fn test_and() {
@@ -50,6 +50,11 @@ mod tests {
         );
         assert_eq!(
             p.safe_eval(r#" $false -and $false "#).unwrap(),
+            "False".to_string()
+        );
+
+        assert_eq!(
+            p.safe_eval(r#" $true -and $false -and $true "#).unwrap(),
             "False".to_string()
         );
     }
@@ -74,11 +79,10 @@ mod tests {
             "False".to_string()
         );
 
-        assert!(matches!(
-            p.safe_eval(r#" $false -or $false -or $false "#)
-                .unwrap_err(),
-            ParserError::PestError(_)
-        ));
+        assert_eq!(
+            p.safe_eval(r#" $true -Or $false -or $true "#).unwrap(),
+            "True".to_string()
+        );
     }
 
     #[test]

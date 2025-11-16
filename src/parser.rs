@@ -855,11 +855,9 @@ impl<'a> PowerShellSession {
         for token in pairs {
             match token.as_rule() {
                 Rule::static_access => {
-                    object.push_str("::");
                     object.push_str(token.as_str());
                 }
                 Rule::member_access => {
-                    //object.push('.');
                     object.push_str(token.as_str());
                 }
                 Rule::method_invocation => {
@@ -867,10 +865,13 @@ impl<'a> PowerShellSession {
                     let (method_name, args) = self.eval_method_invokation(token.clone())?;
                     let separator = if static_method { "::" } else { "." };
                     object = format!(
-                        "{}{separator}{}({:?})",
+                        "{}{separator}{}({})",
                         object,
                         method_name.to_ascii_lowercase(),
-                        args
+                        args.iter()
+                            .map(|arg| arg.cast_to_script())
+                            .collect::<Vec<String>>()
+                            .join(", ")
                     )
                 }
                 Rule::element_access => {

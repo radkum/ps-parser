@@ -167,7 +167,7 @@ enum_statement = { ^"enum" ~ simple_name ~ "{" ~ (enum_member ~ statement_termin
 enum_member = { simple_name ~ (("=" ~ decimal_integer) | ("=" ~ hex_integer) )? }
 
 // ---------------------- EXPRESSSION
-expression = { bitwise_exp ~ (logical_operator ~ bitwise_exp)? }
+expression = { bitwise_exp ~ (logical_operator ~ bitwise_exp)* }
 logical_operator = { ^"-and" | ^"-or" | ^"-xor" }
 
 bitwise_exp = { as_expression ~ (bitwise_operator ~ as_expression)* }
