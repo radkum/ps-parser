@@ -10,7 +10,7 @@ impl RuntimeObject for Encoding {
     fn readonly_static_member(&self, name: &str) -> RuntimeResult<Val> {
         log::debug!("get_static_member called with name: {}", name);
         match name.to_ascii_lowercase().as_str() {
-            "unicode" => Ok(Val::RuntimeObject(Box::new(UnicodeEncoding {}))),
+            //"unicode" => Ok(Val::RuntimeObject(Box::new(UnicodeEncoding {}))),
             _ => Err(RuntimeError::MemberNotFound(name.to_string())),
         }
     }
@@ -18,22 +18,17 @@ impl RuntimeObject for Encoding {
 
 #[derive(Debug, Clone)]
 pub(crate) struct UnicodeEncoding {}
-impl UnicodeEncoding {
-    // pub fn name(&self) -> String {
-    //     "unicode".to_string()
-    // }
-}
 
 impl RuntimeObject for UnicodeEncoding {
     fn method(&self, name: &str) -> RuntimeResult<MethodCallType> {
         match name.to_ascii_lowercase().as_str() {
-            "getstring" => Ok(get_string),
+            "getstring" => Ok(Box::new(get_string)),
             _ => Err(MethodError::MethodNotFound(name.to_string()).into()),
         }
     }
 }
 
-fn get_string(_: Val, args: Vec<Val>) -> MethodResult<Val> {
+fn get_string(_: &Val, args: Vec<Val>) -> MethodResult<Val> {
     if args.len() != 1 {
         //something wrong
         return Err(MethodError::new_incorrect_args("getstring", args));

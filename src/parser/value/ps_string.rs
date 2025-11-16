@@ -3,7 +3,7 @@ use std::{cmp::Ordering, sync::LazyLock};
 use smart_default::SmartDefault;
 
 use super::{MethodCallType, MethodError, MethodResult, RuntimeObject, Val, ValType};
-use crate::parser::value::runtime_object::RuntimeResult;
+use crate::parser::value::{RuntimeError, runtime_object::RuntimeResult};
 #[derive(Clone, Debug, SmartDefault, PartialEq)]
 pub(crate) struct PsString(pub String);
 
@@ -21,11 +21,12 @@ impl From<String> for PsString {
 
 impl RuntimeObject for PsString {
     fn method(&self, name: &str) -> RuntimeResult<MethodCallType> {
-        match name.to_ascii_lowercase().as_str() {
-            "normalize" => Ok(normalize),
-            "replace" => Ok(replace),
-            "substring" => Ok(substring),
-            "remove" => Ok(remove),
+        let name = name.to_ascii_lowercase();
+        let fn_ptr = match name.to_ascii_lowercase().as_str() {
+            "normalize" => Self::normalize,
+            "replace" => Self::replace,
+            "substring" => Self::substring,
+            "remove" => Self::remove,
             // "clone" => Ok(clone),
             // "copyto" => Ok(remove),
             // "isnormalized" => Ok(remove),
@@ -35,8 +36,16 @@ impl RuntimeObject for PsString {
             // "touperinvariant" => Ok(remove),
             // "tolower" => Ok(remove),
             // "tolowerinvariant" => Ok(remove),
-            _ => Err(MethodError::MethodNotFound(name.to_string()).into()),
-        }
+            _ => Err(RuntimeError::MethodNotFound(name.to_string()))?,
+        };
+
+        Ok(Box::new(move |v: &Val, args: Vec<Val>| {
+            if let Val::String(str) = v {
+                fn_ptr(str, args)
+            } else {
+                Err(MethodError::ObjectNotFound(v.cast_to_string()))
+            }
+        }))
     }
 
     fn type_definition(&self) -> RuntimeResult<super::ValType> {
@@ -48,124 +57,121 @@ impl RuntimeObject for PsString {
     }
 }
 
-fn normalize(object: Val, args: Vec<Val>) -> MethodResult<Val> {
-    let Val::String(PsString(input)) = object else {
-        return Err(MethodError::ObjectNotFound(object.cast_to_string()));
-    };
+impl PsString {
+    fn normalize(&self, args: Vec<Val>) -> MethodResult<Val> {
+        let PsString(input) = self;
 
-    if args.len() != 1 {
-        //something wrong
-        return Err(MethodError::new_incorrect_args("FromBase64String", args));
+        if args.len() != 1 {
+            //something wrong
+            return Err(MethodError::new_incorrect_args("FromBase64String", args));
+        }
+
+        let arg = args[0].clone();
+        let Val::String(PsString(form)) = arg else {
+            return Err(MethodError::new_incorrect_args("FromBase64String", args));
+        };
+
+        use unicode_normalization::UnicodeNormalization;
+
+        let res = match form.as_str() {
+            "FormD" => input.nfd().filter(|c| c.is_ascii()).collect(), // Canonical Decomposition
+            "FormC" => input.nfc().collect(),                          // Canonical Composition
+            "FormKD" => input.nfkd().collect(),                        /* Compatibility */
+            // Decomposition
+            "FormKC" => input.nfkc().collect(), // Compatibility Composition
+            _ => input.to_string(),             // Default: no normalization
+        };
+        Ok(Val::String(res.into()))
     }
 
-    let arg = args[0].clone();
-    let Val::String(PsString(form)) = arg else {
-        return Err(MethodError::new_incorrect_args("FromBase64String", args));
-    };
+    fn replace(&self, args: Vec<Val>) -> MethodResult<Val> {
+        let PsString(input) = self;
 
-    use unicode_normalization::UnicodeNormalization;
+        if args.len() != 2 {
+            //something wrong
+            return Err(MethodError::new_incorrect_args("Replace", args));
+        }
 
-    let res = match form.as_str() {
-        "FormD" => input.nfd().filter(|c| c.is_ascii()).collect(), // Canonical Decomposition
-        "FormC" => input.nfc().collect(),                          // Canonical Composition
-        "FormKD" => input.nfkd().collect(),                        // Compatibility Decomposition
-        "FormKC" => input.nfkc().collect(),                        // Compatibility Composition
-        _ => input.to_string(),                                    // Default: no normalization
-    };
-    Ok(Val::String(res.into()))
-}
+        if !matches!(args[0], Val::String(_) | Val::Char(_)) {
+            return Err(MethodError::new_incorrect_args("Replace", args));
+        }
 
-fn replace(object: Val, args: Vec<Val>) -> MethodResult<Val> {
-    let Val::String(PsString(input)) = object else {
-        return Err(MethodError::ObjectNotFound(object.cast_to_string()));
-    };
+        if !matches!(args[1], Val::String(_) | Val::Char(_)) {
+            return Err(MethodError::new_incorrect_args("Replace", args));
+        }
 
-    if args.len() != 2 {
-        //something wrong
-        return Err(MethodError::new_incorrect_args("Replace", args));
+        let old = args[0].cast_to_string();
+        let new = args[1].cast_to_string();
+        let res = input.replace(&old, &new);
+        Ok(Val::String(PsString(res)))
     }
 
-    if !matches!(args[0], Val::String(_) | Val::Char(_)) {
-        return Err(MethodError::new_incorrect_args("Replace", args));
-    }
+    fn args_for_remove_and_substring(
+        &self,
+        args: Vec<Val>,
+        fn_name: &str,
+    ) -> MethodResult<(usize, usize)> {
+        let PsString(input) = self;
 
-    if !matches!(args[1], Val::String(_) | Val::Char(_)) {
-        return Err(MethodError::new_incorrect_args("Replace", args));
-    }
-
-    let old = args[0].cast_to_string();
-    let new = args[1].cast_to_string();
-    let res = input.replace(&old, &new);
-    Ok(Val::String(PsString(res)))
-}
-
-fn args_for_remove_and_substring(
-    object: Val,
-    args: Vec<Val>,
-    fn_name: &str,
-) -> MethodResult<(String, usize, usize)> {
-    let Val::String(PsString(input)) = object else {
-        return Err(MethodError::ObjectNotFound(object.cast_to_string()));
-    };
-
-    if args.len() != 2 && args.len() != 1 {
-        //something wrong
-        return Err(MethodError::new_incorrect_args(fn_name, args));
-    }
-
-    if !matches!(args[0], Val::Int(_)) {
-        return Err(MethodError::new_incorrect_args(fn_name, args));
-    }
-    let start_index = args[0].cast_to_int()? as usize;
-
-    // substring is overloaded method. It can take 1 or 2 arguments. Second argument
-    // is optional
-    let length = if args.len() == 2 {
-        if !matches!(args[1], Val::Int(_)) {
+        if args.len() != 2 && args.len() != 1 {
+            //something wrong
             return Err(MethodError::new_incorrect_args(fn_name, args));
         }
 
-        let length = args[1].cast_to_int()? as usize;
-        if start_index + length > input.len() {
+        if !matches!(args[0], Val::Int(_)) {
+            return Err(MethodError::new_incorrect_args(fn_name, args));
+        }
+        let start_index = args[0].cast_to_int()? as usize;
+
+        // substring is overloaded method. It can take 1 or 2 arguments. Second argument
+        // is optional
+        let length = if args.len() == 2 {
+            if !matches!(args[1], Val::Int(_)) {
+                return Err(MethodError::new_incorrect_args(fn_name, args));
+            }
+
+            let length = args[1].cast_to_int()? as usize;
+            if start_index + length > input.len() {
+                return Err(MethodError::Exception(format!(
+                    "Exception calling \"{}\" with \"2\" argument(s): \"Index and length must \
+                     refer to a location within the string. Parameter name: length\"",
+                    fn_name
+                )));
+            }
+            length
+        } else {
+            input.len()
+        };
+
+        if start_index > input.len() {
             return Err(MethodError::Exception(format!(
-                "Exception calling \"{}\" with \"2\" argument(s): \"Index and length must refer \
-                 to a location within the string. Parameter name: length\"",
+                "Exception calling \"{}\" with \"1\" argument(s): \"startIndex cannot be larger \
+                 than length of string. Parameter name: startIndex\"",
                 fn_name
             )));
         }
-        length
-    } else {
-        input.len()
-    };
 
-    if start_index > input.len() {
-        return Err(MethodError::Exception(format!(
-            "Exception calling \"{}\" with \"1\" argument(s): \"startIndex cannot be larger than \
-             length of string. Parameter name: startIndex\"",
-            fn_name
-        )));
+        let end_index = std::cmp::min(start_index + length, input.len());
+        return Ok((start_index, end_index));
     }
 
-    let end_index = std::cmp::min(start_index + length, input.len());
-    return Ok((input, start_index, end_index));
-}
+    fn substring(&self, args: Vec<Val>) -> MethodResult<Val> {
+        //string Substring(int startIndex)
+        //string Substring(int startIndex, int length)
+        let PsString(input) = self;
+        let (start_index, end_index) = self.args_for_remove_and_substring(args, "Substring")?;
+        let res = input[start_index..end_index].to_string();
+        return Ok(Val::String(PsString(res)));
+    }
 
-fn substring(object: Val, args: Vec<Val>) -> MethodResult<Val> {
-    //string Substring(int startIndex)
-    //string Substring(int startIndex, int length)
-
-    let (input, start_index, end_index) = args_for_remove_and_substring(object, args, "Substring")?;
-    let res = input[start_index..end_index].to_string();
-    return Ok(Val::String(PsString(res)));
-}
-
-fn remove(object: Val, args: Vec<Val>) -> MethodResult<Val> {
-    //string Remove(int startIndex, int count)
-    //string Remove(int startIndex)
-
-    let (input, start_index, end_index) = args_for_remove_and_substring(object, args, "Remove")?;
-    let res = input[..start_index].to_string() + &input[end_index..];
-    return Ok(Val::String(PsString(res)));
+    fn remove(&self, args: Vec<Val>) -> MethodResult<Val> {
+        //string Remove(int startIndex, int count)
+        //string Remove(int startIndex)
+        let PsString(input) = self;
+        let (start_index, end_index) = self.args_for_remove_and_substring(args, "Remove")?;
+        let res = input[..start_index].to_string() + &input[end_index..];
+        return Ok(Val::String(PsString(res)));
+    }
 }
 
 // very strange. En-us culture has different ordering than default. A (ascii 65)

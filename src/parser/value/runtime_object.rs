@@ -1,6 +1,6 @@
 use super::{MethodResult, TypeInfoTrait, Val, *};
 use crate::parser::value::{MethodError, PsString};
-pub type MethodCallType = fn(Val, Vec<Val>) -> MethodResult<Val>;
+pub type MethodCallType = Box<dyn Fn(&Val, Vec<Val>) -> MethodResult<Val>>;
 pub type StaticFnCallType = fn(Vec<Val>) -> MethodResult<Val>;
 
 use thiserror_no_std::Error;
@@ -9,10 +9,12 @@ use thiserror_no_std::Error;
 pub enum RuntimeError {
     #[error("Value \"{0}\" is simple val not runtime, and not defines any type")]
     ValNotDefinesAnyType(String),
-    #[error("MethodErro: \"{0}\"")]
+    #[error("MethodError: \"{0}\"")]
     Method(MethodError),
     #[error("Member \"{0}\" not found")]
     MemberNotFound(String),
+    #[error("MethodError: \"{0}\"")]
+    MethodNotFound(String),
     #[error("Index out of bounds: {0}, {1}")]
     IndexOutOfBounds(String, usize),
 }
@@ -49,18 +51,20 @@ pub(crate) trait RuntimeObject: std::fmt::Debug {
     }
 }
 
-fn get_type(object: Val, _: Vec<Val>) -> MethodResult<Val> {
-    Ok(object.type_info()?.into())
+impl Val {
+    fn get_type(&self, _: Vec<Val>) -> MethodResult<Val> {
+        Ok(self.type_info()?.into())
+    }
 }
 
 impl RuntimeObject for Val {
     fn method(&self, name: &str) -> RuntimeResult<MethodCallType> {
         match name {
-            "gettype" => return Ok(get_type),
+            "gettype" => return Ok(Box::new(Self::get_type)),
             _ => {}
         }
         match self {
-            Val::String(ps) => ps.method(name),
+            Val::String(str) => str.method(name),
             Val::RuntimeObject(s) => s.method(name),
             _ => Err(super::MethodError::MethodNotFound(name.to_string()).into()),
         }
