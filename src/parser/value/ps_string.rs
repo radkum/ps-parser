@@ -1,7 +1,11 @@
 use std::{cmp::Ordering, sync::LazyLock};
 
 use smart_default::SmartDefault;
-
+mod normalize;
+mod pad;
+mod substring;
+mod to_upper_lower;
+mod trim;
 use super::{MethodCallType, MethodError, MethodResult, RuntimeObject, Val, ValType};
 use crate::parser::value::{RuntimeError, runtime_object::RuntimeResult};
 #[derive(Clone, Debug, SmartDefault, PartialEq)]
@@ -27,15 +31,22 @@ impl RuntimeObject for PsString {
             "replace" => Self::replace,
             "substring" => Self::substring,
             "remove" => Self::remove,
-            // "clone" => Ok(clone),
-            // "copyto" => Ok(remove),
-            // "isnormalized" => Ok(remove),
-            // "split" => Ok(remove),
-            // "tostring" => Ok(remove),
-            // "touper" => Ok(remove),
-            // "touperinvariant" => Ok(remove),
-            // "tolower" => Ok(remove),
-            // "tolowerinvariant" => Ok(remove),
+            "clone" => Self::_clone,
+            // "copyto" => Self::copyto,
+            // "tocharsarray" => Self::tocharsarray,
+            "isnormalized" => Self::is_normalized,
+            "split" => Self::split,
+            "tostring" => Self::_clone,
+            "toupper" => Self::to_upper,
+            "toupperinvariant" => Self::to_upper_invariant,
+            "tolower" => Self::to_lower,
+            "tolowerinvariant" => Self::to_lower_invariant,
+            "insert" => Self::insert,
+            "padleft" => Self::pad_left,
+            "padright" => Self::pad_right,
+            "trim" => Self::trim,
+            "trimend" => Self::trim_end,
+            "trimstart" => Self::trim_start,
             _ => Err(RuntimeError::MethodNotFound(name.to_string()))?,
         };
 
@@ -58,30 +69,11 @@ impl RuntimeObject for PsString {
 }
 
 impl PsString {
-    fn normalize(&self, args: Vec<Val>) -> MethodResult<Val> {
-        let PsString(input) = self;
-
-        if args.len() != 1 {
-            //something wrong
-            return Err(MethodError::new_incorrect_args("FromBase64String", args));
+    fn _clone(&self, args: Vec<Val>) -> MethodResult<Val> {
+        if !args.is_empty() {
+            return Err(MethodError::new_incorrect_args("Clone", args));
         }
-
-        let arg = args[0].clone();
-        let Val::String(PsString(form)) = arg else {
-            return Err(MethodError::new_incorrect_args("FromBase64String", args));
-        };
-
-        use unicode_normalization::UnicodeNormalization;
-
-        let res = match form.as_str() {
-            "FormD" => input.nfd().filter(|c| c.is_ascii()).collect(), // Canonical Decomposition
-            "FormC" => input.nfc().collect(),                          // Canonical Composition
-            "FormKD" => input.nfkd().collect(),                        /* Compatibility */
-            // Decomposition
-            "FormKC" => input.nfkc().collect(), // Compatibility Composition
-            _ => input.to_string(),             // Default: no normalization
-        };
-        Ok(Val::String(res.into()))
+        Ok(Val::String(self.clone()))
     }
 
     fn replace(&self, args: Vec<Val>) -> MethodResult<Val> {
@@ -106,71 +98,74 @@ impl PsString {
         Ok(Val::String(PsString(res)))
     }
 
-    fn args_for_remove_and_substring(
-        &self,
-        args: Vec<Val>,
-        fn_name: &str,
-    ) -> MethodResult<(usize, usize)> {
-        let PsString(input) = self;
+    fn insert(&self, args: Vec<Val>) -> MethodResult<Val> {
+        let PsString(mut input) = self.clone();
 
-        if args.len() != 2 && args.len() != 1 {
+        if args.len() != 2 {
             //something wrong
-            return Err(MethodError::new_incorrect_args(fn_name, args));
+            return Err(MethodError::new_incorrect_args("Insert", args));
         }
 
-        if !matches!(args[0], Val::Int(_)) {
-            return Err(MethodError::new_incorrect_args(fn_name, args));
-        }
-        let start_index = args[0].cast_to_int()? as usize;
-
-        // substring is overloaded method. It can take 1 or 2 arguments. Second argument
-        // is optional
-        let length = if args.len() == 2 {
-            if !matches!(args[1], Val::Int(_)) {
-                return Err(MethodError::new_incorrect_args(fn_name, args));
-            }
-
-            let length = args[1].cast_to_int()? as usize;
-            if start_index + length > input.len() {
-                return Err(MethodError::Exception(format!(
-                    "Exception calling \"{}\" with \"2\" argument(s): \"Index and length must \
-                     refer to a location within the string. Parameter name: length\"",
-                    fn_name
-                )));
-            }
-            length
-        } else {
-            input.len()
+        let Val::Int(idx) = args[0] else {
+            return Err(MethodError::new_incorrect_args("Insert", args));
         };
 
-        if start_index > input.len() {
-            return Err(MethodError::Exception(format!(
-                "Exception calling \"{}\" with \"1\" argument(s): \"startIndex cannot be larger \
-                 than length of string. Parameter name: startIndex\"",
-                fn_name
-            )));
+        let value = if args[1].ttype() == ValType::String || args[1].ttype() == ValType::Char {
+            args[1].cast_to_string()
+        } else {
+            Err(MethodError::new_incorrect_args("Insert", args))?
+        };
+
+        input.insert_str(idx as usize, value.as_str());
+        Ok(Val::String(PsString(input)))
+    }
+
+    fn split(&self, args: Vec<Val>) -> MethodResult<Val> {
+        let PsString(mut input) = self.clone();
+
+        let args_len = args.len();
+        if args_len != 1 && args_len != 2 {
+            //something wrong
+            return Err(MethodError::new_incorrect_args("Split", args.clone()));
         }
 
-        let end_index = std::cmp::min(start_index + length, input.len());
-        return Ok((start_index, end_index));
-    }
+        let arg_1 = args[0].to_owned();
 
-    fn substring(&self, args: Vec<Val>) -> MethodResult<Val> {
-        //string Substring(int startIndex)
-        //string Substring(int startIndex, int length)
-        let PsString(input) = self;
-        let (start_index, end_index) = self.args_for_remove_and_substring(args, "Substring")?;
-        let res = input[start_index..end_index].to_string();
-        return Ok(Val::String(PsString(res)));
-    }
+        let value = if arg_1.ttype() == ValType::String || arg_1.ttype() == ValType::Char {
+            arg_1.cast_to_string()
+        } else {
+            Err(MethodError::new_incorrect_args("Split", args.clone()))?
+        };
 
-    fn remove(&self, args: Vec<Val>) -> MethodResult<Val> {
-        //string Remove(int startIndex, int count)
-        //string Remove(int startIndex)
-        let PsString(input) = self;
-        let (start_index, end_index) = self.args_for_remove_and_substring(args, "Remove")?;
-        let res = input[..start_index].to_string() + &input[end_index..];
-        return Ok(Val::String(PsString(res)));
+        let parts = if args_len == 2
+            && let Val::Int(idx) = args[1]
+        {
+            let mut parts = vec![];
+            if idx == 0 {
+                return Ok(Val::Array(vec![]));
+            }
+            println!("idx: {}", idx);
+            for _ in 0..idx - 1 {
+                if let Some((before, after)) = input.split_once(value.as_str()) {
+                    parts.push(before.to_string());
+                    input = after.to_string();
+                } else {
+                    break;
+                }
+            }
+            parts.push(input);
+            parts
+        } else {
+            input
+                .split(value.as_str())
+                .map(String::from)
+                .collect::<Vec<String>>()
+        };
+        let parts = parts
+            .into_iter()
+            .map(|part| Val::String(part.into()))
+            .collect();
+        Ok(Val::Array(parts))
     }
 }
 
@@ -216,93 +211,66 @@ $string = $string.replace('rld','ll');$string"#;
     }
 
     #[test]
-    fn substring() {
+    fn insert() {
         let mut p = PowerShellSession::new();
         let input = r#"
-$string = 'hello, world'
-$string = $string.substring(1, 4);$string"#;
+$string = 'hello'
+$string = $string.insert(1,'r')
+$string = $string.insert(4,"dll")
+$string"#;
         let script_res = p.parse_input(input).unwrap();
-        assert_eq!(script_res.result(), PsValue::String("ello".to_string()));
-
-        let input = r#"
-$string = 'hello, world'
-$string = $string.substring(7);$string"#;
-        let script_res = p.parse_input(input).unwrap();
-        assert_eq!(script_res.result(), PsValue::String("world".to_string()));
-
-        let input = r#"
-$string = 'hello, world'
-$string = $string.substring(7,5);$string"#;
-        let script_res = p.parse_input(input).unwrap();
-        assert_eq!(script_res.result(), PsValue::String("world".to_string()));
-
-        let input = r#"
-$string = 'hello, world'
-$string = $string.substring(7,6);$string"#;
-        let script_res = p.parse_input(input).unwrap();
-        assert_eq!(
-            script_res.errors()[0].to_string(),
-            "MethodError: Exception calling \"Substring\" with \"2\" argument(s): \"Index and \
-             length must refer to a location within the string. Parameter name: length\""
-                .to_string()
-        );
         assert_eq!(
             script_res.result(),
-            PsValue::String(r#""hello, world".substring(7, 6)"#.to_string())
+            PsValue::String("hreldlllo".to_string())
         );
-
-        let input = r#"
-$string = 'hello, world'
-$string = $string.substring(12);$string"#;
-        let script_res = p.parse_input(input).unwrap();
-        assert_eq!(script_res.result(), PsValue::String("".to_string()));
-
-        let input = r#"
-$string = 'hello, world'
-$string = $string.substring(13);$string"#;
-        let script_res = p.parse_input(input).unwrap();
-        assert_eq!(
-            script_res.errors()[0].to_string(),
-            "MethodError: Exception calling \"Substring\" with \"1\" argument(s): \"startIndex \
-             cannot be larger than length of string. Parameter name: startIndex\""
-                .to_string()
-        );
-
-        let input = r#"
-$string = 'hello, world'
-$string = $string.substring(5,0);$string"#;
-        let script_res = p.parse_input(input).unwrap();
-        assert_eq!(script_res.result(), PsValue::String("".to_string()));
     }
 
     #[test]
-    fn remove() {
+    fn split() {
         let mut p = PowerShellSession::new();
         let input = r#"
-$string = 'hello, world'
-$string = $string.remove(1, 4);$string"#;
-        let script_res = p.parse_input(input).unwrap();
-        assert_eq!(script_res.result(), PsValue::String("h, world".to_string()));
-
-        let input = r#"
-$string = 'hello, world'
-$string = $string.remove(7);$string"#;
-        let script_res = p.parse_input(input).unwrap();
-        assert_eq!(script_res.result(), PsValue::String("hello, ".to_string()));
-
-        let input = r#"
-$string = 'hello, world'
-$string = $string.remove(7,15);$string"#;
+$string = 'hello world'
+$string = $string.split('l')
+$string"#;
         let script_res = p.parse_input(input).unwrap();
         assert_eq!(
             script_res.result(),
-            PsValue::String("\"hello, world\".remove(7, 15)".to_string())
+            PsValue::Array(vec![
+                PsValue::String("he".to_string()),
+                PsValue::String("".to_string()),
+                PsValue::String("o wor".to_string()),
+                PsValue::String("d".to_string()),
+            ])
         );
+
+        let input = r#"
+$string = 'hello world'
+$string = $string.split('l', 2)
+$string"#;
+        let script_res = p.parse_input(input).unwrap();
         assert_eq!(
-            script_res.errors()[0].to_string(),
-            "MethodError: Exception calling \"Remove\" with \"2\" argument(s): \"Index and length \
-             must refer to a location within the string. Parameter name: length\""
-                .to_string()
+            script_res.result(),
+            PsValue::Array(vec![
+                PsValue::String("he".to_string()),
+                PsValue::String("lo world".to_string()),
+            ])
         );
+
+        let input = r#"
+$string = 'hello world'
+$string = $string.split('z', 2)
+$string"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![PsValue::String("hello world".to_string()),])
+        );
+
+        let input = r#"
+$string = 'hello world'
+$string = $string.split('z', 0)
+$string"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::Array(vec![]));
     }
 }

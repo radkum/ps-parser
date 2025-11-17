@@ -10,7 +10,7 @@ impl RuntimeObject for Encoding {
     fn readonly_static_member(&self, name: &str) -> RuntimeResult<Val> {
         log::debug!("get_static_member called with name: {}", name);
         match name.to_ascii_lowercase().as_str() {
-            //"unicode" => Ok(Val::RuntimeObject(Box::new(UnicodeEncoding {}))),
+            "unicode" => Ok(Val::RuntimeObject(Box::new(UnicodeEncoding {}))),
             _ => Err(RuntimeError::MemberNotFound(name.to_string())),
         }
     }

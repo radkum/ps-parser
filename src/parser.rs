@@ -821,7 +821,7 @@ impl<'a> PowerShellSession {
                     call(args)?
                 } else {
                     let call = object.method(function_name.as_str())?;
-                    call(&object, args)?
+                    call(object, args)?
                 }
             }
             Rule::element_access => self.eval_element_access(token, object)?.clone(),
