@@ -1592,7 +1592,6 @@ impl<'a> PowerShellSession {
                 Rule::comparison_exp => self.eval_comparison_exp(token)?,
                 _ => unexpected_token!(token),
             };
-            println!("runtime: {}", runtime_object);
 
             res = res.cast(&runtime_object).unwrap_or_default();
         }
@@ -1647,7 +1646,6 @@ impl<'a> PowerShellSession {
                 Rule::splatten_arg => {
                     let var_name = Self::parse_scoped_variable(command_element_token)?;
                     let var = self.variables.get(&var_name).unwrap_or_default();
-                    println!("var: {}", var);
                     if let Val::HashTable(h) = var {
                         for (k, v) in h {
                             args.push(CommandElem::Parameter(format!("-{}", k)));

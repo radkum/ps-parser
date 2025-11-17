@@ -144,7 +144,6 @@ impl PsString {
             if idx == 0 {
                 return Ok(Val::Array(vec![]));
             }
-            println!("idx: {}", idx);
             for _ in 0..idx - 1 {
                 if let Some((before, after)) = input.split_once(value.as_str()) {
                     parts.push(before.to_string());

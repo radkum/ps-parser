@@ -12,7 +12,6 @@ impl PsString {
         };
 
         let mut trim_chars: Vec<char> = Vec::new();
-        println!("box_vec: {:?}", box_vec);
         for v in box_vec.iter() {
             match v {
                 Val::Char(c) => trim_chars.push(*c as u8 as char),
@@ -27,7 +26,6 @@ impl PsString {
                 }
             }
         }
-        println!("trim chars: {:?}", trim_chars);
         Some(trim_chars)
     }
 
