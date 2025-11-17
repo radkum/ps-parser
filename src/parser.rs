@@ -21,7 +21,7 @@ use pest::Parser;
 use pest_derive::Parser;
 use predicates::{ArithmeticPred, BitwisePred, LogicalPred, StringPred};
 pub use script_result::{PsValue, ScriptResult};
-pub use token::{Token, Tokens};
+pub use token::{CommandToken, ExpressionToken, MethodToken, StringExpandableToken, Token, Tokens};
 pub(crate) use value::{Val, ValType};
 pub use variables::Variables;
 use variables::{VarName, VariableError};
@@ -558,7 +558,7 @@ impl<'a> PowerShellSession {
             _ => unexpected_token!(token),
         };
         let ps_token = if is_expandable {
-            Token::StringExpandable(cloned_token.as_str().to_string(), res.clone())
+            Token::string_expandable(cloned_token.as_str().to_string(), res.clone())
         } else {
             Token::String(cloned_token.as_str().to_string())
         };
@@ -747,25 +747,43 @@ impl<'a> PowerShellSession {
         }
     }
 
-    fn eval_method_invokation(&mut self, token: Pair<'a>) -> ParserResult<(String, Vec<Val>)> {
+    fn eval_method_invocation(
+        &mut self,
+        token: Pair<'a>,
+        object: &Val,
+    ) -> ParserResult<(String, Vec<Val>)> {
         check_rule!(token, Rule::method_invocation);
         let token_string = token.as_str().to_string();
 
         let mut pairs = token.into_inner();
 
         let access = pairs.next().unwrap();
-        //check_rule!(member_access, Rule::member_access);
         let method_name = self.eval_member_access(access)?;
 
         let args = if let Some(token) = pairs.next() {
             check_rule!(token, Rule::argument_list);
-            self.eval_argument_list(token)?
+            match self.eval_argument_list(token) {
+                Ok(args) => args,
+                Err(e) => {
+                    log::info!("eval_argument_list error: {:?}", e);
+
+                    //nevertheless push the function token
+                    self.tokens.push(Token::method(
+                        token_string.clone(),
+                        object.clone().into(),
+                        method_name.clone(),
+                        Vec::new(),
+                    ));
+                    Err(e)?
+                }
+            }
         } else {
             Vec::new()
         };
 
-        self.tokens.push(Token::Function(
+        self.tokens.push(Token::method(
             token_string,
+            object.clone().into(),
             method_name.clone(),
             args.clone().iter().map(|arg| arg.clone().into()).collect(),
         ));
@@ -814,7 +832,7 @@ impl<'a> PowerShellSession {
             Rule::member_access => object.readonly_member(get_member_name(token))?.clone(),
             Rule::method_invocation => {
                 let static_method = self.method_is_static(token.clone());
-                let (function_name, args) = self.eval_method_invokation(token)?;
+                let (function_name, args) = self.eval_method_invocation(token, &object)?;
                 log::trace!("Method: {:?} {:?}", &function_name, &args);
                 if static_method {
                     let call = object.static_method(function_name.as_str())?;
@@ -862,7 +880,10 @@ impl<'a> PowerShellSession {
                 }
                 Rule::method_invocation => {
                     let static_method = self.method_is_static(token.clone());
-                    let (method_name, args) = self.eval_method_invokation(token.clone())?;
+                    let (method_name, args) = self
+                        .eval_method_invocation(token.clone(), &Val::ScriptText(object.clone()))?;
+                    log::trace!("Method: {:?} {:?}", &method_name, &args);
+
                     let separator = if static_method { "::" } else { "." };
                     object = format!(
                         "{}{separator}{}({})",
@@ -1665,8 +1686,9 @@ impl<'a> PowerShellSession {
 
     fn eval_command(&mut self, token: Pair<'a>, piped_arg: Option<Val>) -> ParserResult<Val> {
         check_rule!(token, Rule::command);
-        let mut pairs = token.into_inner();
+        let command_str = token.as_str().to_string();
 
+        let mut pairs = token.into_inner();
         let command_token = pairs.next().unwrap();
         let mut command = match command_token.as_rule() {
             Rule::cmdlet_command => self.parse_cmdlet_command_name(command_token)?,
@@ -1680,6 +1702,9 @@ impl<'a> PowerShellSession {
         }
 
         command.with_args(args);
+        self.tokens
+            .push(Token::command(command_str, command.name(), command.args()));
+
         match command.execute(self) {
             Ok(CommandOutput {
                 val,
@@ -1772,7 +1797,7 @@ impl<'a> PowerShellSession {
             res = Val::Bool(fun(res, right_op));
         }
         self.tokens
-            .push(Token::Expression(token_string, res.clone().into()));
+            .push(Token::expression(token_string, res.clone().into()));
 
         if let Val::String(value::PsString(s)) = &res {
             self.tokens.push(Token::String(s.clone()));

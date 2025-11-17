@@ -144,13 +144,14 @@ pub use parser::Token;
 /// // ... add variables manually
 /// ```
 pub use parser::Variables;
+pub use parser::{CommandToken, ExpressionToken, MethodToken, StringExpandableToken};
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::Token;
+    use crate::{ExpressionToken, StringExpandableToken};
 
     #[test]
     fn deobfuscation() {
@@ -350,15 +351,15 @@ Write-Output "Modulo: $(($a % $b))"
         assert_eq!(script_result.tokens().expandable_strings().len(), 6);
         assert_eq!(
             script_result.tokens().expandable_strings()[1],
-            Token::StringExpandable(
+            StringExpandableToken::new(
                 "\"Addition: $(($a + $b))\"".to_string(),
                 "Addition: 15".to_string()
             )
         );
-        assert_eq!(script_result.tokens().expression().len(), 12);
+        assert_eq!(script_result.tokens().expressions().len(), 12);
         assert_eq!(
-            script_result.tokens().expression()[2],
-            Token::Expression("$a + $b".to_string(), PsValue::Int(15))
+            script_result.tokens().expressions()[2],
+            ExpressionToken::new("$a + $b".to_string(), PsValue::Int(15))
         );
     }
 

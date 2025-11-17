@@ -63,7 +63,6 @@ impl From<Val> for CommandOutput {
 #[derive(Debug)]
 pub enum CommandInner {
     Cmdlet(String),
-    //Function(String),
     Path(String),
     ScriptBlock(ScriptBlock),
 }
@@ -106,6 +105,18 @@ impl Command {
 
     pub(crate) fn with_args(&mut self, args: Vec<CommandElem>) {
         self.args.extend(args);
+    }
+
+    pub(crate) fn name(&self) -> String {
+        match &self.command_inner {
+            CommandInner::Cmdlet(name) => name.clone(),
+            CommandInner::Path(path) => path.clone(),
+            CommandInner::ScriptBlock(_) => "ScriptBlock".to_string(),
+        }
+    }
+
+    pub(crate) fn args(&self) -> Vec<String> {
+        self.args.iter().map(|arg| arg.display()).collect()
     }
 }
 
