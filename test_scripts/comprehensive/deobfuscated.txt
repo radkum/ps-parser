@@ -104,7 +104,6 @@ $stringnumber = "123"
 $intnumber = 123
 $floatnumber = 123
 "String: 123 (Type: String)"
-"String: 123 (Type: String)"
 "Int: 123 (Type: Int32)"
 "Float: 123 (Type: Double)"
 $successful = 2

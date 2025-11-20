@@ -541,15 +541,6 @@ mod tests {
     }
 
     #[test]
-    fn test_builtint_objects() {
-        let mut p = PowerShellSession::new();
-        assert_eq!(
-            p.parse_input(r#" [system.convert]0 "#).unwrap().result(),
-            PsValue::Null
-        );
-    }
-
-    #[test]
     fn test_env_variables() {
         let v = Variables::env();
         let mut p = PowerShellSession::new().with_variables(v);

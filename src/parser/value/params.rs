@@ -1,3 +1,4 @@
+use super::val_type::RuntimeTypeTrait;
 use crate::parser::{Val, ValType};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -36,7 +37,7 @@ impl Param {
 impl std::fmt::Display for Param {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let ttype = if let Some(ttype) = &self.ttype {
-            format!("[{}] ", ttype)
+            format!("[{}] ", ttype.name())
         } else {
             "".to_string()
         };

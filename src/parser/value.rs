@@ -5,125 +5,30 @@ mod runtime_object;
 mod script_block;
 mod system_convert;
 mod system_encoding;
-mod type_info;
 mod val_error;
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::Debug,
     ops::Neg,
-    sync::LazyLock,
 };
-
+mod val_type;
 pub(crate) use method_error::{MethodError, MethodResult};
 pub(crate) use params::Param;
 pub(crate) use ps_string::PsString;
 use ps_string::str_cmp;
 pub(crate) use runtime_object::RuntimeError;
-pub(super) use runtime_object::RuntimeObject;
+pub(super) use runtime_object::RuntimeObjectTrait;
 use runtime_object::{MethodCallType, StaticFnCallType};
 pub(crate) use script_block::ScriptBlock;
 use smart_default::SmartDefault;
 use system_convert::Convert;
-use system_encoding::Encoding;
-pub(super) use type_info::TypeError;
-use type_info::TypeInfoTrait;
 pub(crate) use val_error::ValError;
+use val_type::RuntimeTypeTrait;
+pub(super) use val_type::ValType;
 pub type ValResult<T> = core::result::Result<T, ValError>;
 use runtime_object::RuntimeResult;
 
-use crate::{NEWLINE, parser::value::system_encoding::UnicodeEncoding};
-
-#[derive(PartialEq, Debug, SmartDefault, Clone)]
-pub enum ValType {
-    #[default]
-    Null,
-    Bool,
-    Int,
-    Float,
-    Char,
-    String,
-    Array(Option<Box<ValType>>),
-    HashTable,
-    ScriptBlock,
-    ScriptText,
-    RuntimeType(String),
-    Switch,
-}
-
-impl std::fmt::Display for ValType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-const CONVERT: Convert = Convert {};
-
-impl ValType {
-    fn static_objects(name: &str) -> ValResult<Box<dyn RuntimeObject>> {
-        Ok(match name.to_ascii_lowercase().as_str() {
-            "system.convert" => Box::new(CONVERT) as _,
-            "system.text.encoding" => Box::new(Encoding {}) as _,
-            "system.text.encoding::unicode" => Box::new(UnicodeEncoding {}) as _,
-            _ => Err(ValError::UnknownType(name.to_string()))?,
-        })
-    }
-    const STATIC_OBJECT_MAP: LazyLock<HashMap<&'static str, Box<dyn RuntimeObject>>> =
-        LazyLock::new(|| {
-            HashMap::from([
-                ("system.convert", Box::new(CONVERT) as _),
-                ("system.text.encoding", Box::new(Encoding {}) as _),
-                (
-                    "system.text.encoding::unicode",
-                    Box::new(UnicodeEncoding {}) as _,
-                ),
-            ])
-        });
-
-    pub(crate) fn cast(s: &str) -> ValResult<Self> {
-        let mut s = s.to_ascii_lowercase();
-        s.retain(|c| !c.is_whitespace());
-        if let Some(prefix) = s.strip_suffix("[]") {
-            return Ok(Self::Array(Some(Box::new(Self::cast(prefix)?))));
-        }
-
-        let t = match s.as_str() {
-            "char" | "byte" => Self::Char,
-            "bool" => Self::Bool,
-            "int" | "long" | "decimal" => Self::Int,
-            "float" | "double" => Self::Float,
-            "string" => Self::String,
-            "array" => Self::Array(None),
-            "scriptblock" => Self::ScriptBlock,
-            "hashtable" => Self::HashTable,
-            "switch" => Self::Switch,
-            _ => {
-                if !Self::STATIC_OBJECT_MAP.contains_key(s.as_str()) {
-                    Err(ValError::UnknownType(s.clone()))?;
-                }
-
-                Self::RuntimeType(s)
-            }
-        };
-        Ok(t)
-    }
-
-    pub(crate) fn runtime(s: &str) -> ValResult<Val> {
-        let val_type = Self::cast(s)?;
-
-        Ok(Val::RuntimeObject(match val_type {
-            ValType::RuntimeType(name) => Self::static_objects(&name)?,
-            ValType::String => Box::new(PsString::default()),
-            ValType::ScriptBlock => Box::new(ScriptBlock::default()),
-            _ => Box::new(val_type),
-        }))
-    }
-}
-
-impl RuntimeObject for ValType {
-    fn type_definition(&self) -> RuntimeResult<ValType> {
-        Ok(self.clone())
-    }
-}
-
+use super::NEWLINE;
 #[derive(Debug, SmartDefault)]
 pub(crate) enum Val {
     #[default]
@@ -135,7 +40,8 @@ pub(crate) enum Val {
     String(PsString),
     Array(Vec<Val>),
     HashTable(HashMap<String, Val>),
-    RuntimeObject(Box<dyn RuntimeObject>),
+    RuntimeObject(Box<dyn RuntimeObjectTrait>),
+    RuntimeType(Box<dyn RuntimeTypeTrait>),
     ScriptBlock(ScriptBlock),
     ScriptText(String),
     NonDisplayed(Box<Val>),
@@ -164,25 +70,8 @@ impl std::fmt::Display for Val {
                 .map(|v| v.to_string())
                 .collect::<Vec<String>>()
                 .join(NEWLINE),
-            Val::RuntimeObject(rt) => {
-                let v = Val::init(ValType::cast(rt.name().as_str()).unwrap_or_default())
-                    .unwrap_or_default();
-                if let Ok(t_info) = v.type_info() {
-                    let mut first_line = format!(
-                        "{:<8} {:<8} {:<30} {}",
-                        "IsPublic", "IsSerial", "Name", "BaseType"
-                    );
-                    first_line.push_str(NEWLINE);
-                    let second_line = format!(
-                        "{:<8} {:<8} {:<30} {}",
-                        t_info.is_public, t_info.is_serial, t_info.name, t_info.base_type
-                    );
-                    first_line.push_str(&second_line);
-                    first_line
-                } else {
-                    String::new()
-                }
-            }
+            Val::RuntimeObject(rt) => rt.to_string(),
+            Val::RuntimeType(rt) => rt.full_name(),
             Val::NonDisplayed(_) => String::new(),
         };
         write!(f, "{}", str)
@@ -201,6 +90,7 @@ impl PartialEq for Val {
             (Val::Array(a), Val::Array(b)) => a == b,
             (Val::RuntimeObject(a), Val::RuntimeObject(b)) => a.name() == b.name(),
             (Val::NonDisplayed(box_a), Val::NonDisplayed(box_b)) => *box_a == *box_b,
+            (Val::RuntimeType(rt1), Val::RuntimeType(rt2)) => rt1.name() == rt2.name(),
             _ => false,
         }
     }
@@ -217,14 +107,14 @@ impl Clone for Val {
             Val::String(a) => Val::String(a.clone()),
             Val::Array(a) => Val::Array(a.clone()),
             Val::HashTable(a) => Val::HashTable(a.clone()),
-            Val::RuntimeObject(s) => ValType::runtime(s.name().as_str()).unwrap_or_default(),
+            Val::RuntimeObject(ro) => Val::RuntimeObject(ro.clone_rt()),
+            Val::RuntimeType(rt) => Val::RuntimeType(rt.clone_rt()),
             Val::ScriptBlock(a) => Val::ScriptBlock(a.clone()),
             Val::ScriptText(a) => Val::ScriptText(a.clone()),
             Val::NonDisplayed(box_val) => Val::NonDisplayed(box_val.clone()),
         }
     }
 }
-
 impl Val {
     fn not_defined(v1: &Val, v2: &Val, op: &str) -> ValError {
         ValError::OperationNotDefined(
@@ -264,6 +154,13 @@ impl Val {
                     false
                 }
             }
+            Val::RuntimeType(rt1) => {
+                if let Val::RuntimeType(rt2) = val {
+                    rt1.name() == rt2.name()
+                } else {
+                    false
+                }
+            }
             Val::ScriptBlock(sb1) => {
                 if let Val::ScriptBlock(sb2) = val {
                     str_cmp(&sb1.raw_text, &sb2.raw_text, case_insensitive)
@@ -291,6 +188,7 @@ impl Val {
             Val::Array(_) => todo!(),
             Val::HashTable(_) => false, // HashTables can't be compared with >
             Val::RuntimeObject(_) => todo!(),
+            Val::RuntimeType(_) => false, // Add logic if needed
             Val::ScriptBlock(_) => false, // ScriptBlocks can't be compared
             Val::ScriptText(_) => false,
             Val::NonDisplayed(box_val) => box_val.gt(val, case_insensitive)?,
@@ -311,6 +209,7 @@ impl Val {
             Val::Array(_) => todo!(),
             Val::HashTable(_) => false, // HashTables can't be compared with <
             Val::RuntimeObject(_) => todo!(),
+            Val::RuntimeType(_) => false, // Add logic if needed
             Val::ScriptBlock(_) => false, // ScriptBlocks can't be compared
             Val::ScriptText(_) => false,
             Val::NonDisplayed(box_val) => box_val.lt(val, case_insensitive)?,
@@ -329,7 +228,8 @@ impl Val {
             Val::HashTable(_) => ValType::HashTable,
             Val::ScriptBlock(_) => ValType::ScriptBlock,
             Val::ScriptText(_) => ValType::ScriptText,
-            Val::RuntimeObject(rt) => ValType::RuntimeType(rt.name()),
+            Val::RuntimeObject(rt) => ValType::RuntimeObject(rt.to_string()),
+            Val::RuntimeType(_) => ValType::TypeInfo,
             Val::NonDisplayed(box_val) => box_val.ttype(),
         }
     }
@@ -367,14 +267,14 @@ impl Val {
                     ht.extend(val.cast_to_hashtable()?);
                 }
             }
-            Val::RuntimeObject(_) | Val::ScriptBlock(_) | Val::ScriptText(_) => {
+            Val::NonDisplayed(box_val) => box_val.add(val)?,
+            _ => {
                 return Err(ValError::OperationNotDefined(
                     "add".to_string(),
                     self.ttype().to_string(),
                     val.ttype().to_string(),
                 ));
             }
-            Val::NonDisplayed(box_val) => box_val.add(val)?,
         }
         Ok(())
     }
@@ -384,14 +284,8 @@ impl Val {
             Val::Null => *self = Val::Int(amount),
             Val::Int(i) => *self = Val::Int(*i + amount),
             Val::Float(f) => *self = Val::Float(*f + amount as f64),
-            Val::Bool(_)
-            | Val::Char(_)
-            | Val::String(_)
-            | Val::Array(_)
-            | Val::HashTable(_)
-            | Val::RuntimeObject(_)
-            | Val::ScriptBlock(_)
-            | Val::ScriptText(_) => {
+            Val::NonDisplayed(box_val) => box_val.inc_or_dec_operation(amount, op)?,
+            _ => {
                 //error
                 Err(ValError::OperationNotDefined(
                     op,
@@ -399,7 +293,6 @@ impl Val {
                     self.ttype().to_string(),
                 ))?
             }
-            Val::NonDisplayed(box_val) => box_val.inc_or_dec_operation(amount, op)?,
         }
         Ok(())
     }
@@ -413,11 +306,19 @@ impl Val {
     }
 
     pub fn sub(&mut self, val: Val) -> ValResult<()> {
-        if let ValType::RuntimeType(_) = self.ttype() {
+        if let ValType::RuntimeObject(_) = self.ttype() {
             Err(Self::not_defined(self, &val, "-"))?
         }
 
-        if let ValType::RuntimeType(_) = val.ttype() {
+        if let ValType::RuntimeObject(_) = val.ttype() {
+            Err(Self::not_defined(self, &val, "-"))?
+        }
+
+        if let ValType::TypeInfo = self.ttype() {
+            Err(Self::not_defined(self, &val, "-"))?
+        }
+
+        if let ValType::TypeInfo = val.ttype() {
             Err(Self::not_defined(self, &val, "-"))?
         }
 
@@ -563,34 +464,24 @@ impl Val {
             Val::Null | Val::Bool(_) | Val::Int(_) | Val::Char(_) | Val::String(_) => {
                 *self = Val::Int(self.cast_to_int()?.neg())
             }
-            Val::Array(_) => Err(ValError::OperationNotDefined(
-                "-".to_string(),
-                self.ttype().to_string(),
-                self.ttype().to_string(),
-            ))?,
-            Val::HashTable(_) => Err(ValError::OperationNotDefined(
-                "-".to_string(),
-                self.ttype().to_string(),
-                self.ttype().to_string(),
-            ))?,
-            Val::RuntimeObject(_) => todo!(),
-            Val::ScriptBlock(_) => Err(ValError::OperationNotDefined(
-                "-".to_string(),
-                self.ttype().to_string(),
-                self.ttype().to_string(),
-            ))?,
-            Val::ScriptText(_) => Err(ValError::OperationNotDefined(
-                "-".to_string(),
-                self.ttype().to_string(),
-                self.ttype().to_string(),
-            ))?,
             Val::NonDisplayed(box_val) => box_val.neg()?,
+            _ => Err(ValError::OperationNotDefined(
+                "-".to_string(),
+                self.ttype().to_string(),
+                self.ttype().to_string(),
+            ))?,
         }
         Ok(())
     }
 
     pub(crate) fn cast(&self, runtime_type: &Val) -> ValResult<Self> {
-        self.cast_from_type(&runtime_type.type_definition()?)
+        let Val::RuntimeType(rt) = runtime_type else {
+            return Err(ValError::InvalidCast(
+                self.ttype().to_string(),
+                "RuntimeType".to_string(),
+            ))?;
+        };
+        self.cast_from_type(&rt.type_definition())
     }
 
     pub(crate) fn cast_from_type(&self, ttype: &ValType) -> ValResult<Self> {
@@ -605,9 +496,13 @@ impl Val {
             ValType::HashTable => Val::HashTable(self.cast_to_hashtable()?),
             ValType::ScriptBlock => Val::ScriptBlock(self.cast_to_scriptblock()?),
             ValType::ScriptText => Val::ScriptText(self.cast_to_script()),
-            ValType::RuntimeType(_) => Err(ValError::InvalidCast(
+            ValType::RuntimeObject(_) => Err(ValError::InvalidCast(
                 self.ttype().to_string(),
-                "RuntimeType".to_string(),
+                "RuntimeObject".to_string(),
+            ))?,
+            ValType::TypeInfo => Err(ValError::InvalidCast(
+                self.ttype().to_string(),
+                "TypeInfo".to_string(),
             ))?,
             ValType::Switch => Err(ValError::InvalidCast(
                 self.ttype().to_string(),
@@ -616,22 +511,26 @@ impl Val {
         })
     }
 
-    pub(crate) fn init(ttype: ValType) -> ValResult<Self> {
-        Ok(match ttype {
-            ValType::Null => Err(ValError::UnknownType("Null".to_string()))?,
-            ValType::Bool => Val::Bool(false),
-            ValType::Int => Val::Int(0),
-            ValType::Float => Val::Float(0.),
-            ValType::Char => Val::Char(0),
-            ValType::String => Val::String(PsString::default()),
-            ValType::Array(_) => Val::Array(Default::default()),
-            ValType::HashTable => Val::HashTable(HashMap::new()),
-            ValType::ScriptBlock => Val::ScriptBlock(ScriptBlock::default()),
-            ValType::ScriptText => Val::ScriptText("".to_string()),
-            ValType::RuntimeType(s) => ValType::runtime(s.as_str()).unwrap_or_default(),
-            ValType::Switch => Err(ValError::UnknownType("Can't init switch".into()))?,
-        })
-    }
+    // pub(crate) fn init(ttype: ValType) -> ValResult<Self> {
+    //     Ok(match ttype {
+    //         ValType::Null => Err(ValError::UnknownType("Null".to_string()))?,
+    //         ValType::Bool => Val::Bool(false),
+    //         ValType::Int => Val::Int(0),
+    //         ValType::Float => Val::Float(0.),
+    //         ValType::Char => Val::Char(0),
+    //         ValType::String => Val::String(PsString::default()),
+    //         ValType::Array(_) => Val::Array(Default::default()),
+    //         ValType::HashTable => Val::HashTable(HashMap::new()),
+    //         ValType::ScriptBlock => Val::ScriptBlock(ScriptBlock::default()),
+    //         ValType::ScriptText => Val::ScriptText("".to_string()),
+    //         //ValType::RuntimeObject(s) =>
+    // Val::RuntimeObject(ValType::runtime_object_from_name(s.to_string().as_str()).
+    // unwrap_or_default()),         ValType::RuntimeObject(_) =>
+    // Err(ValError::UnknownType("Can't init RuntimeObject".into()))?,
+    //         ValType::TypeInfo => Err(ValError::UnknownType("Can't init
+    // TypeInfo".into()))?,         ValType::Switch =>
+    // Err(ValError::UnknownType("Can't init Switch".into()))?,     })
+    // }
 
     pub(crate) fn cast_to_bool(&self) -> bool {
         match self {
@@ -644,6 +543,7 @@ impl Val {
             Val::Array(v) => !v.is_empty(),
             Val::HashTable(h) => !h.is_empty(),
             Val::RuntimeObject(rt) => !rt.name().is_empty(),
+            Val::RuntimeType(_rt) => true,
             Val::ScriptBlock(_) => true,
             Val::ScriptText(st) => !st.is_empty(),
             Val::NonDisplayed(box_val) => box_val.cast_to_bool(),
@@ -679,7 +579,12 @@ impl Val {
                 "HashTable".to_string(),
                 "Char".to_string(),
             ))?,
-            Val::RuntimeObject(_) => todo!(),
+            Val::RuntimeObject(_) => {
+                Err(ValError::InvalidCast(self.to_string(), "Char".to_string()))?
+            }
+            Val::RuntimeType(_) => {
+                Err(ValError::InvalidCast(self.to_string(), "Char".to_string()))?
+            }
             Val::ScriptBlock(_) => Err(ValError::InvalidCast(
                 "ScriptBlock".to_string(),
                 "Char".to_string(),
@@ -723,6 +628,7 @@ impl Val {
             Val::RuntimeObject(_) => {
                 Err(ValError::InvalidCast(self.to_string(), "Int".to_string()))?
             }
+            Val::RuntimeType(_) => Err(ValError::InvalidCast(self.to_string(), "Int".to_string()))?,
             Val::ScriptBlock(_) => Err(ValError::InvalidCast(
                 "ScriptBlock".to_string(),
                 "Int".to_string(),
@@ -754,7 +660,13 @@ impl Val {
                 "HashTable".to_string(),
                 "Float".to_string(),
             ))?,
-            Val::RuntimeObject(_) => todo!(),
+            Val::RuntimeObject(_) => {
+                Err(ValError::InvalidCast(self.to_string(), "Float".to_string()))?
+            }
+            Val::RuntimeType(_) => Err(ValError::InvalidCast(
+                self.to_string(),
+                "InFloatt".to_string(),
+            ))?,
             Val::ScriptBlock(_) => Err(ValError::InvalidCast(
                 "ScriptBlock".to_string(),
                 "Float".to_string(),
@@ -781,7 +693,8 @@ impl Val {
                 .collect::<Vec<String>>()
                 .join(" "),
             Val::HashTable(_) => "System.Collections.Hashtable".to_string(),
-            Val::RuntimeObject(s) => s.name(),
+            Val::RuntimeObject(s) => s.to_string(),
+            Val::RuntimeType(_) => self.to_string(),
             Val::ScriptBlock(sb) => sb.to_string(),
             Val::ScriptText(st) => st.clone(),
             Val::NonDisplayed(box_val) => box_val.cast_to_string(),
@@ -797,6 +710,15 @@ impl Val {
     }
 
     pub(crate) fn cast_to_typed_array(&self, ttype: Option<Box<ValType>>) -> ValResult<Vec<Self>> {
+        if let Some(ttype) = &ttype
+            && **ttype == ValType::String
+        {
+            return Ok(self
+                .to_string()
+                .split_ascii_whitespace()
+                .map(|s| Val::String(s.into()))
+                .collect());
+        }
         let mut arr = match self {
             Val::Null => vec![],
             Val::Bool(_) | Val::Int(_) | Val::Float(_) | Val::Char(_) | Val::String(_) => {
@@ -808,6 +730,10 @@ impl Val {
             Val::ScriptBlock(sb) => vec![Val::String(sb.to_string().into())],
             Val::ScriptText(s) => vec![Val::String(s.clone().into())],
             Val::NonDisplayed(s) => s.cast_to_typed_array(ttype.clone())?,
+            _ => Err(ValError::InvalidCast(
+                self.ttype().to_string(),
+                "Array".to_string(),
+            ))?,
         };
         if let Some(ttype) = ttype {
             for elem in arr.iter_mut() {
@@ -875,7 +801,7 @@ impl Val {
         }
     }
 
-    pub fn get_index(&mut self, index: Val) -> ValResult<&mut Val> {
+    pub fn get_index_ref(&mut self, index: Val) -> ValResult<&mut Val> {
         let self_string = self.to_string();
         match self {
             Val::Null => Err(ValError::IndexedNullArray)?,
@@ -905,6 +831,45 @@ impl Val {
         }
     }
 
+    pub fn get_index(&self, index: Val) -> ValResult<Val> {
+        let self_string = self.to_string();
+        match self {
+            Val::Null => Err(ValError::IndexedNullArray)?,
+            Val::Array(v) => {
+                let i = index.cast_to_int()? as usize;
+                if v.len() > i {
+                    Ok(v[i].clone())
+                } else {
+                    Err(RuntimeError::IndexOutOfBounds(self_string, i).into())
+                }
+            }
+            Val::String(PsString(s)) => {
+                let i = index.cast_to_int()? as usize;
+
+                let Some(c) = s.chars().nth(i) else {
+                    return Err(RuntimeError::IndexOutOfBounds(self_string, i).into());
+                };
+                Ok(Val::Char(c as u32))
+            }
+            Val::HashTable(v) => v
+                .get(&index.cast_to_string().to_ascii_lowercase())
+                .cloned()
+                .ok_or(RuntimeError::MemberNotFound(index.cast_to_string()).into()),
+            _ => {
+                if let Ok(i) = index.cast_to_int() {
+                    if i == 0 {
+                        Ok(self.clone())
+                    } else {
+                        Err(RuntimeError::IndexOutOfBounds(self_string, i as usize).into())
+                    }
+                } else {
+                    let member_name = index.cast_to_string();
+                    Err(RuntimeError::MemberNotFound(member_name).into())
+                }
+            }
+        }
+    }
+
     pub fn flatten(&self) -> Vec<Self> {
         match self {
             Val::Array(v) => {
@@ -920,6 +885,7 @@ impl Val {
     }
 
     pub(super) fn cast_to_script(&self) -> String {
+        log::trace!("cast_to_script {:?}", self);
         match self {
             Val::Null => "$null".to_string(),
             Val::Bool(b) => String::from(if *b { "$true" } else { "$false" }),
@@ -944,7 +910,8 @@ impl Val {
                     .join(NEWLINE);
                 format!("@{{{NEWLINE}{}{NEWLINE}}}", inner)
             }
-            Val::RuntimeObject(s) => format!("[{}]", s.name()),
+            Val::RuntimeObject(s) => s.to_string(),
+            Val::RuntimeType(s) => format!("[{}]", s.full_name()),
             Val::ScriptBlock(sb) => format!("{{{}}}", sb),
             Val::ScriptText(st) => st.clone(),
             Val::NonDisplayed(box_val) => (*box_val).cast_to_script(),
@@ -1256,63 +1223,6 @@ mod tests {
                 .cast_to_typed_array(Some(Box::new(ValType::String)))
                 .unwrap(),
             vec![Val::String("7".into())]
-        );
-    }
-
-    #[test]
-    fn runtime_type() {
-        assert_eq!(
-            ValType::runtime("null").unwrap_err(),
-            ValError::UnknownType("null".into())
-        );
-
-        let rt = Val::RuntimeObject(Box::new(ValType::Bool));
-        assert_eq!(rt.ttype(), ValType::RuntimeType("Bool".into()));
-        assert_eq!(rt.type_definition().unwrap(), ValType::Bool);
-
-        let rt = ValType::runtime("char").unwrap();
-        assert_eq!(rt.ttype(), ValType::RuntimeType("Char".into()));
-        assert_eq!(rt.type_definition().unwrap(), ValType::Char);
-
-        let rt = ValType::runtime("double").unwrap();
-        assert_eq!(rt.ttype(), ValType::RuntimeType("Float".into()));
-        assert_eq!(rt.type_definition().unwrap(), ValType::Float);
-
-        let rt = ValType::runtime("StRing").unwrap();
-        assert_eq!(rt.ttype(), ValType::RuntimeType("String".into()));
-        assert_eq!(rt.type_definition().unwrap(), ValType::String);
-
-        let rt = ValType::runtime("long").unwrap();
-        assert_eq!(rt.ttype(), ValType::RuntimeType("Int".into()));
-        assert_eq!(rt.type_definition().unwrap(), ValType::Int);
-
-        let rt = ValType::runtime("array").unwrap();
-
-        //it's failing because right now Array is not a structure and ValType::Array
-        // and Val::Array are inconsistent assert_eq!(rt.ttype(),
-        // ValType::RuntimeType("Array".into()));
-        assert_eq!(rt.type_definition().unwrap(), ValType::Array(None));
-
-        let rt = ValType::runtime("hashtable").unwrap();
-        assert_eq!(rt.ttype(), ValType::RuntimeType("HashTable".into()));
-        assert_eq!(rt.type_definition().unwrap(), ValType::HashTable);
-
-        let rt = ValType::runtime("scriptblock").unwrap();
-        assert_eq!(rt.ttype(), ValType::RuntimeType("ScriptBlock".into()));
-        assert_eq!(rt.type_definition().unwrap(), ValType::ScriptBlock);
-
-        let rt = ValType::runtime("system.convert").unwrap();
-        assert_eq!(rt.ttype(), ValType::RuntimeType("Convert".into()));
-
-        let rt = ValType::runtime("system.text.encoding").unwrap();
-        assert_eq!(rt.ttype(), ValType::RuntimeType("Encoding".into()));
-
-        let rt = ValType::runtime("system.text.encoding::unicode").unwrap();
-        assert_eq!(rt.ttype(), ValType::RuntimeType("UnicodeEncoding".into()));
-
-        assert_eq!(
-            ValType::runtime("a").unwrap_err(),
-            ValError::UnknownType("a".into())
         );
     }
 }

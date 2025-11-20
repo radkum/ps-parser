@@ -169,7 +169,6 @@ $stringNumber = "123"
 $intNumber = [int]$stringNumber
 $floatNumber = [double]$stringNumber
 Write-Output "String: $stringNumber (Type: $($stringNumber.GetType().Name))"
-Write-Output "String: $stringNumber (Type: $($stringNumber.GetType()['Name']))"
 Write-Output "Int: $intNumber (Type: $($intNumber.GetType().Name))"
 Write-Output "Float: $floatNumber (Type: $($floatNumber.GetType().Name))"
 

@@ -1,5 +1,5 @@
 use super::{
-    RuntimeObject, RuntimeResult, Val, ValType,
+    RuntimeObjectTrait, Val, ValType,
     params::{Param, Params},
 };
 use crate::{
@@ -15,13 +15,9 @@ pub(crate) struct ScriptBlock {
     pub deobfuscated: Vec<String>,
 }
 
-impl RuntimeObject for ScriptBlock {
-    fn type_definition(&self) -> RuntimeResult<ValType> {
-        Ok(ValType::ScriptBlock)
-    }
-
-    fn name(&self) -> String {
-        ValType::ScriptBlock.name()
+impl RuntimeObjectTrait for ScriptBlock {
+    fn clone_rt(&self) -> Box<dyn RuntimeObjectTrait> {
+        Box::new(self.clone())
     }
 }
 

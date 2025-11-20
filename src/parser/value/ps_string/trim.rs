@@ -35,7 +35,7 @@ impl PsString {
         }
         let PsString(input) = self;
 
-        if args.len() == 0 {
+        if args.is_empty() {
             return Ok(Val::String(input.trim().into()));
         } else if args.len() == 1 {
             let Some(trim_chars) = Self::trim_arg(args[0].clone()) else {

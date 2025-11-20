@@ -6,12 +6,12 @@ impl PsString {
 
         if args.len() != 1 {
             //something wrong
-            return Err(MethodError::new_incorrect_args("FromBase64String", args));
+            return Err(MethodError::new_incorrect_args("Normalize", args));
         }
 
         let arg = args[0].clone();
         let Val::String(PsString(form)) = arg else {
-            return Err(MethodError::new_incorrect_args("FromBase64String", args));
+            return Err(MethodError::new_incorrect_args("Normalize", args));
         };
 
         use unicode_normalization::UnicodeNormalization;

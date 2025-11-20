@@ -44,6 +44,12 @@ impl From<char> for PsValue {
     }
 }
 
+impl From<String> for PsValue {
+    fn from(s: String) -> Self {
+        PsValue::String(s)
+    }
+}
+
 impl Display for PsValue {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let val: InternalVal = self.clone().into();
@@ -89,7 +95,8 @@ impl From<InternalVal> for PsValue {
                     .map(|(k, v)| (k.clone(), v.clone().into()))
                     .collect(),
             ),
-            InternalVal::RuntimeObject(obj) => PsValue::String(obj.name()),
+            InternalVal::RuntimeObject(obj) => PsValue::String(obj.to_string()),
+            InternalVal::RuntimeType(obj) => PsValue::String(obj.describe()),
             InternalVal::ScriptBlock(sb) => PsValue::String(sb.raw_text),
             InternalVal::ScriptText(st) => PsValue::String(st.clone()),
             InternalVal::NonDisplayed(box_val) => (*box_val).into(),

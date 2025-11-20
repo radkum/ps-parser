@@ -250,6 +250,18 @@ mod tests {
     }
 
     #[test]
+    fn deobfuscation_from_base_64() {
+        let mut p = PowerShellSession::new();
+        let input = r#" $encoded = [syStem.texT.EncoDInG]::unIcoDe.geTstRiNg([char]97);$encoded"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), String::from("\u{FFFD}").into());
+
+        let input = r#" [syStem.texT.EncoDInG]::unIcoDe.geTstRiNg([SYSTem.cOnVERT]::froMbasE64striNg("ZABlAGMAbwBkAGUAZAA="))"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), String::from("decoded").into());
+    }
+
+    #[test]
     fn hash_table() {
         // assign not existing value, without forcing evaluation
         let mut p = PowerShellSession::new().with_variables(Variables::env().values_persist());
@@ -794,6 +806,14 @@ $a"#;
         assert_eq!(script_res.result(), PsValue::String("Object[]3".into()));
 
         // function argument as array
+        let input = r#" [object[]](1,2,3)"#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::Array(vec![PsValue::Int(1), PsValue::Int(2), PsValue::Int(3)])
+        );
+
+        // function argument as array
         let input = r#" $a = ,(42,2);$a"#;
         let script_res = p.parse_input(input).unwrap();
         assert_eq!(
@@ -871,12 +891,20 @@ $a"#;
         let script_res = p.parse_input(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Int(4));
 
+        let input = r#" [system.text.encoding]::unicode -shl 1 "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::Null);
+        assert_eq!(
+            script_res.errors()[0].to_string(),
+            String::from("BitwiseError: -shl not defined for UnicodeEncoding")
+        );
+
         let input = r#" [int] -shl 1 "#;
         let script_res = p.parse_input(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Null);
         assert_eq!(
             script_res.errors()[0].to_string(),
-            String::from("BitwiseError: band not defined for Int")
+            String::from("BitwiseError: -shl not defined for Int32")
         );
 
         let input = r#" '2' -as ([string] -shl 1) "#;
@@ -884,7 +912,7 @@ $a"#;
         assert_eq!(script_res.result(), PsValue::Null);
         assert_eq!(
             script_res.errors()[0].to_string(),
-            String::from("BitwiseError: band not defined for String")
+            String::from("BitwiseError: -shl not defined for String")
         );
 
         let input = r#" '2' -as ([int]) "#;

@@ -1,6 +1,6 @@
 use thiserror_no_std::Error;
 
-use super::{TypeError, Val, ValError, runtime_object::RuntimeError};
+use super::{Val, ValError, runtime_object::RuntimeError};
 
 #[derive(Error, Debug, Clone)]
 pub enum MethodError {
@@ -18,9 +18,6 @@ pub enum MethodError {
 
     #[error("RuntimeError: {}", .0.to_string())]
     RuntimeError(String),
-
-    #[error("TypeError: {}", .0.to_string())]
-    TypeError(TypeError),
 
     #[error("{0}")]
     Exception(String),
@@ -42,12 +39,6 @@ impl From<ValError> for MethodError {
 impl From<RuntimeError> for MethodError {
     fn from(err: RuntimeError) -> Self {
         MethodError::RuntimeError(err.to_string())
-    }
-}
-
-impl From<TypeError> for MethodError {
-    fn from(err: TypeError) -> Self {
-        MethodError::TypeError(err)
     }
 }
 

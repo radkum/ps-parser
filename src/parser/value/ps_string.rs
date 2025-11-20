@@ -6,7 +6,7 @@ mod pad;
 mod substring;
 mod to_upper_lower;
 mod trim;
-use super::{MethodCallType, MethodError, MethodResult, RuntimeObject, Val, ValType};
+use super::{MethodCallType, MethodError, MethodResult, RuntimeObjectTrait, Val, ValType};
 use crate::parser::value::{RuntimeError, runtime_object::RuntimeResult};
 #[derive(Clone, Debug, SmartDefault, PartialEq)]
 pub(crate) struct PsString(pub String);
@@ -23,7 +23,7 @@ impl From<String> for PsString {
     }
 }
 
-impl RuntimeObject for PsString {
+impl RuntimeObjectTrait for PsString {
     fn method(&self, name: &str) -> RuntimeResult<MethodCallType> {
         let name = name.to_ascii_lowercase();
         let fn_ptr = match name.to_ascii_lowercase().as_str() {
@@ -59,12 +59,8 @@ impl RuntimeObject for PsString {
         }))
     }
 
-    fn type_definition(&self) -> RuntimeResult<super::ValType> {
-        Ok(ValType::String)
-    }
-
-    fn name(&self) -> String {
-        ValType::String.name()
+    fn clone_rt(&self) -> Box<dyn RuntimeObjectTrait> {
+        Box::new(self.clone())
     }
 }
 

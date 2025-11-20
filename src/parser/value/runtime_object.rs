@@ -1,4 +1,4 @@
-use super::{MethodResult, TypeInfoTrait, Val, *};
+use super::{MethodResult, Val, *};
 use crate::parser::value::{MethodError, PsString};
 pub type MethodCallType = Box<dyn Fn(&Val, Vec<Val>) -> MethodResult<Val>>;
 pub type StaticFnCallType = fn(Vec<Val>) -> MethodResult<Val>;
@@ -27,7 +27,7 @@ impl From<MethodError> for RuntimeError {
 
 pub type RuntimeResult<T> = core::result::Result<T, RuntimeError>;
 
-pub(crate) trait RuntimeObject: std::fmt::Debug {
+pub(crate) trait RuntimeObjectTrait: std::fmt::Debug + std::fmt::Display {
     fn method(&self, name: &str) -> RuntimeResult<MethodCallType> {
         Err(MethodError::NotImplemented(name.to_string()).into())
     }
@@ -46,32 +46,38 @@ pub(crate) trait RuntimeObject: std::fmt::Debug {
     fn name(&self) -> String {
         format!("{:?}", self)
     }
-    fn type_definition(&self) -> RuntimeResult<ValType> {
-        Err(MethodError::NotImplemented("type_definition()".into()).into())
-    }
+
+    fn clone_rt(&self) -> Box<dyn RuntimeObjectTrait>;
 }
 
 impl Val {
     fn get_type(&self, _: Vec<Val>) -> MethodResult<Val> {
-        Ok(self.type_info()?.into())
+        Ok(Val::RuntimeType(Box::new(self.ttype())))
     }
 }
 
-impl RuntimeObject for Val {
+impl RuntimeObjectTrait for Val {
+    fn clone_rt(&self) -> Box<dyn RuntimeObjectTrait> {
+        Box::new(self.clone())
+    }
+
     fn method(&self, name: &str) -> RuntimeResult<MethodCallType> {
+        log::trace!("Val: {self:?} method called with name: {}", name);
         match name {
             "gettype" => return Ok(Box::new(Self::get_type)),
             _ => {}
         }
         match self {
             Val::String(str) => str.method(name),
-            Val::RuntimeObject(s) => s.method(name),
+            Val::RuntimeObject(runtime_object) => runtime_object.method(name),
+            //Val::RuntimeType(runtime_type) => runtime_type.method(name),
             _ => Err(super::MethodError::MethodNotFound(name.to_string()).into()),
         }
     }
     fn static_method(&self, name: &str) -> RuntimeResult<StaticFnCallType> {
         match self {
             Val::RuntimeObject(runtime_object) => runtime_object.static_method(name),
+            Val::RuntimeType(runtime_type) => runtime_type.static_method(name),
             _ => Err(MethodError::MethodNotFound(name.to_string()).into()),
         }
     }
@@ -96,6 +102,10 @@ impl RuntimeObject for Val {
                 .unwrap_or_default());
         }
 
+        if let Val::RuntimeType(ps) = self {
+            return ps.readonly_member(name);
+        }
+
         // then check the length property
         if name.eq_ignore_ascii_case("length") {
             return Ok(Val::Int(match self {
@@ -113,15 +123,43 @@ impl RuntimeObject for Val {
     fn readonly_static_member(&self, name: &str) -> RuntimeResult<Val> {
         match self {
             Val::RuntimeObject(runtime_object) => runtime_object.readonly_static_member(name),
+            Val::RuntimeType(rt) => rt.readonly_static_member(name),
             _ => Err(RuntimeError::MemberNotFound(name.to_string())),
         }
     }
+}
 
-    fn type_definition(&self) -> RuntimeResult<ValType> {
-        if let Val::RuntimeObject(rt) = self {
-            rt.type_definition()
-        } else {
-            Err(RuntimeError::ValNotDefinesAnyType(self.display()))
-        }
+#[cfg(test)]
+mod tests {
+    use crate::{PowerShellSession, PsValue, Variables};
+
+    #[test]
+    fn get_type() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#" $a = ,('m',1234,'s');$a.gettype() "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::String(
+                "IsPublic\tIsSerial\tName\tBaseType\n--------\t--------\t----\t--------\n    \
+                 true\t    true\tObject[]\t   Array"
+                    .into()
+            )
+        );
+
+        let input = r#" $a = ,('m',1234,'s');function Foo($x) { $x[0].GetType().name + $x[2]}; $b = (Foo(1,2,3));$b "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::String("Int323".into()));
+
+        //this like return "a" + "msi" ".dll", object. However EDR may detect such
+        // strings as suspicious, so we test little different string: "assi.dll"
+        // let input = r#" $a = ,('m',1234,'s');function Foo($x) { $x[0].GetType().name
+        // + $x[2]}; $b = $a.gettype()[0].basetype.name[0] +$a[0][0]
+        // +$a[0][2]+(Foo(1,2,3))[0]+([string]$a.gettype())[6]+[char](97+3)
+        // +[string][char]((54) | ForEach-Object { $_*2 })*2;$b "#;
+        let input = r#" $a = ,('m',1234,'s');function Foo($x) { $x[0].GetType().name + $x[2]}; $b = $a.gettype()[0].basetype.name[0] +$a[0][2] +$a[0][2]+(Foo(1,2,3))[0]+([string]$a.gettype())[6]+[char](97+3) +[string][char]((54) | ForEach-Object { $_*2 })*2;$b "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::String("AssI.dll".into()));
     }
 }

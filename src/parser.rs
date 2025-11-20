@@ -12,7 +12,7 @@ use std::collections::HashMap;
 pub(crate) use command::CommandError;
 use command::{Command, CommandElem};
 pub(crate) use stream_message::StreamMessage;
-use value::{Param, RuntimeObject, ScriptBlock, ValResult};
+use value::{Param, RuntimeObjectTrait, ScriptBlock, ValResult};
 use variables::{Scope, SessionScope};
 type ParserResult<T> = core::result::Result<T, ParserError>;
 use error::ParserError;
@@ -22,7 +22,8 @@ use pest_derive::Parser;
 use predicates::{ArithmeticPred, BitwisePred, LogicalPred, StringPred};
 pub use script_result::{PsValue, ScriptResult};
 pub use token::{CommandToken, ExpressionToken, MethodToken, StringExpandableToken, Token, Tokens};
-pub(crate) use value::{Val, ValType};
+pub(crate) use value::Val;
+use value::ValType;
 pub use variables::Variables;
 use variables::{VarName, VariableError};
 
@@ -599,7 +600,7 @@ impl<'a> PowerShellSession {
         let mut pair = token.into_inner();
         let token = pair.next().unwrap();
         let mut val = self.eval_value(token)?;
-        let _ = self.eval_element_access(pair.next().unwrap(), &mut val)?;
+        let _ = self.eval_element_access_ref(pair.next().unwrap(), &mut val)?;
         Err(ParserError::Skip)
     }
 
@@ -790,11 +791,19 @@ impl<'a> PowerShellSession {
         Ok((method_name, args))
     }
 
-    fn eval_element_access<'b>(
+    fn eval_element_access_ref<'b>(
         &mut self,
         token: Pair<'a>,
         object: &'b mut Val,
     ) -> ParserResult<&'b mut Val> {
+        let mut pairs = token.into_inner();
+        let index_token = pairs.next().unwrap();
+        check_rule!(index_token, Rule::expression);
+        let index = self.eval_expression(index_token)?;
+        Ok(object.get_index_ref(index)?)
+    }
+
+    fn eval_element_access(&mut self, token: Pair<'a>, object: &Val) -> ParserResult<Val> {
         let mut pairs = token.into_inner();
         let index_token = pairs.next().unwrap();
         check_rule!(index_token, Rule::expression);
@@ -818,7 +827,7 @@ impl<'a> PowerShellSession {
                 ))
             }
             Rule::member_access => Ok(object.member(get_member_name(token))?),
-            Rule::element_access => Ok(self.eval_element_access(token, object)?),
+            Rule::element_access => Ok(self.eval_element_access_ref(token, object)?),
             _ => unexpected_token!(token),
         }
     }
@@ -832,8 +841,7 @@ impl<'a> PowerShellSession {
             Rule::member_access => object.readonly_member(get_member_name(token))?.clone(),
             Rule::method_invocation => {
                 let static_method = self.method_is_static(token.clone());
-                let (function_name, args) = self.eval_method_invocation(token, &object)?;
-                log::trace!("Method: {:?} {:?}", &function_name, &args);
+                let (function_name, args) = self.eval_method_invocation(token, object)?;
                 if static_method {
                     let call = object.static_method(function_name.as_str())?;
                     call(args)?
@@ -842,7 +850,7 @@ impl<'a> PowerShellSession {
                     call(object, args)?
                 }
             }
-            Rule::element_access => self.eval_element_access(token, object)?.clone(),
+            Rule::element_access => self.eval_element_access(token, object)?,
             _ => unexpected_token!(token),
         })
     }
@@ -951,12 +959,20 @@ impl<'a> PowerShellSession {
         Ok(res)
     }
 
+    fn get_valtype_from_type_literal(&mut self, token: Pair<'a>) -> ParserResult<ValType> {
+        check_rule!(token, Rule::type_literal);
+
+        let token = token.into_inner().next().unwrap();
+        check_rule!(token, Rule::type_spec);
+        Ok(ValType::cast(token.as_str())?)
+    }
+
     fn eval_type_literal(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::type_literal);
 
         let token = token.into_inner().next().unwrap();
         check_rule!(token, Rule::type_spec);
-        Ok(ValType::runtime(token.as_str())?)
+        Ok(ValType::runtime_type_from_str(token.as_str())?)
     }
 
     fn parse_script_block(&mut self, token: Pair<'a>) -> ParserResult<ScriptBlock> {
@@ -1544,8 +1560,9 @@ impl<'a> PowerShellSession {
                     continue;
                 }
                 Rule::type_literal => {
-                    let runtime_type = self.eval_type_literal(attribute_type_token)?;
-                    return Ok(Some(runtime_type.type_definition()?));
+                    return Ok(Some(
+                        self.get_valtype_from_type_literal(attribute_type_token)?,
+                    ));
                 }
                 _ => unexpected_token!(attribute_type_token),
             }

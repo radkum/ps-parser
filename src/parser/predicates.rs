@@ -77,10 +77,8 @@ impl StringPred {
 
         if let Some(type_check) = TypeCheckPred::get(name_lowercase.as_str()) {
             return Some(Box::new(move |v1, v2| {
-                if let Val::RuntimeObject(object) = &v2
-                    && let Ok(v2_type) = object.type_definition()
-                {
-                    return Ok(Val::Bool(type_check(v1, v2_type)));
+                if let Val::RuntimeType(rt) = &v2 {
+                    return Ok(Val::Bool(type_check(v1, rt.type_definition())));
                 }
 
                 Err(OpError::NotType(v2.cast_to_string()))
