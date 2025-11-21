@@ -1,7 +1,7 @@
 use super::{MethodResult, Val, *};
 use crate::parser::value::{MethodError, PsString};
 pub type MethodCallType = Box<dyn Fn(&Val, Vec<Val>) -> MethodResult<Val>>;
-pub type StaticFnCallType = fn(Vec<Val>) -> MethodResult<Val>;
+pub type StaticFnCallType = Box<dyn FnMut(Vec<Val>) -> MethodResult<Val>>;
 
 use thiserror_no_std::Error;
 

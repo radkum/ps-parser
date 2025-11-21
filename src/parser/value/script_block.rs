@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     PowerShellSession,
-    parser::{CommandElem, CommandOutput, ParserError, ParserResult, Results},
+    parser::{CommandElem, CommandOutput, ParserError, ParserResult, Results, value::runtime_object::StaticFnCallType},
 };
 
 #[derive(Debug, Clone, Default)]
@@ -176,6 +176,42 @@ impl ScriptBlock {
     ) -> ParserResult<CommandOutput> {
         let mut self_clone = self.clone();
         self_clone.run_mut(args, ps, ps_item)
+    }
+
+    pub(crate) fn get_method(
+        &self
+    ) -> Option<StaticFnCallType> {
+        let mut fn_body = self.clone();
+        let fun = move |params| {
+            fn_body.run_method(params).map_err(|e| super::MethodError::RuntimeError(e.to_string()))
+        };
+        Some(Box::new(fun))
+    }
+    
+    pub fn run_method(
+        &mut self,
+        args: Vec<Val>,
+    ) -> ParserResult<Val> {
+        if self.body.is_empty() {
+            return Ok(Val::Null);
+        }
+        let ps = &mut crate::PowerShellSession::new();
+        for (i, param) in self.params.0.iter().enumerate() {
+            let val = args
+                .get(i)
+                .cloned()
+                .unwrap_or(param.default_value().unwrap_or(Val::Null));
+            ps.variables
+                .set_local(param.name(), val)
+                .map_err(ParserError::from)?;
+        }
+
+        let (
+            script_last_output,
+            _,
+        ) = ps.parse_subscript(self.body.as_str())?;
+
+        Ok(script_last_output)
     }
 }
 

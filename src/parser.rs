@@ -6,7 +6,8 @@ mod stream_message;
 mod token;
 mod value;
 mod variables;
-
+use value::ClassType;
+use value::ClassProperties;
 use std::collections::HashMap;
 
 pub(crate) use command::CommandError;
@@ -436,6 +437,86 @@ impl<'a> PowerShellSession {
         })
     }
 
+    fn parse_class_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::class_statement);
+        let mut pair = token.into_inner();
+
+        let class_name_token = pair.next().unwrap();
+        check_rule!(class_name_token, Rule::simple_name);
+        let class_name = class_name_token.as_str().to_ascii_lowercase();
+
+        let mut properties: ClassProperties = HashMap::new();
+        let mut methods: HashMap<String, ScriptBlock> = HashMap::new();
+
+        for member_token in pair {
+            match member_token.as_rule() {
+                Rule::class_property_definition => {
+                    let mut prop_pair = member_token.into_inner();
+
+                    // we don't want care about attributes here. It's todo in future
+                    let mut prop_pair = prop_pair.skip_while(|p| p.as_rule() == Rule::attribute || p.as_rule() == Rule::class_attribute);
+ 
+                    let mut token = prop_pair.next().unwrap();
+                    let ttype = if token.as_rule() == Rule::type_literal {
+                        let ttype = self.eval_type_literal(token)?.ttype();
+                        token = prop_pair.next().unwrap();
+                        Some(ttype)
+                    } else {
+                        None
+                    };
+                    check_rule!(token, Rule::variable);
+                    let var_name = Self::parse_variable(token)?;
+                    let default_val = if let Some(expression_token) = prop_pair.next() {
+                        Some(self.eval_expression(expression_token)?)
+                    } else {
+                        None
+                    };
+                    properties.insert(var_name.name, (ttype, default_val));
+                }
+                Rule::class_method_definition => {
+                    let mut prop_pair = member_token.into_inner();
+
+                    // we don't want care about attributes here. It's todo in future
+                    let mut prop_pair = prop_pair.skip_while(|p| p.as_rule() == Rule::attribute || p.as_rule() == Rule::class_attribute);
+ 
+                    let mut token = prop_pair.next().unwrap();
+                    let ttype = if token.as_rule() == Rule::type_literal {
+                        let ttype = self.eval_type_literal(token)?.ttype();
+                        token = prop_pair.next().unwrap();
+                        Some(ttype)
+                    } else {
+                        None
+                    };
+                    check_rule!(token, Rule::simple_name);
+                    let method_name = token.as_str().to_ascii_lowercase();
+
+                    let mut token = prop_pair.next().unwrap();
+                    let parameters = if token.as_rule() == Rule::parameter_list {
+                        let params = self.parse_parameter_list(token)?;
+                        token = prop_pair.next().unwrap();
+                        params
+                    } else {
+                        vec![]
+                    };
+                    check_rule!(token, Rule::script_block);
+                    let script_block = self.parse_script_block(token)?.with_params(parameters);
+                    methods.insert(method_name, script_block);
+                }
+                _ => unexpected_token!(member_token),
+            }
+        }
+        let class_type = ClassType::new(
+                class_name.clone(),
+                properties,
+                HashMap::new(),
+                methods,
+            );
+            if let Ok(mut value) = value::RUNTIME_TYPE_MAP.try_lock() {
+                value.insert(class_name, Box::new(class_type.clone()));
+            }
+        Ok(Val::Null)
+    }
+    
     fn eval_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         match token.as_rule() {
             Rule::pipeline => self.eval_pipeline(token),
@@ -443,6 +524,7 @@ impl<'a> PowerShellSession {
             Rule::flow_control_statement => self.eval_flow_control_statement(token),
             Rule::function_statement => self.parse_function_statement(token),
             Rule::statement_terminator => Ok(Val::Null),
+            Rule::class_statement => self.parse_class_statement(token),
             Rule::EOI => Ok(Val::Null),
             _ => {
                 not_implemented!(token)
@@ -451,13 +533,6 @@ impl<'a> PowerShellSession {
     }
 
     fn safe_eval_sub_expr(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        // match self.eval_statements(token.clone()) {
-        //     Ok(vals) => Ok(Val::Array(vals)),
-        //     Err(err) => {
-        //         self.errors.push(err);
-        //         Ok(Val::ScriptText(token.as_str().to_string()))
-        //     }
-        // }
         check_rule!(token, Rule::sub_expression);
         let Some(inner_token) = token.into_inner().next() else {
             return Ok(Val::Null);
@@ -843,7 +918,7 @@ impl<'a> PowerShellSession {
                 let static_method = self.method_is_static(token.clone());
                 let (function_name, args) = self.eval_method_invocation(token, object)?;
                 if static_method {
-                    let call = object.static_method(function_name.as_str())?;
+                    let mut call = object.static_method(function_name.as_str())?;
                     call(args)?
                 } else {
                     let call = object.method(function_name.as_str())?;
@@ -1052,15 +1127,6 @@ impl<'a> PowerShellSession {
         }
         Ok(Val::HashTable(hash))
     }
-
-    // fn get_variable_access(&mut self, token: Pair<'a>) -> ParserResult<&mut Val>
-    // {     check_rule!(token, Rule::variable_access);
-    //     let mut pair = token.into_inner();
-    //     let var_token = pair.next().unwrap();
-    //     let mut object = self.get_variable(var_token)?;
-    //     let access_token = pair.next().unwrap();
-    //     Ok(self.eval_element_access(access_token, &mut object)?)
-    // }
 
     fn eval_value(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::value);

@@ -1,5 +1,5 @@
 mod runtime_type;
-
+use std::{collections::HashMap, sync::{LazyLock, Mutex}};
 use runtime_type::{ArrayType, ValueType};
 pub(super) use runtime_type::{ObjectType, RuntimeTypeTrait};
 use smart_default::SmartDefault;
@@ -52,22 +52,15 @@ impl std::fmt::Display for ValType {
 
 const CONVERT: Convert = Convert {};
 const ENCODING: Encoding = Encoding {};
-
+pub static RUNTIME_TYPE_MAP: LazyLock<Mutex<HashMap<String, Box<dyn RuntimeTypeTrait>>>> = LazyLock::new(|| {
+    Mutex::new(
+        HashMap::from([
+            ("system.convert".into(), Box::new(CONVERT) as _),
+            ("system.text.encoding".into(), Box::new(ENCODING) as _),
+        ])
+    )
+});
 impl ValType {
-    pub(crate) fn runtime_type_from_name(name: &str) -> ValResult<Box<dyn RuntimeTypeTrait>> {
-        Ok(match name.to_ascii_lowercase().as_str() {
-            "system.convert" => Box::new(CONVERT) as _,
-            "system.text.encoding" => Box::new(ENCODING) as _,
-            //"system.text.encoding::unicode" => Box::new(UnicodeEncoding {}) as _,
-            _ => Err(ValError::UnknownType(name.to_string()))?,
-        })
-    }
-
-    const RUNTIME_TYPE_MAP: phf::Set<&'static str> = phf::phf_set! {
-        "system.convert",
-        "system.text.encoding",
-    };
-
     pub(crate) fn cast(s: &str) -> ValResult<Self> {
         let mut s = s.to_ascii_lowercase();
         if "object" == s.as_str() || "object[]" == s.as_str() {
@@ -90,11 +83,12 @@ impl ValType {
             "hashtable" => Self::HashTable,
             "switch" => Self::Switch,
             _ => {
-                if Self::RUNTIME_TYPE_MAP.contains(s.as_str()) {
-                    return Ok(Self::RuntimeObject(s));
-                } else {
-                    return Err(ValError::UnknownType(s));
+                if let Ok(map) = RUNTIME_TYPE_MAP.try_lock() {
+                    if map.contains_key(s.as_str()) {
+                        return Ok(Self::RuntimeObject(s));
+                    } 
                 }
+                return Err(ValError::UnknownType(s));
             }
         };
         Ok(t)
@@ -107,7 +101,10 @@ impl ValType {
 
     pub(crate) fn runtime(&self) -> ValResult<Val> {
         Ok(Val::RuntimeType(match self {
-            ValType::RuntimeObject(name) => Self::runtime_type_from_name(name)?,
+            ValType::RuntimeObject(name) => {
+                let map = RUNTIME_TYPE_MAP.try_lock().map_err(|_| ValError::UnknownType(name.to_string()))?;
+                map.get(name.as_str()).ok_or_else(|| ValError::UnknownType(name.to_string()))?.clone_rt()
+            }
             _ => Box::new(self.clone()),
         }))
     }

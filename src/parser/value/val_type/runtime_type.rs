@@ -26,7 +26,7 @@ impl std::fmt::Display for TypeInfo {
     }
 }
 
-pub(crate) trait RuntimeTypeTrait: std::fmt::Debug {
+pub(crate) trait RuntimeTypeTrait: std::fmt::Debug + Sync + Send {
     fn describe(&self) -> String {
         format!("{}", self.type_info())
     }

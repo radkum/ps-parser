@@ -8,7 +8,7 @@ pub(crate) struct Convert {}
 impl RuntimeTypeTrait for Convert {
     fn static_method(&self, name: &str) -> RuntimeResult<StaticFnCallType> {
         match name.to_ascii_lowercase().as_str() {
-            "frombase64string" => Ok(from_base_64_string),
+            "frombase64string" => Ok(Box::new(from_base_64_string)),
             _ => Err(MethodError::MethodNotFound(name.to_string()).into()),
         }
     }

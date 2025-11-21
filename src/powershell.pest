@@ -142,21 +142,20 @@ class_property_definition = {
     variable ~
     ("=" ~ expression)?
 }
-class_method_parameter = { type_literal? ~ variable }
-class_method_parameter_list = { class_method_parameter ~ ("," ~ class_method_parameter)* }
+
 class_method_definition = {
-    attribute? ~
-    class_attribute* ~
+    //attribute? ~
+    //class_attribute* ~
     type_literal? ~
     simple_name ~
-    "(" ~ class_method_parameter_list? ~ ")" ~
-    "{" ~ script_block? ~ "}"
+    "(" ~ parameter_list? ~ ")" ~
+    "{" ~ script_block ~ "}"
 }
 class_statement = {
     ^"class" ~ simple_name ~ (":" ~ simple_name ~ ("," ~ simple_name)*)? ~
     "{" ~
         (
-          class_property_definition ~ statement_terminator ~ ";"* 
+          class_property_definition ~ statement_terminator* 
           | class_method_definition
         )* ~
     "}"
@@ -356,7 +355,6 @@ value = {
     | variable
 }
 parenthesized_expression = !{ "(" ~ pipeline ~ ")"}
-//sub_expression = !{ "$(" ~ statements? ~ ")" } - maybe statemetnts?
 sub_expression = !{ "$(" ~ pipeline? ~ ")" }
 array_expression = { "@(" ~ statements? ~ ")" }
 script_block_expression = !{ "{" ~ script_block ~ "}" }

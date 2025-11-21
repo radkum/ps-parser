@@ -1,25 +1,26 @@
 use std::collections::HashMap;
 
 use super::Variables;
+use crate::parser::command::CommandOutput;
 use crate::parser::{ScriptBlock, command::CallablePredType};
 
-pub(super) type FunctionMap = HashMap<String, ScriptBlock>;
-
+pub(crate) type FunctionMap = HashMap<String, ScriptBlock>;
+use crate::parser::CommandElem;
+use crate::parser::Val;
 impl Variables {
-    pub(crate) fn get_function(&mut self, name: &str) -> Option<CallablePredType> {
+    pub(crate) fn get_function(&mut self, name: &str) -> Option<CallablePredType<CommandElem, CommandOutput>> {
         if let Some(fun) = self.script_functions.get(name).cloned() {
-            self.get_function_from_script_block(fun)
+            Self::get_function_from_script_block(fun)
         } else if let Some(fun) = self.global_functions.get(name).cloned() {
-            self.get_function_from_script_block(fun)
+            Self::get_function_from_script_block(fun)
         } else {
             None
         }
     }
 
-    pub(crate) fn get_function_from_script_block(
-        &mut self,
+    pub(super) fn get_function_from_script_block(
         sb: ScriptBlock,
-    ) -> Option<CallablePredType> {
+    ) -> Option<CallablePredType<CommandElem, CommandOutput>> {
         let fun = move |params, ps: &mut crate::PowerShellSession| {
             let sb = sb.clone();
             sb.run(params, ps, None)

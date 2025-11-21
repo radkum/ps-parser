@@ -4,7 +4,7 @@ mod variable;
 
 use std::collections::HashMap;
 
-use function::FunctionMap;
+pub(super) use function::FunctionMap;
 use phf::phf_map;
 pub(super) use scopes::SessionScope;
 use thiserror_no_std::Error;

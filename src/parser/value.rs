@@ -12,6 +12,10 @@ use std::{
     ops::Neg,
 };
 mod val_type;
+mod class;
+pub(super) use val_type::RUNTIME_TYPE_MAP;
+pub(super) use class::ClassProperties;
+pub(super) use class::ClassType;
 pub(crate) use method_error::{MethodError, MethodResult};
 pub(crate) use params::Param;
 pub(crate) use ps_string::PsString;
