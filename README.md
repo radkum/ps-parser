@@ -29,7 +29,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ps-parser = "0.5.1"
+ps-parser = "0.5.2"
 ```
 
 ## Usage
@@ -164,7 +164,7 @@ errors: [ValError(InvalidCast("String", "Int"))]
 - benchmarks
 - "filter" functions
 - eval "switch" statements
-- parse "enum" and "class" statements
+- parse "enum" statements
 - more token kinds
 - implement Get-ExecutionPolicy cmdlet using registry
 

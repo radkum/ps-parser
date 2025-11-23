@@ -4,9 +4,11 @@ use super::{
 };
 use crate::{
     PowerShellSession,
-    parser::{CommandElem, CommandOutput, ParserError, ParserResult, Results, value::runtime_object::StaticFnCallType},
+    parser::{
+        CommandElem, CommandOutput, ParserError, ParserResult, Results, VarName,
+        value::{MethodCallType, runtime_object::StaticFnCallType},
+    },
 };
-
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ScriptBlock {
     pub params: Params,
@@ -18,6 +20,10 @@ pub(crate) struct ScriptBlock {
 impl RuntimeObjectTrait for ScriptBlock {
     fn clone_rt(&self) -> Box<dyn RuntimeObjectTrait> {
         Box::new(self.clone())
+    }
+
+    fn type_definition(&self) -> Box<dyn super::RuntimeTypeTrait> {
+        Box::new(ValType::ScriptBlock)
     }
 }
 
@@ -178,20 +184,17 @@ impl ScriptBlock {
         self_clone.run_mut(args, ps, ps_item)
     }
 
-    pub(crate) fn get_method(
-        &self
-    ) -> Option<StaticFnCallType> {
+    pub(crate) fn get_static_method(&self) -> Option<StaticFnCallType> {
         let mut fn_body = self.clone();
         let fun = move |params| {
-            fn_body.run_method(params).map_err(|e| super::MethodError::RuntimeError(e.to_string()))
+            fn_body
+                .run_static_method(params)
+                .map_err(|e| super::MethodError::RuntimeError(e.to_string()))
         };
         Some(Box::new(fun))
     }
-    
-    pub fn run_method(
-        &mut self,
-        args: Vec<Val>,
-    ) -> ParserResult<Val> {
+
+    pub fn run_static_method(&mut self, args: Vec<Val>) -> ParserResult<Val> {
         if self.body.is_empty() {
             return Ok(Val::Null);
         }
@@ -206,11 +209,43 @@ impl ScriptBlock {
                 .map_err(ParserError::from)?;
         }
 
-        let (
-            script_last_output,
-            _,
-        ) = ps.parse_subscript(self.body.as_str())?;
+        let (script_last_output, _) = ps.parse_subscript(self.body.as_str())?;
 
+        Ok(script_last_output)
+    }
+
+    pub(crate) fn get_method(&self) -> Option<MethodCallType> {
+        let mut fn_body = self.clone();
+        let fun = move |object: &mut Val, args| {
+            fn_body
+                .run_method(object, args)
+                .map_err(|e| super::MethodError::RuntimeError(e.to_string()))
+        };
+        Some(Box::new(fun))
+    }
+
+    pub fn run_method(&mut self, this: &mut Val, args: Vec<Val>) -> ParserResult<Val> {
+        if self.body.is_empty() {
+            return Ok(Val::Null);
+        }
+        let ps = &mut crate::PowerShellSession::new();
+        ps.variables
+            .set_local("this", this.clone())
+            .map_err(ParserError::from)?;
+        for (i, param) in self.params.0.iter().enumerate() {
+            let val = args
+                .get(i)
+                .cloned()
+                .unwrap_or(param.default_value().unwrap_or(Val::Null));
+            ps.variables
+                .set_local(param.name(), val)
+                .map_err(ParserError::from)?;
+        }
+
+        let (script_last_output, _) = ps.parse_subscript(self.body.as_str())?;
+        if let Some(val) = ps.variables.get(&VarName::new(None, "this".to_string())) {
+            *this = val.clone();
+        }
         Ok(script_last_output)
     }
 }

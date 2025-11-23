@@ -7,7 +7,10 @@ mod substring;
 mod to_upper_lower;
 mod trim;
 use super::{MethodCallType, MethodError, MethodResult, RuntimeObjectTrait, Val, ValType};
-use crate::parser::value::{RuntimeError, runtime_object::RuntimeResult};
+use crate::parser::{
+    MethodName,
+    value::{RuntimeError, runtime_object::RuntimeResult},
+};
 #[derive(Clone, Debug, SmartDefault, PartialEq)]
 pub(crate) struct PsString(pub String);
 
@@ -24,9 +27,9 @@ impl From<String> for PsString {
 }
 
 impl RuntimeObjectTrait for PsString {
-    fn method(&self, name: &str) -> RuntimeResult<MethodCallType> {
-        let name = name.to_ascii_lowercase();
-        let fn_ptr = match name.to_ascii_lowercase().as_str() {
+    fn method(&self, method_name: MethodName) -> RuntimeResult<MethodCallType> {
+        let name = method_name.name();
+        let fn_ptr = match name {
             "normalize" => Self::normalize,
             "replace" => Self::replace,
             "substring" => Self::substring,
@@ -50,7 +53,7 @@ impl RuntimeObjectTrait for PsString {
             _ => Err(RuntimeError::MethodNotFound(name.to_string()))?,
         };
 
-        Ok(Box::new(move |v: &Val, args: Vec<Val>| {
+        Ok(Box::new(move |v: &mut Val, args: Vec<Val>| {
             if let Val::String(str) = v {
                 fn_ptr(str, args)
             } else {
@@ -61,6 +64,10 @@ impl RuntimeObjectTrait for PsString {
 
     fn clone_rt(&self) -> Box<dyn RuntimeObjectTrait> {
         Box::new(self.clone())
+    }
+
+    fn type_definition(&self) -> Box<dyn super::RuntimeTypeTrait> {
+        Box::new(ValType::String)
     }
 }
 

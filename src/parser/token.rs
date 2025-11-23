@@ -104,6 +104,14 @@ impl StringExpandableToken {
     pub fn new(token: String, value: String) -> Self {
         Self { token, value }
     }
+
+    pub fn token(&self) -> &String {
+        &self.token
+    }
+
+    pub fn value(&self) -> &String {
+        &self.value
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

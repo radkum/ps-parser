@@ -3,6 +3,7 @@ use super::{
     runtime_object::{MethodCallType, RuntimeError, RuntimeResult},
     val_type::ObjectType,
 };
+use crate::parser::MethodName;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Encoding {}
@@ -33,14 +34,17 @@ impl RuntimeTypeTrait for Encoding {
 struct UnicodeEncoding {}
 
 impl RuntimeObjectTrait for UnicodeEncoding {
-    fn method(&self, name: &str) -> RuntimeResult<MethodCallType> {
-        match name.to_ascii_lowercase().as_str() {
+    fn method(&self, method_name: MethodName) -> RuntimeResult<MethodCallType> {
+        match method_name.name() {
             "getstring" => Ok(Box::new(get_string)),
-            _ => Err(MethodError::MethodNotFound(name.to_string()).into()),
+            _ => Err(MethodError::MethodNotFound(method_name.name().to_string()).into()),
         }
     }
     fn clone_rt(&self) -> Box<dyn RuntimeObjectTrait> {
         Box::new(self.clone())
+    }
+    fn type_definition(&self) -> Box<dyn RuntimeTypeTrait> {
+        Box::new(Encoding {})
     }
 }
 
@@ -50,7 +54,7 @@ impl std::fmt::Display for UnicodeEncoding {
     }
 }
 
-fn get_string(_: &Val, args: Vec<Val>) -> MethodResult<Val> {
+fn get_string(_: &mut Val, args: Vec<Val>) -> MethodResult<Val> {
     use crate::parser::ValType;
     let arg = if args.len() == 1 {
         args[0].to_owned()

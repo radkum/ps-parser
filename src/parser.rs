@@ -6,14 +6,14 @@ mod stream_message;
 mod token;
 mod value;
 mod variables;
-use value::ClassType;
-use value::ClassProperties;
 use std::collections::HashMap;
 
 pub(crate) use command::CommandError;
 use command::{Command, CommandElem};
 pub(crate) use stream_message::StreamMessage;
-use value::{Param, RuntimeObjectTrait, ScriptBlock, ValResult};
+use value::{
+    ClassProperties, ClassType, MethodName, Param, RuntimeObjectTrait, ScriptBlock, ValResult,
+};
 use variables::{Scope, SessionScope};
 type ParserResult<T> = core::result::Result<T, ParserError>;
 use error::ParserError;
@@ -28,7 +28,7 @@ use value::ValType;
 pub use variables::Variables;
 use variables::{VarName, VariableError};
 
-use crate::parser::command::CommandOutput;
+use crate::parser::{command::CommandOutput, value::RuntimeError};
 
 type Pair<'i> = ::pest::iterators::Pair<'i, Rule>;
 type Pairs<'i> = ::pest::iterators::Pairs<'i, Rule>;
@@ -443,22 +443,36 @@ impl<'a> PowerShellSession {
 
         let class_name_token = pair.next().unwrap();
         check_rule!(class_name_token, Rule::simple_name);
-        let class_name = class_name_token.as_str().to_ascii_lowercase();
+        let class_name = class_name_token.as_str().to_string();
 
-        let mut properties: ClassProperties = HashMap::new();
+        let mut properties = ClassProperties::new();
         let mut methods: HashMap<String, ScriptBlock> = HashMap::new();
 
         for member_token in pair {
             match member_token.as_rule() {
                 Rule::class_property_definition => {
-                    let mut prop_pair = member_token.into_inner();
+                    let prop_pair = member_token.into_inner();
 
                     // we don't want care about attributes here. It's todo in future
-                    let mut prop_pair = prop_pair.skip_while(|p| p.as_rule() == Rule::attribute || p.as_rule() == Rule::class_attribute);
- 
+                    let mut prop_pair = prop_pair.skip_while(|p| p.as_rule() == Rule::attribute);
+
                     let mut token = prop_pair.next().unwrap();
+                    let _is_static = if token.as_rule() == Rule::class_attribute_static {
+                        token = prop_pair.next().unwrap();
+                        true
+                    } else {
+                        false
+                    };
+
+                    let _is_hidden = if token.as_rule() == Rule::class_attribute_hidden {
+                        token = prop_pair.next().unwrap();
+                        true
+                    } else {
+                        false
+                    };
+
                     let ttype = if token.as_rule() == Rule::type_literal {
-                        let ttype = self.eval_type_literal(token)?.ttype();
+                        let ttype = self.get_valtype_from_type_literal(token)?;
                         token = prop_pair.next().unwrap();
                         Some(ttype)
                     } else {
@@ -471,16 +485,30 @@ impl<'a> PowerShellSession {
                     } else {
                         None
                     };
-                    properties.insert(var_name.name, (ttype, default_val));
+                    properties.add_property(var_name.name, ttype, default_val);
                 }
                 Rule::class_method_definition => {
-                    let mut prop_pair = member_token.into_inner();
+                    let prop_pair = member_token.into_inner();
 
                     // we don't want care about attributes here. It's todo in future
-                    let mut prop_pair = prop_pair.skip_while(|p| p.as_rule() == Rule::attribute || p.as_rule() == Rule::class_attribute);
- 
+                    let mut prop_pair = prop_pair.skip_while(|p| p.as_rule() == Rule::attribute);
+
                     let mut token = prop_pair.next().unwrap();
-                    let ttype = if token.as_rule() == Rule::type_literal {
+                    let _is_static = if token.as_rule() == Rule::class_attribute_static {
+                        token = prop_pair.next().unwrap();
+                        true
+                    } else {
+                        false
+                    };
+
+                    let _is_hidden = if token.as_rule() == Rule::class_attribute_hidden {
+                        token = prop_pair.next().unwrap();
+                        true
+                    } else {
+                        false
+                    };
+
+                    let _ttype = if token.as_rule() == Rule::type_literal {
                         let ttype = self.eval_type_literal(token)?.ttype();
                         token = prop_pair.next().unwrap();
                         Some(ttype)
@@ -499,24 +527,24 @@ impl<'a> PowerShellSession {
                         vec![]
                     };
                     check_rule!(token, Rule::script_block);
+
+                    let method_name = MethodName::new(method_name.as_str(), &parameters);
                     let script_block = self.parse_script_block(token)?.with_params(parameters);
-                    methods.insert(method_name, script_block);
+                    methods.insert(method_name.full_name().to_string(), script_block);
                 }
                 _ => unexpected_token!(member_token),
             }
         }
-        let class_type = ClassType::new(
-                class_name.clone(),
-                properties,
-                HashMap::new(),
-                methods,
+        let class_type = ClassType::new(class_name.clone(), properties, HashMap::new(), methods);
+        if let Ok(mut value) = value::RUNTIME_TYPE_MAP.try_lock() {
+            value.insert(
+                class_name.to_ascii_lowercase(),
+                Box::new(class_type.clone()),
             );
-            if let Ok(mut value) = value::RUNTIME_TYPE_MAP.try_lock() {
-                value.insert(class_name, Box::new(class_type.clone()));
-            }
+        }
         Ok(Val::Null)
     }
-    
+
     fn eval_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         match token.as_rule() {
             Rule::pipeline => self.eval_pipeline(token),
@@ -912,16 +940,33 @@ impl<'a> PowerShellSession {
             token.into_inner().next().unwrap().as_str()
         }
         Ok(match token.as_rule() {
-            Rule::static_access => object.readonly_static_member(get_member_name(token))?,
+            Rule::static_access => {
+                let Val::RuntimeType(rt) = object else {
+                    return Err(RuntimeError::MethodNotFound(
+                        "Readonly static members can only be accessed on types".to_string(),
+                    )
+                    .into());
+                };
+                rt.readonly_static_member(get_member_name(token))?
+            }
             Rule::member_access => object.readonly_member(get_member_name(token))?.clone(),
             Rule::method_invocation => {
                 let static_method = self.method_is_static(token.clone());
                 let (function_name, args) = self.eval_method_invocation(token, object)?;
+                let mangled_name = MethodName::from_args(function_name.as_str(), &args);
+
                 if static_method {
-                    let mut call = object.static_method(function_name.as_str())?;
+                    let Val::RuntimeType(rt) = object else {
+                        return Err(RuntimeError::MethodNotFound(
+                            "Static method can be called only on type".to_string(),
+                        )
+                        .into());
+                    };
+
+                    let mut call = rt.static_method(mangled_name)?;
                     call(args)?
                 } else {
-                    let call = object.method(function_name.as_str())?;
+                    let mut call = object.method(mangled_name)?;
                     call(object, args)?
                 }
             }
@@ -2005,12 +2050,12 @@ impl<'a> PowerShellSession {
                 op.as_str()
             )));
         };
+
         *accessed_elem = pred(accessed_elem.clone(), right_op)?;
         if let Some(runtime_type) = specified_type {
             *accessed_elem = accessed_elem.cast(&runtime_type)?;
         }
         self.variables.set(&var_name, variable.clone())?;
-
         //we want save each assignment statement
         self.add_deobfuscated_statement(format!("{} = {}", var_name, variable.cast_to_script()));
 

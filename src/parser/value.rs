@@ -11,11 +11,9 @@ use std::{
     fmt::Debug,
     ops::Neg,
 };
-mod val_type;
 mod class;
-pub(super) use val_type::RUNTIME_TYPE_MAP;
-pub(super) use class::ClassProperties;
-pub(super) use class::ClassType;
+mod val_type;
+pub(super) use class::{ClassProperties, ClassType, MethodName};
 pub(crate) use method_error::{MethodError, MethodResult};
 pub(crate) use params::Param;
 pub(crate) use ps_string::PsString;
@@ -28,7 +26,7 @@ use smart_default::SmartDefault;
 use system_convert::Convert;
 pub(crate) use val_error::ValError;
 use val_type::RuntimeTypeTrait;
-pub(super) use val_type::ValType;
+pub(super) use val_type::{RUNTIME_TYPE_MAP, ValType};
 pub type ValResult<T> = core::result::Result<T, ValError>;
 use runtime_object::RuntimeResult;
 

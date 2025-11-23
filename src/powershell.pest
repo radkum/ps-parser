@@ -134,18 +134,21 @@ data_commands_list = { data_command ~ ("," ~ data_command)* }
 data_command = { invocation_command_exp }
 
 //--------------------------------- CLASS STATEMENTS
-class_attribute = { ^"hidden" | ^"static" }
+class_attribute_static = { ^"static" }
+class_attribute_hidden = { ^"hidden" }
 class_property_definition = {
-    attribute? ~
-    class_attribute* ~
+    attribute_info? ~
+    class_attribute_static? ~
+    class_attribute_hidden? ~
     type_literal? ~
     variable ~
     ("=" ~ expression)?
-}
 
+}
 class_method_definition = {
-    //attribute? ~
-    //class_attribute* ~
+    attribute_info? ~
+    class_attribute_static? ~
+    class_attribute_hidden? ~
     type_literal? ~
     simple_name ~
     "(" ~ parameter_list? ~ ")" ~

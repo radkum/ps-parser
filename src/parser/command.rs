@@ -21,8 +21,7 @@ impl From<ParserError> for CommandError {
     }
 }
 use crate::parser::ParserResult;
-pub type CallablePredType<I, O> =
-    Box<dyn Fn(Vec<I>, &mut PowerShellSession) -> ParserResult<O>>;
+pub type CallablePredType<I, O> = Box<dyn Fn(Vec<I>, &mut PowerShellSession) -> ParserResult<O>>;
 
 #[derive(Debug, Clone)]
 pub struct CommandOutput {

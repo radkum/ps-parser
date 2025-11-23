@@ -1,14 +1,18 @@
 use std::collections::HashMap;
 
 use super::Variables;
-use crate::parser::command::CommandOutput;
-use crate::parser::{ScriptBlock, command::CallablePredType};
+use crate::parser::{
+    ScriptBlock,
+    command::{CallablePredType, CommandOutput},
+};
 
 pub(crate) type FunctionMap = HashMap<String, ScriptBlock>;
 use crate::parser::CommandElem;
-use crate::parser::Val;
 impl Variables {
-    pub(crate) fn get_function(&mut self, name: &str) -> Option<CallablePredType<CommandElem, CommandOutput>> {
+    pub(crate) fn get_function(
+        &mut self,
+        name: &str,
+    ) -> Option<CallablePredType<CommandElem, CommandOutput>> {
         if let Some(fun) = self.script_functions.get(name).cloned() {
             Self::get_function_from_script_block(fun)
         } else if let Some(fun) = self.global_functions.get(name).cloned() {

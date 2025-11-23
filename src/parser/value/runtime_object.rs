@@ -1,9 +1,10 @@
 use super::{MethodResult, Val, *};
 use crate::parser::value::{MethodError, PsString};
-pub type MethodCallType = Box<dyn Fn(&Val, Vec<Val>) -> MethodResult<Val>>;
+pub type MethodCallType = Box<dyn FnMut(&mut Val, Vec<Val>) -> MethodResult<Val>>;
 pub type StaticFnCallType = Box<dyn FnMut(Vec<Val>) -> MethodResult<Val>>;
-
 use thiserror_no_std::Error;
+
+use super::val_type::type_info::RuntimeType;
 
 #[derive(Error, Debug, Clone, PartialEq)]
 pub enum RuntimeError {
@@ -28,31 +29,27 @@ impl From<MethodError> for RuntimeError {
 pub type RuntimeResult<T> = core::result::Result<T, RuntimeError>;
 
 pub(crate) trait RuntimeObjectTrait: std::fmt::Debug + std::fmt::Display {
-    fn method(&self, name: &str) -> RuntimeResult<MethodCallType> {
-        Err(MethodError::NotImplemented(name.to_string()).into())
-    }
-    fn static_method(&self, name: &str) -> RuntimeResult<StaticFnCallType> {
-        Err(MethodError::NotImplemented(name.to_string()).into())
+    fn method(&self, method_name: MethodName) -> RuntimeResult<MethodCallType> {
+        Err(MethodError::NotImplemented(method_name.name().to_string()).into())
     }
     fn member(&mut self, name: &str) -> RuntimeResult<&mut Val> {
         Err(MethodError::NotImplemented(name.to_string()).into())
     }
-    fn readonly_member(&self, name: &str) -> RuntimeResult<Val> {
-        Err(MethodError::NotImplemented(name.to_string()).into())
-    }
-    fn readonly_static_member(&self, name: &str) -> RuntimeResult<Val> {
-        Err(MethodError::NotImplemented(name.to_string()).into())
+    fn readonly_member(&mut self, name: &str) -> RuntimeResult<Val> {
+        self.member(name).map(|v| v.clone())
     }
     fn name(&self) -> String {
         format!("{:?}", self)
     }
 
     fn clone_rt(&self) -> Box<dyn RuntimeObjectTrait>;
+
+    fn type_definition(&self) -> Box<dyn RuntimeTypeTrait>;
 }
 
 impl Val {
-    fn get_type(&self, _: Vec<Val>) -> MethodResult<Val> {
-        Ok(Val::RuntimeType(Box::new(self.ttype())))
+    fn get_type(&mut self, _: Vec<Val>) -> MethodResult<Val> {
+        Ok(Val::RuntimeType(self.type_definition()))
     }
 }
 
@@ -61,49 +58,44 @@ impl RuntimeObjectTrait for Val {
         Box::new(self.clone())
     }
 
-    fn method(&self, name: &str) -> RuntimeResult<MethodCallType> {
+    fn method(&self, method_name: MethodName) -> RuntimeResult<MethodCallType> {
+        let name = method_name.name();
         log::trace!("Val: {self:?} method called with name: {}", name);
         match name {
             "gettype" => return Ok(Box::new(Self::get_type)),
             _ => {}
         }
         match self {
-            Val::String(str) => str.method(name),
-            Val::RuntimeObject(runtime_object) => runtime_object.method(name),
+            Val::String(str) => str.method(method_name),
+            Val::RuntimeObject(runtime_object) => runtime_object.method(method_name),
             //Val::RuntimeType(runtime_type) => runtime_type.method(name),
             _ => Err(super::MethodError::MethodNotFound(name.to_string()).into()),
-        }
-    }
-    fn static_method(&self, name: &str) -> RuntimeResult<StaticFnCallType> {
-        match self {
-            Val::RuntimeObject(runtime_object) => runtime_object.static_method(name),
-            Val::RuntimeType(runtime_type) => runtime_type.static_method(name),
-            _ => Err(MethodError::MethodNotFound(name.to_string()).into()),
         }
     }
 
     fn member(&mut self, name: &str) -> RuntimeResult<&mut Val> {
         // first check the members
-        if let Val::HashTable(hashtable) = self {
-            return hashtable
+        match self {
+            Val::HashTable(hashtable) => hashtable
                 .get_mut(&name.to_ascii_lowercase())
-                .ok_or_else(|| RuntimeError::MemberNotFound(name.to_string()));
+                .ok_or_else(|| RuntimeError::MemberNotFound(name.to_string())),
+            Val::RuntimeObject(ps) => ps.member(name),
+            _ => Err(RuntimeError::MemberNotFound(name.to_string())),
         }
-
-        Err(RuntimeError::MemberNotFound(name.to_string()))
     }
 
-    fn readonly_member(&self, name: &str) -> RuntimeResult<Val> {
+    fn readonly_member(&mut self, name: &str) -> RuntimeResult<Val> {
         // first check the members
-        if let Val::HashTable(ps) = self {
-            return Ok(ps
-                .get(&name.to_ascii_lowercase())
-                .cloned()
-                .unwrap_or_default());
-        }
-
-        if let Val::RuntimeType(ps) = self {
-            return ps.readonly_member(name);
+        match self {
+            Val::HashTable(ps) => {
+                return Ok(ps
+                    .get(&name.to_ascii_lowercase())
+                    .cloned()
+                    .unwrap_or_default());
+            }
+            Val::RuntimeType(ps) => return ps.readonly_member(name),
+            Val::RuntimeObject(ps) => return ps.readonly_member(name),
+            _ => {}
         }
 
         // then check the length property
@@ -120,11 +112,19 @@ impl RuntimeObjectTrait for Val {
         Err(RuntimeError::MemberNotFound(name.to_string()))
     }
 
-    fn readonly_static_member(&self, name: &str) -> RuntimeResult<Val> {
+    fn name(&self) -> String {
         match self {
-            Val::RuntimeObject(runtime_object) => runtime_object.readonly_static_member(name),
-            Val::RuntimeType(rt) => rt.readonly_static_member(name),
-            _ => Err(RuntimeError::MemberNotFound(name.to_string())),
+            Val::RuntimeObject(rt) => rt.name(),
+            Val::RuntimeType(rt) => rt.name(),
+            _ => format!("{:?}", self),
+        }
+    }
+
+    fn type_definition(&self) -> Box<dyn RuntimeTypeTrait> {
+        match self {
+            Val::RuntimeType(_) => Box::new(RuntimeType {}),
+            Val::RuntimeObject(ro) => ro.type_definition(),
+            _ => Box::new(self.ttype()),
         }
     }
 }

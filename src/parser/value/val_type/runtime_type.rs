@@ -1,38 +1,17 @@
 use super::{
     super::{MethodError, StaticFnCallType},
     RuntimeResult, Val, ValType,
+    type_info::TypeInfo,
 };
-
-#[derive(Debug)]
-pub(crate) struct TypeInfo {
-    pub is_public: bool,
-    pub is_serial: bool,
-    pub name: String,
-    pub base_type: Box<dyn RuntimeTypeTrait>,
-}
-
-impl std::fmt::Display for TypeInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "IsPublic\tIsSerial\tName\tBaseType")?;
-        writeln!(f, "--------\t--------\t----\t--------")?;
-        write!(
-            f,
-            "{:>8}\t{:>8}\t{:>4}\t{:>8}",
-            self.is_public,
-            self.is_serial,
-            self.name,
-            self.base_type.name()
-        )
-    }
-}
+use crate::parser::MethodName;
 
 pub(crate) trait RuntimeTypeTrait: std::fmt::Debug + Sync + Send {
     fn describe(&self) -> String {
         format!("{}", self.type_info())
     }
 
-    fn static_method(&self, name: &str) -> RuntimeResult<StaticFnCallType> {
-        Err(MethodError::NotImplemented(name.to_string()).into())
+    fn static_method(&self, method_name: MethodName) -> RuntimeResult<StaticFnCallType> {
+        Err(MethodError::NotImplemented(method_name.name().into()).into())
     }
     fn readonly_static_member(&self, name: &str) -> RuntimeResult<Val> {
         Err(MethodError::NotImplemented(name.to_string()).into())
@@ -69,48 +48,6 @@ pub(crate) trait RuntimeTypeTrait: std::fmt::Debug + Sync + Send {
     }
 
     fn clone_rt(&self) -> Box<dyn RuntimeTypeTrait>;
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct ValueType;
-impl RuntimeTypeTrait for ValueType {
-    fn base_type(&self) -> Box<dyn RuntimeTypeTrait> {
-        Box::new(ObjectType {})
-    }
-    fn name(&self) -> String {
-        "ValueType".to_string()
-    }
-    fn clone_rt(&self) -> Box<dyn RuntimeTypeTrait> {
-        Box::new(self.clone())
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct ArrayType;
-impl RuntimeTypeTrait for ArrayType {
-    fn base_type(&self) -> Box<dyn RuntimeTypeTrait> {
-        Box::new(ObjectType {})
-    }
-    fn name(&self) -> String {
-        "Array".to_string()
-    }
-    fn clone_rt(&self) -> Box<dyn RuntimeTypeTrait> {
-        Box::new(self.clone())
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct ObjectType;
-impl RuntimeTypeTrait for ObjectType {
-    fn base_type(&self) -> Box<dyn RuntimeTypeTrait> {
-        Box::new(ValType::Null)
-    }
-    fn name(&self) -> String {
-        "System.Object".to_string()
-    }
-    fn clone_rt(&self) -> Box<dyn RuntimeTypeTrait> {
-        Box::new(self.clone())
-    }
 }
 
 #[cfg(test)]
