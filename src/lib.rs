@@ -918,6 +918,10 @@ $a"#;
         let input = r#" '2' -as ([int]) "#;
         let script_res = p.parse_input(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Int(2));
+
+        let input = r#" '2' -As ([int]) "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::Int(2));
     }
 
     #[test]

@@ -29,7 +29,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ps-parser = "0.5.2"
+ps-parser = "0.5.3"
 ```
 
 ## Usage

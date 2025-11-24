@@ -175,7 +175,7 @@ logical_operator = { ^"-and" | ^"-or" | ^"-xor" }
 bitwise_exp = { as_expression ~ (bitwise_operator ~ as_expression)* }
 bitwise_operator = { ^"-band" | ^"-bor" | ^"-bxor" | ^"-shl" | ^"-shr" }
 
-as_expression = {comparison_exp ~ ("-as" ~ (type_literal|comparison_exp))*}
+as_expression = {comparison_exp ~ (^"-as" ~ (type_literal|comparison_exp))*}
 // strange case. -split and -join can be invoke without previous expression, eg. "-join 'some'"
 comparison_exp = {
     additive_exp ~split_op ~ script_block_expression |
@@ -469,20 +469,20 @@ literal = _{
 	number_literal
     | string_literal 
 }
-number_literal = { additive_op? ~ number ~ (unit ~ ("b"|"B"))? }
+number_literal = { additive_op? ~ number ~ (unit ~ ^"b")? }
 unit = { ^"k" | ^"m" | ^"g" | ^"t" | ^"p"}
 
 number = ${ float | hex_integer| decimal_integer }
 
 decimal_int = @{ ASCII_DIGIT+}
 hex_int = @{HEX_DIGIT+}
-decimal_integer = { decimal_int ~ ("l" | "L" | "d" | "D" )? }
-hex_integer = { ("0x" | "0X") ~ hex_int ~ ("l" | "L")? }
+decimal_integer = { decimal_int ~ (^"l" | ^"d" )? }
+hex_integer = { ^"0x" ~ hex_int ~ ^"l"? }
 float = {float_1 | float_2 | float_3}
 float_1 = { ASCII_DIGIT+ ~ "." ~ !"." ~ ASCII_DIGIT* ~ float_mantis? }
 float_2 = @{ "." ~ ASCII_DIGIT+ ~ float_mantis? }
 float_3 = @{ ASCII_DIGIT+ ~ float_mantis }
-float_mantis = {("e" | "E") ~ ("+" | "-") ~ ASCII_DIGIT+}
+float_mantis = {^"e" ~ ("+" | "-") ~ ASCII_DIGIT+}
 
 
 //----------------------TYPE LITERAL
