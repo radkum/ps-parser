@@ -1019,8 +1019,7 @@ $a"#;
 param(
 	[Parameter(ParameterSetName="Path", Position = 0)]
 	[System.String[]]
-	$Path
-
+	$Path = [IntPtr]::Zero
 
 )
 
@@ -1035,5 +1034,32 @@ process
 }
 "#;
         let _script_res = p.parse_input(input).unwrap();
+    }
+
+    #[test]
+    fn line_escape() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#" 
+if (($OriginalImageBase -eq [Int64]$PEInfo.EffectivePEHandle) `
+				-or ($PEInfo.IMAGE_NT_HEADERS.OptionalHeader.BaseRelocationTable.Size -eq 0))
+		{
+			return
+		}
+"#;
+        let _script_res = p.parse_input(input).unwrap();
+    }
+
+    #[test]
+    fn str_escape() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#" 
+$ExeArgs = "crypto::cng crypto::capi `"crypto::certificates /export`" `"crypto::certificates /export /systemstore:CERT_SYSTEM_STORE_LOCAL_MACHINE`" exit"
+"#;
+        let result = r#"$exeargs = "crypto::cng crypto::capi "crypto::certificates /export" "crypto::certificates /export /systemstore:CERT_SYSTEM_STORE_LOCAL_MACHINE" exit""#;
+        let script_res = p.parse_input(input).unwrap();
+        println!("{}", script_res.deobfuscated());
+        assert_eq!(script_res.deobfuscated(), result);
     }
 }

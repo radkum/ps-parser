@@ -1,7 +1,8 @@
 single_line_comment = _{ "#" ~ (!NEWLINE ~ ANY)* }
 block_comment = _{ "<#" ~ (!"#>" ~ ANY)* ~ "#>" }
 COMMENT = _{ single_line_comment | block_comment }
-WHITESPACE     = _{ " " | "\t" | NEWLINE }
+line_continuation = { "`" ~ NEWLINE }
+WHITESPACE     = _{ " " | "\t" | line_continuation | NEWLINE }
 
 program = { SOI ~ script_param_block ~ named_blocks? ~statements? ~ EOI }
 
@@ -11,7 +12,7 @@ script_param_block ={param_block?}
 parameter_list = { script_parameter ~ ("," ~ script_parameter)* }
 script_parameter = { attribute_list? ~ variable ~ script_parameter_default? }
 //script_parameter_default = { "=" ~ expression } - maybe expression?
-script_parameter_default = { "=" ~ value }
+script_parameter_default = { "=" ~ primary_expression }
 script_block_body = { named_blocks | statements_block }
 statements_block = { statements }
 named_blocks = { named_block+ }
@@ -359,7 +360,7 @@ value = {
 }
 parenthesized_expression = !{ "(" ~ pipeline ~ ")"}
 sub_expression = !{ "$(" ~ pipeline? ~ ")" }
-array_expression = { "@(" ~ statements? ~ ")" }
+array_expression = !{ "@(" ~ statements? ~ ")" }
 script_block_expression = !{ "{" ~ script_block ~ "}" }
 script_block = { script_param_block ~ ";"* ~ script_block_body? }
 

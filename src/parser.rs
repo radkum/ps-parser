@@ -62,7 +62,7 @@ macro_rules! not_implemented {
     };
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct Results {
     output: Vec<StreamMessage>,
     deobfuscated: Vec<String>,
@@ -383,6 +383,10 @@ impl<'a> PowerShellSession {
 
     pub(crate) fn eval_if_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::if_statement);
+
+        //collect tokens from each case
+        self.if_statement_collect_tokens(token.clone());
+
         let mut pair = token.into_inner();
         let condition_token = pair.next().unwrap();
         let true_token = pair.next().unwrap();
@@ -416,6 +420,65 @@ impl<'a> PowerShellSession {
         };
 
         Ok(res)
+    }
+
+    pub(crate) fn if_statement_collect_tokens(&mut self, token: Pair<'a>) {
+        //we want collect tokens from each case, but we need to preserve all variables
+        //to consider: maybe instead of collecting tokens, we should return whole
+        // deobfuscated if statement
+        let results = self.results.clone();
+        let current_variables = self.variables.clone();
+        if let Err(err) = self.impl_if_statement_collect_tokens(token.clone()) {
+            log::debug!("Error during if_statement_collect_tokens: {:?}", err);
+        }
+        self.variables = current_variables;
+        self.results = results;
+    }
+
+    pub(crate) fn impl_if_statement_collect_tokens(&mut self, token: Pair<'a>) -> ParserResult<()> {
+        check_rule!(token, Rule::if_statement);
+
+        let mut pair = token.into_inner();
+        let condition_token = pair.next().unwrap();
+        let true_token = pair.next().unwrap();
+        let _condition_val = self.eval_pipeline(condition_token.clone())?;
+        if let Err(err) = self.eval_statement_block(true_token) {
+            log::debug!(
+                "Error during if_statement_collect_tokens (true block): {:?}",
+                err
+            );
+        }
+        if let Some(mut token) = pair.next() {
+            if token.as_rule() == Rule::elseif_clauses {
+                for else_if in token.into_inner() {
+                    let mut pairs = else_if.into_inner();
+                    let condition_token = pairs.next().unwrap();
+                    let statement_token = pairs.next().unwrap();
+                    let _condition_val = self.eval_pipeline(condition_token)?;
+
+                    if let Err(err) = self.eval_statement_block(statement_token) {
+                        log::debug!(
+                            "Error during if_statement_collect_tokens (else if block): {:?}",
+                            err
+                        );
+                    }
+                }
+                let Some(token2) = pair.next() else {
+                    return Ok(());
+                };
+                token = token2;
+            }
+            if token.as_rule() == Rule::else_condition {
+                let statement_token = token.into_inner().next().unwrap();
+                if let Err(err) = self.eval_statement_block(statement_token) {
+                    log::debug!(
+                        "Error during if_statement_collect_tokens (else block): {:?}",
+                        err
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 
     fn eval_flow_control_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
@@ -869,7 +932,7 @@ impl<'a> PowerShellSession {
             match self.eval_argument_list(token) {
                 Ok(args) => args,
                 Err(e) => {
-                    log::info!("eval_argument_list error: {:?}", e);
+                    log::debug!("eval_argument_list error: {:?}", e);
 
                     //nevertheless push the function token
                     self.tokens.push(Token::method(
@@ -1044,7 +1107,7 @@ impl<'a> PowerShellSession {
             Rule::value_access => match self.eval_value_access(token.clone()) {
                 Ok(res) => res,
                 Err(err) => {
-                    log::info!("eval_access error: {:?}", err);
+                    log::debug!("eval_access error: {:?}", err);
                     self.errors.push(err);
                     self.parse_access(token)?
                 }
@@ -1699,7 +1762,7 @@ impl<'a> PowerShellSession {
         let default_value = if let Some(default_value_token) = pairs.next() {
             check_rule!(default_value_token, Rule::script_parameter_default);
             let default_value_expr = default_value_token.into_inner().next().unwrap();
-            let default_value = self.eval_value(default_value_expr)?;
+            let default_value = self.eval_primary_expression(default_value_expr)?;
             Some(default_value)
         } else {
             None
