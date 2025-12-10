@@ -1141,7 +1141,15 @@ function Invoke-Mimikatz
 }"#;
 
         let script_res = p.parse_input(input).unwrap();
-        println!("StringSet: {:?}", script_res.tokens().string_set());
+        assert!(script_res.tokens().string_set().contains("GetProcAddress"));
+    }
+
+    #[test]
+    fn command_args() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#" Get-ProcAddress kernel32.dll GetProcAddress "#;
+        let script_res = p.parse_input(input).unwrap();
         assert!(script_res.tokens().string_set().contains("GetProcAddress"));
     }
 }

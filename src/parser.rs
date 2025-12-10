@@ -1862,6 +1862,11 @@ impl<'a> PowerShellSession {
                             let token = arg_token.into_inner().next().unwrap();
                             self.eval_pipeline(token)?
                         }
+                        Rule::generic_token => {
+                            let s = arg_token.as_str();
+                            self.tokens.push(Token::String(s.into()));
+                            Val::ScriptText(s.into())
+                        }
                         _ => Val::ScriptText(arg_token.as_str().to_string()),
                     };
                     args.push(CommandElem::Argument(arg));
