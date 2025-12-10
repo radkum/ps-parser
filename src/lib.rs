@@ -1062,4 +1062,86 @@ $ExeArgs = "crypto::cng crypto::capi `"crypto::certificates /export`" `"crypto::
         println!("{}", script_res.deobfuscated());
         assert_eq!(script_res.deobfuscated(), result);
     }
+
+    #[test]
+    fn unknown_method_arg() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#" $GetProcAddress = $UnsafeNativeMethods.GetMethod('GetProcAddress', [reflection.bindingflags] "Public,Static", $null, [System.Reflection.CallingConventions]::Any, @((New-Object System.Runtime.InteropServices.HandleRef).GetType(), [string]), $null); "#;
+        let script_res = p.parse_input(input).unwrap();
+        assert!(script_res.tokens().string_set().contains("GetProcAddress"));
+    }
+
+    #[test]
+    fn int32_type() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#"
+function Invoke-Mimikatz
+{
+    [CmdletBinding(DefaultParameterSetName="DumpCreds")]
+    Param(
+        [Parameter(ParameterSetName = "CustomCommand", Position = 1)]
+        [String]
+        $Command
+    )
+
+    Set-StrictMode -Version 2
+
+    $RemoteScriptBlock = 
+    {
+        [CmdletBinding()]
+        Param(
+            [Parameter(Position = 0, Mandatory = $true)]
+            [String]
+            $PEBytes64,
+
+            [Parameter(Position = 1, Mandatory = $true)]
+            [String]
+            $PEBytes32,
+            
+            [Parameter(Position = 2, Mandatory = $false)]
+            [String]
+            $FuncReturnType,
+                    
+            [Parameter(Position = 3, Mandatory = $false)]
+            [Int32]
+            $ProcId
+        )
+        
+        ###################################
+        ##########  Win32 Stuff  ##########
+        ###################################
+        
+        Function Get-ProcAddress
+        {
+            Param
+            (
+                [OutputType([IntPtr])]
+            
+                [Parameter( Position = 0, Mandatory = $True )]
+                [String]
+                $Module,
+                
+                [Parameter( Position = 1, Mandatory = $True )]
+                [String]
+                $Procedure
+            )
+
+            $GetProcAddress = $UnsafeNativeMethods.GetMethod('GetProcAddress', [reflection.bindingflags] "Public,Static");
+        }
+        Main
+    }
+    Function Main
+    {
+        Get-ProcAddress
+    }
+
+    Main
+}"#;
+
+        let script_res = p.parse_input(input).unwrap();
+        println!("StringSet: {:?}", script_res.tokens().string_set());
+        assert!(script_res.tokens().string_set().contains("GetProcAddress"));
+    }
 }

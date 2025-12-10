@@ -727,7 +727,7 @@ impl<'a> PowerShellSession {
         let ps_token = if is_expandable {
             Token::string_expandable(cloned_token.as_str().to_string(), res.clone())
         } else {
-            Token::String(cloned_token.as_str().to_string())
+            Token::String(res.clone())
         };
         self.tokens.push(ps_token);
 
@@ -1177,9 +1177,6 @@ impl<'a> PowerShellSession {
         } else {
             String::new()
         };
-
-        Ok(ScriptBlock::new(params, script_body, raw_text))
-
         //todo is it necessary?
         // Ok(if let Ok(deobfuscated_body) =
         // self.deobfuscate_script(&script_body) {
@@ -1187,6 +1184,24 @@ impl<'a> PowerShellSession {
         // format!("{};{}", params_str, deobfuscated_body)) } else {
         //     ScriptBlock::new(params, script_body, raw_text)
         // })
+        self.script_block_collect_tokens(&script_body);
+
+        Ok(ScriptBlock::new(params, script_body, raw_text))
+    }
+
+    pub(crate) fn script_block_collect_tokens(&mut self, script_body: &str) {
+        //we want collect tokens from each case, but we need to preserve all variables
+        //to consider: maybe instead of collecting tokens, we should return whole
+        // deobfuscated if statement
+        let results = self.results.clone();
+        let current_variables = self.variables.clone();
+        let errors = self.errors.clone();
+        if let Err(err) = self.parse_subscript(script_body) {
+            log::debug!("Error during script_block_collect_tokens: {:?}", err);
+        }
+        self.variables = current_variables;
+        self.results = results;
+        self.errors = errors;
     }
 
     fn parse_script_block_expression(&mut self, token: Pair<'a>) -> ParserResult<ScriptBlock> {
@@ -1749,7 +1764,7 @@ impl<'a> PowerShellSession {
         let mut token = pairs.next().unwrap();
 
         let type_literal = if token.as_rule() == Rule::attribute_list {
-            let type_literal = self.parse_attribute_list(token)?;
+            let type_literal = self.parse_attribute_list(token).unwrap_or(None);
             token = pairs.next().unwrap();
             type_literal
         } else {
