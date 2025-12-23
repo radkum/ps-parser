@@ -836,12 +836,24 @@ impl<'a> PowerShellSession {
         })
     }
 
-    fn eval_expression_with_unary_operator(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        check_rule!(token, Rule::expression_with_unary_operator);
+    fn eval_pre_arithmetic(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::pre_arithmetic);
         let mut pair = token.into_inner();
         let token = pair.next().unwrap();
 
         let res = match token.as_rule() {
+            Rule::pre_plus_expression => {
+                let variable_token = token.into_inner().next().unwrap();
+                let var_name = Self::parse_variable(variable_token)?;
+                self.variables.get(&var_name).unwrap_or_default()
+            }
+            Rule::pre_minus_expression => {
+                let variable_token = token.into_inner().next().unwrap();
+                let var_name = Self::parse_variable(variable_token)?;
+                let mut v = Val::default();
+                v.sub(self.variables.get(&var_name).unwrap_or_default())?;
+                v
+            }
             Rule::pre_inc_expression => {
                 let variable_token = token.into_inner().next().unwrap();
                 let var_name = Self::parse_variable(variable_token)?;
@@ -860,6 +872,19 @@ impl<'a> PowerShellSession {
                 self.variables.set(&var_name, var.clone())?;
                 var
             }
+            _ => unexpected_token!(token),
+        };
+
+        Ok(res)
+    }
+
+    fn eval_expression_with_unary_operator(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::expression_with_unary_operator);
+        let mut pair = token.into_inner();
+        let token = pair.next().unwrap();
+
+        let res = match token.as_rule() {
+            Rule::pre_arithmetic => self.eval_pre_arithmetic(token)?,
             Rule::cast_expression => self.eval_cast_expression(token)?,
             Rule::negate_op => {
                 let unary_token = pair.next().unwrap();
@@ -1598,7 +1623,11 @@ impl<'a> PowerShellSession {
         check_rule!(token, Rule::additive_exp);
 
         let mut pairs = token.into_inner();
-        let mut res = self.eval_mult(pairs.next().unwrap())?;
+        let token = pairs.next().unwrap();
+        let mut res = match token.as_rule() {
+            Rule::multiplicative_exp => self.eval_mult(token)?,
+            _ => unexpected_token!(token),
+        };
         while let Some(op) = pairs.next() {
             //check_rule!(op, Rule::additive_op); plus or minus
             let Some(fun) = ArithmeticPred::get(op.as_str()) else {
@@ -1610,7 +1639,11 @@ impl<'a> PowerShellSession {
             };
 
             let mult = pairs.next().unwrap();
-            let right_op = self.eval_mult(mult)?;
+            let right_op = match mult.as_rule() {
+                Rule::multiplicative_exp => self.eval_mult(mult)?,
+                Rule::pre_arithmetic => self.eval_pre_arithmetic(mult)?,
+                _ => unexpected_token!(mult),
+            };
             res = fun(res, right_op)?;
         }
 

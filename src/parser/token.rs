@@ -252,4 +252,15 @@ impl Tokens {
             })
             .collect()
     }
+
+    pub fn methods_and_commands(&self) -> BTreeSet<&str> {
+        self.0
+            .iter()
+            .filter_map(|token| match token {
+                Token::Command(command) => Some(command.name().as_str()),
+                Token::Method(method) => Some(method.name().as_str()),
+                _ => None,
+            })
+            .collect()
+    }
 }

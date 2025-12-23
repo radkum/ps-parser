@@ -185,7 +185,7 @@ comparison_exp = {
     }
 empty = {""}
 
-additive_exp = { multiplicative_exp ~ (WHITESPACE* ~ additive_op ~ WHITESPACE* ~ multiplicative_exp)* }
+additive_exp = { multiplicative_exp ~ (WHITESPACE* ~ additive_op ~ ((WHITESPACE+ ~ pre_arithmetic) | (!pre_arithmetic ~ WHITESPACE* ~ multiplicative_exp)))* }
 additive_op = _{ plus | minus }
 plus = { "+" }
 minus = {"-"}
@@ -214,12 +214,20 @@ bitwise_negate_op = { ^"-bnot" }
 expression_with_unary_operator = {
     (negate_op ~ unary_exp)
     | (bitwise_negate_op ~ unary_exp)
-    | pre_inc_expression
-    | pre_dec_expression
+    | pre_arithmetic
     | cast_expression
 }
 
-pre_inc_expression = { "++" ~ variable }
+pre_arithmetic = { 
+    pre_inc_expression
+    | pre_dec_expression
+    | pre_plus_expression
+    | pre_minus_expression
+}
+
+pre_plus_expression = ${ "+" ~ variable }
+pre_minus_expression = ${ !"--" ~ "-" ~ variable }
+pre_inc_expression = ${ "++" ~ variable }
 pre_dec_expression = { "--" ~ variable }
 cast_expression = { !WHITESPACE ~ type_literal ~(unary_exp | parenthesized_expression) }
 
@@ -230,7 +238,7 @@ primary_expression = {
     | post_dec_expression
     | value 
 }
-post_inc_expression = { variable ~ "++" }
+post_inc_expression = ${ variable ~ "++" ~ !plus }
 post_dec_expression = { variable ~ "--" }
 
 value_access = { value ~ 

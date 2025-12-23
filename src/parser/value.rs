@@ -308,6 +308,11 @@ impl Val {
     }
 
     pub fn sub(&mut self, val: Val) -> ValResult<()> {
+        if let ValType::Null = self.ttype() {
+            *self = val.ttype().init();
+            self.sub(val)?;
+            return Ok(());
+        }
         if let ValType::RuntimeObject(_) = self.ttype() {
             Err(Self::not_defined(self, &val, "-"))?
         }

@@ -67,6 +67,20 @@ pub static RUNTIME_TYPE_MAP: LazyLock<Mutex<HashMap<String, Box<dyn RuntimeTypeT
         ]))
     });
 impl ValType {
+    pub(crate) fn init(&self) -> Val {
+        match self {
+            ValType::Null => Val::Null,
+            ValType::Bool => Val::Bool(false),
+            ValType::Int => Val::Int(0),
+            ValType::Float => Val::Float(0.0),
+            ValType::Char => Val::Char(0),
+            ValType::String => Val::String("".into()),
+            ValType::Array(_) => Val::Array(vec![]),
+            ValType::HashTable => Val::HashTable(HashMap::new()),
+            _ => Val::Null,
+        }
+    }
+
     pub(crate) fn cast(s: &str) -> ValResult<Self> {
         let mut s = s.to_ascii_lowercase();
         if "object" == s.as_str() || "object[]" == s.as_str() {
