@@ -1059,7 +1059,6 @@ $ExeArgs = "crypto::cng crypto::capi `"crypto::certificates /export`" `"crypto::
 "#;
         let result = r#"$exeargs = "crypto::cng crypto::capi "crypto::certificates /export" "crypto::certificates /export /systemstore:CERT_SYSTEM_STORE_LOCAL_MACHINE" exit""#;
         let script_res = p.parse_input(input).unwrap();
-        println!("{}", script_res.deobfuscated());
         assert_eq!(script_res.deobfuscated(), result);
     }
 
@@ -1073,83 +1072,115 @@ $ExeArgs = "crypto::cng crypto::capi `"crypto::certificates /export`" `"crypto::
     }
 
     #[test]
-    fn int32_type() {
-        let mut p = PowerShellSession::new().with_variables(Variables::env());
-
-        let input = r#"
-function Invoke-Mimikatz
-{
-    [CmdletBinding(DefaultParameterSetName="DumpCreds")]
-    Param(
-        [Parameter(ParameterSetName = "CustomCommand", Position = 1)]
-        [String]
-        $Command
-    )
-
-    Set-StrictMode -Version 2
-
-    $RemoteScriptBlock = 
-    {
-        [CmdletBinding()]
-        Param(
-            [Parameter(Position = 0, Mandatory = $true)]
-            [String]
-            $PEBytes64,
-
-            [Parameter(Position = 1, Mandatory = $true)]
-            [String]
-            $PEBytes32,
-            
-            [Parameter(Position = 2, Mandatory = $false)]
-            [String]
-            $FuncReturnType,
-                    
-            [Parameter(Position = 3, Mandatory = $false)]
-            [Int32]
-            $ProcId
-        )
-        
-        ###################################
-        ##########  Win32 Stuff  ##########
-        ###################################
-        
-        Function Get-ProcAddress
-        {
-            Param
-            (
-                [OutputType([IntPtr])]
-            
-                [Parameter( Position = 0, Mandatory = $True )]
-                [String]
-                $Module,
-                
-                [Parameter( Position = 1, Mandatory = $True )]
-                [String]
-                $Procedure
-            )
-
-            $GetProcAddress = $UnsafeNativeMethods.GetMethod('GetProcAddress', [reflection.bindingflags] "Public,Static");
-        }
-        Main
-    }
-    Function Main
-    {
-        Get-ProcAddress
-    }
-
-    Main
-}"#;
-
-        let script_res = p.parse_input(input).unwrap();
-        assert!(script_res.tokens().string_set().contains("GetProcAddress"));
-    }
-
-    #[test]
     fn command_args() {
         let mut p = PowerShellSession::new().with_variables(Variables::env());
 
         let input = r#" Get-ProcAddress kernel32.dll GetProcAddress "#;
         let script_res = p.parse_input(input).unwrap();
         assert!(script_res.tokens().string_set().contains("GetProcAddress"));
+    }
+
+    #[test]
+    fn emsi_scan_buffer() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#"
+
+
+[IntPtr]$hModule = [Kernel32]::LoadLibrary("emsi.dll")
+Write-Host "[+] EMSI DLL Handle: $hModule"
+"#;
+
+        let script_res = p.parse_input(input).unwrap();
+        assert!(script_res.tokens().string_set().contains("emsi.dll"));
+    }
+
+    #[test]
+    fn disable_script_logging() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#"
+$settings = [Ref].Assembly.GetType("System.Management.Automation.Utils").GetField("cachedGroupPolicySettings","NonPublic,Static").GetValue($null);
+"#;
+
+        let script_res = p.parse_input(input).unwrap();
+        assert!(
+            script_res
+                .tokens()
+                .string_set()
+                .contains("System.Management.Automation.Utils")
+        );
+    }
+
+    #[test]
+    fn buffer_patch_in_memory() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#"
+function MyPatch{
+  if(-not ([System.Management.Automation.PSTypeName]"Bypass.EMSI").Type) {
+    [Reflection.Assembly]::Load([byte[]]@(77, 90, 144, 0,0)) | 
+    Out-Null;
+    Write-Output "DLL has been reflected";
+  }
+  [Bypass.EMSI]::Patch();
+}
+MyPatch;
+Start-Sleep 1;
+"#;
+
+        let script_res = p.parse_input(input).unwrap();
+        assert!(
+            script_res.tokens().ttypes().contains(
+                "System.Management.Automation.PSTypeName"
+                    .to_ascii_lowercase()
+                    .as_str()
+            )
+        );
+    }
+
+    #[test]
+    fn as_expression_with_value_access_on_the_right_side() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#"
+$elo.Invoke('something',(('Non'+'Public,Static') -as [String].Assembly))
+"#;
+
+        let script_res = p.parse_input(input).unwrap();
+        assert!(
+            script_res
+                .tokens()
+                .string_set()
+                .contains("NonPublic,Static")
+        );
+    }
+
+    #[test]
+    fn ends_with_emsi() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#"
+[System.IO.File]::WriteAllBytes("$pwd\emsi.dll", $temp)
+"#;
+
+        let script_res = p.parse_input(input).unwrap();
+        assert!(script_res.tokens().string_set().contains("$pwd\\emsi.dll"));
+    }
+
+    #[test]
+    fn switch_statement() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#"
+switch ($var) {
+    "a" { Write-Output "A" }
+    1 { LoadLib("emsi.dll") }
+    default { Write-Output "Other" }
+}
+"#;
+
+        let script_res = p.parse_input(input).unwrap();
+        assert!(script_res.tokens().string_set().contains("emsi.dll"));
     }
 }

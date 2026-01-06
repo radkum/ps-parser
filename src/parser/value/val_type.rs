@@ -94,6 +94,7 @@ impl ValType {
         let t = match s.as_str() {
             "char" | "byte" => Self::Char,
             "bool" => Self::Bool,
+            "intptr" => Self::Int,
             "int" | "long" | "decimal" => Self::Int,
             "float" | "double" => Self::Float,
             "string" => Self::String,

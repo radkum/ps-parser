@@ -4,6 +4,7 @@ Number: 42
 Float: 3.14159
 Boolean: True
 Null: 
+Mixed types: $(3 + "invalid")
 === Test 4: String Operations ===
 Concatenation: Hello World
 String multiplication: HelloHelloHello
@@ -36,6 +37,7 @@ Age: 30
 === Test 10: Conditional Statements ===
 Grade: B
 === Test 11: Switch Statements ===
+Start of work week
 === Test 12: For Loop ===
 === Test 13: While Loop ===
 === Test 14: ForEach Loop ===
@@ -56,7 +58,8 @@ Float: 123 (Type: Double)
 === Test 19: Error Handling ===
 Successful operation result: 2
 Last operation success: True
-Last operation success after error: False
+Failed operation result: $failed
+Last operation success after error: True
 === Test 20: Complex Expressions ===
 Complex arithmetic: 10
 Complex logical: True

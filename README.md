@@ -29,7 +29,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ps-parser = "0.5.6"
+ps-parser = "0.5.7"
 ```
 
 ## Usage
@@ -157,16 +157,12 @@ errors: [ValError(InvalidCast("String", "Int"))]
 ```
 
 ## Future plans
-- parse script_param_block
-- parse named blocks
 - change Val::Array from Vec to struct
 - deobfuscate -encodedArguments
 - benchmarks
 - "filter" functions
-- eval "switch" statements
 - parse "enum" statements
 - more token kinds
-- implement Get-ExecutionPolicy cmdlet using registry
 
 ## Documentation
 

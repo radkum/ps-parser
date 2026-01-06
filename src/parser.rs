@@ -441,7 +441,9 @@ impl<'a> PowerShellSession {
         let mut pair = token.into_inner();
         let condition_token = pair.next().unwrap();
         let true_token = pair.next().unwrap();
-        let _condition_val = self.eval_pipeline(condition_token.clone())?;
+        let _condition_val = self
+            .eval_pipeline(condition_token.clone())
+            .unwrap_or_default();
         if let Err(err) = self.eval_statement_block(true_token) {
             log::debug!(
                 "Error during if_statement_collect_tokens (true block): {:?}",
@@ -454,7 +456,7 @@ impl<'a> PowerShellSession {
                     let mut pairs = else_if.into_inner();
                     let condition_token = pairs.next().unwrap();
                     let statement_token = pairs.next().unwrap();
-                    let _condition_val = self.eval_pipeline(condition_token)?;
+                    let _condition_val = self.eval_pipeline(condition_token).unwrap_or_default();
 
                     if let Err(err) = self.eval_statement_block(statement_token) {
                         log::debug!(
@@ -481,6 +483,20 @@ impl<'a> PowerShellSession {
         Ok(())
     }
 
+    pub(crate) fn statement_block_collect_tokens(&mut self, token: Pair<'a>) {
+        check_rule!(token, Rule::statement_block);
+        //we want collect tokens from each case, but we need to preserve all variables
+        //to consider: maybe instead of collecting tokens, we should return whole
+        // deobfuscated if statement
+        let results = self.results.clone();
+        let current_variables = self.variables.clone();
+        if let Err(err) = self.eval_statement_block(token.clone()) {
+            log::debug!("Error during if_statement_collect_tokens: {:?}", err);
+        }
+        self.variables = current_variables;
+        self.results = results;
+    }
+
     fn eval_flow_control_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::flow_control_statement);
         let token = token.into_inner().next().unwrap();
@@ -498,6 +514,66 @@ impl<'a> PowerShellSession {
             }
             _ => unexpected_token!(token),
         })
+    }
+
+    fn parse_switch_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::switch_statement);
+        let mut pairs = token.into_inner();
+
+        let mut token = pairs.next().unwrap();
+        if Rule::switch_parameters == token.as_rule() {
+            token = pairs.next().unwrap();
+        }
+
+        let condition = match token.as_rule() {
+            Rule::pipeline => self.eval_pipeline(token).ok(),
+            Rule::switch_filename => None, //TODO: implement switch -file
+            _ => None,
+        };
+
+        for case_token in pairs {
+            check_rule!(case_token, Rule::switch_clause);
+            let v = self.parse_switch_case(case_token, &condition);
+            match v.len() {
+                0 => {}
+                1 => return Ok(v.into_iter().next().unwrap()),
+                _ => return Ok(Val::Array(v)),
+            }
+        }
+
+        Ok(Val::Null)
+    }
+
+    fn parse_switch_case(&mut self, token: Pair<'a>, switch_condition: &Option<Val>) -> Vec<Val> {
+        check_rule!(token, Rule::switch_clause);
+        let mut pairs = token.into_inner();
+
+        let switch_clause_condition = pairs.next().unwrap();
+        let clause_body = pairs.next().unwrap();
+        check_rule!(clause_body, Rule::statement_block);
+
+        //first collect tokens
+        self.statement_block_collect_tokens(clause_body.clone());
+
+        //now we can evaluate the condition
+        if switch_clause_condition.as_str().to_ascii_lowercase() == "default"
+            && let Ok(result) = self.safe_eval_statements(clause_body.clone())
+        {
+            return result;
+        } else if switch_clause_condition.as_rule() == Rule::primary_expression
+            && let Some(condition) = switch_condition
+        {
+            let val = self
+                .eval_primary_expression(switch_clause_condition)
+                .unwrap_or_default();
+
+            if condition.eq(val, false).unwrap_or_default()
+                && let Ok(result) = self.safe_eval_statements(clause_body)
+            {
+                return result;
+            }
+        }
+        vec![]
     }
 
     fn parse_class_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
@@ -616,6 +692,7 @@ impl<'a> PowerShellSession {
             Rule::function_statement => self.parse_function_statement(token),
             Rule::statement_terminator => Ok(Val::Null),
             Rule::class_statement => self.parse_class_statement(token),
+            Rule::switch_statement => self.parse_switch_statement(token),
             Rule::EOI => Ok(Val::Null),
             _ => {
                 not_implemented!(token)
@@ -679,17 +756,24 @@ impl<'a> PowerShellSession {
         let pairs = token.into_inner();
         for token in pairs {
             let token = token.into_inner().next().unwrap();
-            let s = match token.as_rule() {
-                Rule::variable => self.get_variable(token)?.cast_to_string(),
-                Rule::sub_expression => self.safe_eval_sub_expr(token)?.cast_to_string(),
-                Rule::backtick_escape => token
+            let token_str = token.as_str();
+            let res = match token.as_rule() {
+                Rule::variable => self.get_variable(token).map(|v| v.cast_to_string()),
+                Rule::sub_expression => self.safe_eval_sub_expr(token).map(|v| v.cast_to_string()),
+                Rule::backtick_escape => Ok(token
                     .as_str()
                     .strip_prefix("`")
                     .unwrap_or_default()
-                    .to_string(),
-                _ => token.as_str().to_string(),
+                    .to_string()),
+                _ => Ok(token.as_str().to_string()),
             };
-            res_str.push_str(s.as_str());
+            match res {
+                Ok(s) => res_str.push_str(s.as_str()),
+                Err(err) => {
+                    self.errors.push(err);
+                    res_str.push_str(token_str);
+                }
+            }
         }
         Ok(res_str)
     }
@@ -843,15 +927,28 @@ impl<'a> PowerShellSession {
 
         let res = match token.as_rule() {
             Rule::pre_plus_expression => {
-                let variable_token = token.into_inner().next().unwrap();
-                let var_name = Self::parse_variable(variable_token)?;
-                self.variables.get(&var_name).unwrap_or_default()
+                let token = token.into_inner().next().unwrap();
+                match token.as_rule() {
+                    Rule::variable => {
+                        let var_name = Self::parse_variable(token)?;
+                        self.variables.get(&var_name).unwrap_or_default()
+                    }
+                    Rule::parenthesized_expression => self.eval_parenthesized_expression(token)?,
+                    _ => unexpected_token!(token),
+                }
             }
             Rule::pre_minus_expression => {
-                let variable_token = token.into_inner().next().unwrap();
-                let var_name = Self::parse_variable(variable_token)?;
+                let token = token.into_inner().next().unwrap();
                 let mut v = Val::default();
-                v.sub(self.variables.get(&var_name).unwrap_or_default())?;
+                let to_sub = match token.as_rule() {
+                    Rule::variable => {
+                        let var_name = Self::parse_variable(token)?;
+                        self.variables.get(&var_name).unwrap_or_default()
+                    }
+                    Rule::parenthesized_expression => self.eval_parenthesized_expression(token)?,
+                    _ => unexpected_token!(token),
+                };
+                v.sub(to_sub)?;
                 v
             }
             Rule::pre_inc_expression => {
@@ -1168,19 +1265,29 @@ impl<'a> PowerShellSession {
     }
 
     fn get_valtype_from_type_literal(&mut self, token: Pair<'a>) -> ParserResult<ValType> {
-        check_rule!(token, Rule::type_literal);
-
-        let token = token.into_inner().next().unwrap();
-        check_rule!(token, Rule::type_spec);
-        Ok(ValType::cast(token.as_str())?)
+        let type_literal = self.parse_type_literal(token)?;
+        Ok(ValType::cast(type_literal.as_str())?)
     }
 
     fn eval_type_literal(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        let type_literal = self.parse_type_literal(token)?;
+        match ValType::runtime_type_from_str(type_literal.as_str()) {
+            Ok(val_type) => Ok(val_type),
+            Err(err) => {
+                self.errors.push(err.into());
+                Ok(Val::Null)
+            }
+        }
+    }
+
+    fn parse_type_literal(&mut self, token: Pair<'a>) -> ParserResult<String> {
         check_rule!(token, Rule::type_literal);
 
         let token = token.into_inner().next().unwrap();
         check_rule!(token, Rule::type_spec);
-        Ok(ValType::runtime_type_from_str(token.as_str())?)
+        let type_literal = token.as_str().to_ascii_lowercase();
+        self.tokens.push(Token::type_literal(type_literal.clone()));
+        Ok(type_literal)
     }
 
     fn parse_script_block(&mut self, token: Pair<'a>) -> ParserResult<ScriptBlock> {
@@ -1276,16 +1383,19 @@ impl<'a> PowerShellSession {
         Ok(Val::HashTable(hash))
     }
 
+    fn eval_parenthesized_expression(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::parenthesized_expression);
+        let token = token.into_inner().next().unwrap();
+        self.safe_eval_pipeline(token)
+    }
+
     fn eval_value(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::value);
         let mut pair = token.into_inner();
         let token = pair.next().unwrap();
 
         let res = match token.as_rule() {
-            Rule::parenthesized_expression => {
-                let token = token.into_inner().next().unwrap();
-                self.safe_eval_pipeline(token)?
-            }
+            Rule::parenthesized_expression => self.eval_parenthesized_expression(token)?,
             Rule::sub_expression | Rule::array_expression => {
                 let statements = self.eval_statements(token)?;
                 if statements.len() == 1 {
@@ -1450,12 +1560,26 @@ impl<'a> PowerShellSession {
         }
         check_rule!(token, Rule::range_exp);
         let mut pairs = token.into_inner();
-        let token = pairs.next().unwrap();
+        let mut token = pairs.next().unwrap();
+
+        let _is_minus = if let Rule::additive_op = token.as_rule() {
+            token = pairs.next().unwrap();
+            true
+        } else {
+            false
+        };
+
         let res = match token.as_rule() {
             Rule::decimal_integer => {
                 let int_val = token.into_inner().next().unwrap();
                 let left = int_val.as_str().parse::<i64>().unwrap();
-                let token = pairs.next().unwrap();
+                let mut token = pairs.next().unwrap();
+                let _is_minus = if let Rule::additive_op = token.as_rule() {
+                    token = pairs.next().unwrap();
+                    true
+                } else {
+                    false
+                };
                 let right = self.eval_array_literal_exp(token)?.cast_to_int()?;
                 Val::Array(range(left, right))
             }
@@ -1848,8 +1972,7 @@ impl<'a> PowerShellSession {
         let mut res = self.eval_comparison_exp(pairs.next().unwrap())?;
         for token in pairs {
             let runtime_object = match token.as_rule() {
-                Rule::type_literal => self.eval_type_literal(token)?,
-                Rule::comparison_exp => self.eval_comparison_exp(token)?,
+                Rule::primary_expression => self.eval_primary_expression(token)?,
                 _ => unexpected_token!(token),
             };
 
@@ -1892,8 +2015,7 @@ impl<'a> PowerShellSession {
                             Val::ScriptBlock(self.parse_script_block_expression(arg_token)?)
                         }
                         Rule::parenthesized_expression => {
-                            let token = arg_token.into_inner().next().unwrap();
-                            self.eval_pipeline(token)?
+                            self.eval_parenthesized_expression(arg_token)?
                         }
                         Rule::generic_token => {
                             let s = arg_token.as_str();
@@ -2118,10 +2240,7 @@ impl<'a> PowerShellSession {
         let val_type = self.eval_type_literal(type_token)?;
         let token = pairs.next().unwrap();
         let res = match token.as_rule() {
-            Rule::parenthesized_expression => {
-                let token = token.into_inner().next().unwrap();
-                self.safe_eval_pipeline(token)?
-            }
+            Rule::parenthesized_expression => self.eval_parenthesized_expression(token)?,
             Rule::unary_exp => self.eval_unary_exp(token)?,
             _ => unexpected_token!(token),
         };

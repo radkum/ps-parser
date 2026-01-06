@@ -115,12 +115,27 @@ impl StringExpandableToken {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct TypeToken {
+    pub name: String,
+}
+impl TypeToken {
+    pub fn new(name: String) -> Self {
+        Self { name }
+    }
+
+    pub fn name(&self) -> &String {
+        &self.name
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     StringExpandable(StringExpandableToken),
     String(String),
     Expression(ExpressionToken),
     Method(MethodToken),
     Command(CommandToken),
+    Type(TypeToken),
 }
 impl Token {
     pub fn method(token: String, self_: PsValue, name: String, arguments: Vec<PsValue>) -> Self {
@@ -146,6 +161,10 @@ impl Token {
 
     pub fn string_expandable(token: String, value: String) -> Self {
         Token::StringExpandable(StringExpandableToken { token, value })
+    }
+
+    pub fn type_literal(name: String) -> Self {
+        Token::Type(TypeToken { name })
     }
 }
 impl Display for Token {
@@ -259,6 +278,16 @@ impl Tokens {
             .filter_map(|token| match token {
                 Token::Command(command) => Some(command.name().as_str()),
                 Token::Method(method) => Some(method.name().as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn ttypes(&self) -> BTreeSet<&str> {
+        self.0
+            .iter()
+            .filter_map(|token| match token {
+                Token::Type(type_token) => Some(type_token.name().as_str()),
                 _ => None,
             })
             .collect()

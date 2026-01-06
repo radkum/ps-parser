@@ -30,7 +30,7 @@ impl PsString {
     }
 
     pub(super) fn trim(&self, args: Vec<Val>) -> MethodResult<Val> {
-        if args.len() != 0 && args.len() != 1 {
+        if args.len() > 1 {
             return Err(MethodError::new_incorrect_args("trim", args));
         }
         let PsString(input) = self;

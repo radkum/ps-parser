@@ -489,25 +489,24 @@ fn powershell(
         }
 
         for i in index_to_decode {
-            if let Some(CommandElem::Argument(Val::ScriptText(s))) = &mut args[i] {
-                if let Ok(decoded_bytes) = BASE64_STANDARD.decode(s.clone()) {
-                    if let Ok(decoded_str) = String::from_utf16(
-                        &decoded_bytes
-                            .chunks(2)
-                            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-                            .collect::<Vec<u16>>(),
-                    ) {
-                        if let Ok(script_result) = ps.parse_input(&decoded_str) {
-                            if script_result.deobfuscated().is_empty() {
-                                *s = decoded_str.into();
-                            } else {
-                                *s = script_result.deobfuscated();
-                            }
-                        } else {
-                            log::warn!("Failed to deobfuscate: {}", &decoded_str);
-                            *s = decoded_str.into();
-                        }
+            if let Some(CommandElem::Argument(Val::ScriptText(s))) = &mut args[i]
+                && let Ok(decoded_bytes) = BASE64_STANDARD.decode(s.clone())
+                && let Ok(decoded_str) = String::from_utf16(
+                    &decoded_bytes
+                        .chunks(2)
+                        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                        .collect::<Vec<u16>>(),
+                )
+            {
+                if let Ok(script_result) = ps.parse_input(&decoded_str) {
+                    if script_result.deobfuscated().is_empty() {
+                        *s = decoded_str;
+                    } else {
+                        *s = script_result.deobfuscated();
                     }
+                } else {
+                    log::warn!("Failed to deobfuscate: {}", &decoded_str);
+                    *s = decoded_str;
                 }
             }
         }

@@ -105,16 +105,8 @@ $block_var = "block"
 $scope_test = "globalblock"
 "globalblock"
 $switch_var = $null
-switch ($switch_var) {
-    $null { $switch_null_result = "matched null" }
-    "" { $switch_empty_result = "matched empty" }
-    0 { $switch_zero_result = "matched zero" }
-    default { $switch_default_result = "default case" }
-}
-$switch_null_result
-
-# Test 29: Loop Edge Cases
-
+$switch_null_result = "matched null"
+"matched null"
 for ($i = 10; $i -gt 10; $i--) {
     $never_executed = "should not run"
 }

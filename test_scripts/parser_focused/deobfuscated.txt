@@ -55,11 +55,7 @@ foreach ($item in $items) {
     $foreach_result = "item: " + $item
 }
 $day = "Monday"
-switch ($day) {
-    "Monday" { $switch_result = "Start of week" }
-    "Friday" { $switch_result = "TGIF" }
-    default { $switch_result = "Regular day" }
-}
+$switch_result = "Start of week"
 function Get-Double($x) {
     return $x * 2
 }

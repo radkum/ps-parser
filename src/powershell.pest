@@ -11,7 +11,6 @@ param_block = { attribute_list? ~ ^"param" ~ "(" ~ parameter_list? ~ ")" }
 script_param_block ={param_block?}
 parameter_list = { script_parameter ~ ("," ~ script_parameter)* }
 script_parameter = { attribute_list? ~ variable ~ script_parameter_default? }
-//script_parameter_default = { "=" ~ expression } - maybe expression?
 script_parameter_default = { "=" ~ primary_expression }
 script_block_body = { named_blocks | statements_block }
 statements_block = { statements }
@@ -62,12 +61,11 @@ label_exp = { label | unary_exp }
 switch_statement = { ^"switch" ~ switch_parameters? ~ switch_condition ~ switch_body }
 switch_parameters = { switch_parameter+ }
 switch_parameter = { ^"-regex" | ^"-wildcard" | ^"-exact" | ^"-casesensitive" | ^"-parallel" }
-switch_condition = { "(" ~ pipeline ~ ")" | ^"-file" ~ switch_filename }
+switch_condition = _{ "(" ~ pipeline ~ ")" | ^"-file" ~ switch_filename }
 switch_filename = { command_token | primary_expression }
-switch_body = { "{" ~ switch_clauses? ~ "}" }
-switch_clauses = { switch_clause+ }
+switch_body = _{ "{" ~ switch_clause+ ~ "}" }
 switch_clause = { switch_clause_condition ~  statement_block }
-switch_clause_condition = { command_token | primary_expression }
+switch_clause_condition = _{ primary_expression | command_token }
 
 
 foreach_statement = { ^"foreach" ~ foreach_parameter? ~ "(" ~ variable ~ ^"in" ~ pipeline ~ ")" ~ statement_block }
@@ -176,7 +174,7 @@ logical_operator = { ^"-and" | ^"-or" | ^"-xor" }
 bitwise_exp = { as_expression ~ (bitwise_operator ~ as_expression)* }
 bitwise_operator = { ^"-band" | ^"-bor" | ^"-bxor" | ^"-shl" | ^"-shr" }
 
-as_expression = {comparison_exp ~ (^"-as" ~ (type_literal|comparison_exp))*}
+as_expression = {comparison_exp ~ (^"-as" ~ primary_expression)*}
 // strange case. -split and -join can be invoke without previous expression, eg. "-join 'some'"
 comparison_exp = {
     additive_exp ~split_op ~ script_block_expression |
@@ -225,9 +223,9 @@ pre_arithmetic = {
     | pre_minus_expression
 }
 
-pre_plus_expression = ${ "+" ~ variable }
-pre_minus_expression = ${ !"--" ~ "-" ~ variable }
-pre_inc_expression = ${ "++" ~ variable }
+pre_plus_expression = { "+" ~ (variable | parenthesized_expression) }
+pre_minus_expression = { !"--" ~ "-" ~ (variable | parenthesized_expression) }
+pre_inc_expression = { "++" ~ variable }
 pre_dec_expression = { "--" ~ variable }
 cast_expression = { !WHITESPACE ~ type_literal ~(unary_exp | parenthesized_expression) }
 
@@ -457,7 +455,7 @@ dq_multiline_content = ${
     | dq_newline
 }
 dq_newline = {NEWLINE ~ !"\"@"}
-dq_multiline_string_start = @{ "@\"" ~ NEWLINE }
+dq_multiline_string_start = @{ "@\"" ~ NEWLINE? }
 dq_ml_text_chunk = ${ (!("\"@" | "$" | "`" | NEWLINE) ~ ANY)+ }
 dq_multiline_string_end = @{ NEWLINE ~ "\"@" }
 
@@ -520,7 +518,7 @@ generic_token_start = _{
     !( ";" | "(" | ")" | "$" | "\"" | "'" | "-" | "{" | "}" | "@" | "|" | "[" | "`" | WHITESPACE | NEWLINE ) ~ ANY
 }
 generic_token_rest = _{
-    !(WHITESPACE | "(" | ")" | "}" | "|" | ";" | ",") ~ ANY
+    !(WHITESPACE | "(" | ")" | "{" | "}" | "|" | ";" | "," ) ~ ANY
 }
 command_token = @{ command_char+ }
 command_char = _{ !( "(" | ")" | "{" | "}" | ";" | NEWLINE ) ~ ANY }

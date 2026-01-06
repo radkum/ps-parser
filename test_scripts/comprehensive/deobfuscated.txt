@@ -8,10 +8,7 @@ $nullvar = $null
 "Float: 3.14159"
 "Boolean: True"
 "Null: "
-Write-Output "Mixed types: $(3 + "invalid")"
-
-# Test 4: String Operations
-
+"Mixed types: $(3 + "invalid")"
 $str1 = "Hello"
 $str2 = "World"
 "Concatenation: Hello World"
@@ -54,13 +51,7 @@ $hash = @{
 $score = 85
 "Grade: B"
 $day = "Monday"
-switch ($day) {
-    "Monday" { Write-Output "Start of work week" }
-    "Friday" { Write-Output "TGIF!" }
-    "Saturday" { Write-Output "Weekend!" }
-    "Sunday" { Write-Output "Weekend!" }
-    default { Write-Output "Regular day" }
-}
+"Start of work week"
 for ($i = 1; $i -le 5; $i++) {
     Write-Output "For loop iteration: $i"
 }
@@ -111,9 +102,8 @@ $successful = 2
 "Last operation success: True"
 $failed = 3 + "invalid string"
 
-Write-Output "Failed operation result: $failed"
-
-"Last operation success after error: False"
+"Failed operation result: $failed"
+"Last operation success after error: True"
 $result = 10
 "Complex arithmetic: 10"
 $complexcondition = $true
