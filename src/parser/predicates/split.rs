@@ -212,7 +212,7 @@ $scriptBlock = {
 }
         "#;
 
-        p.parse_input(input).unwrap();
+        p.parse_script(input).unwrap();
 
         assert_eq!(
             p.safe_eval(r#" -split ("red", ("yellow blue green", 1, $scriptblock, $nesteddata)) "#)

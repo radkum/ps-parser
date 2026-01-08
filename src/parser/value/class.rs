@@ -311,21 +311,21 @@ class Person {
 }
 $person = [Person]::new()
 "#;
-        p.parse_input(input).unwrap();
+        p.parse_script(input).unwrap();
         assert_eq!(
-            p.parse_input("[person].gettype().name").unwrap().result(),
+            p.parse_script("[person].gettype().name").unwrap().result(),
             PsValue::String("RuntimeType".to_string())
         );
         assert_eq!(
-            p.parse_input("$person.gettype().name").unwrap().result(),
+            p.parse_script("$person.gettype().name").unwrap().result(),
             PsValue::String("Person".to_string())
         );
         assert_eq!(
-            p.parse_input("$person.LastName").unwrap().result(),
+            p.parse_script("$person.LastName").unwrap().result(),
             PsValue::Null
         );
         assert_eq!(
-            p.parse_input("$person.GetFullName()").unwrap().result(),
+            p.parse_script("$person.GetFullName()").unwrap().result(),
             PsValue::String(" and ".to_string())
         );
     }
@@ -348,17 +348,17 @@ class Person {
     }
 }
 $person = [Person]::new('John', 'Doe')"#;
-        p.parse_input(input).unwrap();
+        p.parse_script(input).unwrap();
         assert_eq!(
-            p.parse_input("$person.FirstName").unwrap().result(),
+            p.parse_command("$person.FirstName").unwrap().result(),
             PsValue::String("John".to_string())
         );
         assert_eq!(
-            p.parse_input("$person.LastName").unwrap().result(),
+            p.parse_script("$person.LastName").unwrap().result(),
             PsValue::String("Doe".to_string())
         );
         assert_eq!(
-            p.parse_input("$person.GetFullName()").unwrap().result(),
+            p.parse_script("$person.GetFullName()").unwrap().result(),
             PsValue::String("John Doe".to_string())
         );
     }

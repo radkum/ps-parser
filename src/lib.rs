@@ -47,7 +47,7 @@ pub(crate) use parser::NEWLINE;
 /// assert_eq!(result, "3");
 ///
 /// // Parse and get detailed results
-/// let script_result = session.parse_input("$b = 'Hello World'; $b").unwrap();
+/// let script_result = session.parse_command("$b = 'Hello World'; $b").unwrap();
 /// println!("Result: {:?}", script_result.result());
 /// ```
 pub use parser::PowerShellSession;
@@ -79,7 +79,7 @@ pub use parser::PsValue;
 /// use ps_parser::PowerShellSession;
 ///
 /// let mut session = PowerShellSession::new();
-/// let script_result = session.parse_input("$a = 42; $a").unwrap();
+/// let script_result = session.parse_command("$a = 42; $a").unwrap();
 ///
 /// // Access different parts of the result
 /// println!("Final value: {:?}", script_result.result());
@@ -111,7 +111,7 @@ pub use parser::ScriptResult;
 /// use ps_parser::PowerShellSession;
 ///
 /// let mut session = PowerShellSession::new();
-/// let script_result = session.parse_input("$var = 123").unwrap();
+/// let script_result = session.parse_command("$var = 123").unwrap();
 ///
 /// // Inspect the tokens
 /// for token in script_result.tokens().all() {
@@ -158,7 +158,7 @@ mod tests {
         // assign variable and print it to screen
         let mut p = PowerShellSession::new();
         let input = r#" $script:var = [char]([int]("9e4e" -replace "e")+3); [int]'a';$var"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), 'a'.into());
         assert_eq!(
             script_res.deobfuscated(),
@@ -173,11 +173,11 @@ mod tests {
         // the same but do it in two parts
         let mut p = PowerShellSession::new();
         let input = r#" $global:var = [char]([int]("9e4e" -replace "e")+3) "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
 
         assert_eq!(script_res.errors().len(), 0);
 
-        let script_res = p.parse_input(" [int]'a';$var ").unwrap();
+        let script_res = p.parse_script(" [int]'a';$var ").unwrap();
         assert_eq!(
             script_res.deobfuscated(),
             vec!["[int]'a'", "'a'"].join(NEWLINE)
@@ -195,7 +195,7 @@ mod tests {
         // assign not existing value, without forcing evaluation
         let mut p = PowerShellSession::new();
         let input = r#" $local:var = $env:programfiles;[int]'a';$var"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Null);
         assert_eq!(
             script_res.deobfuscated(),
@@ -218,7 +218,7 @@ mod tests {
         // assign not existing value, forcing evaluation
         let mut p = PowerShellSession::new().with_variables(Variables::force_eval());
         let input = r#" $local:var = $env:programfiles;[int]'a';$script:var"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Null);
         assert_eq!(
             script_res.deobfuscated(),
@@ -232,7 +232,7 @@ mod tests {
         // assign not existing value, without forcing evaluation
         let mut p = PowerShellSession::new().with_variables(Variables::env());
         let input = r#" $local:var = $env:programfiles;$var"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String(std::env::var("PROGRAMFILES").unwrap())
@@ -253,11 +253,11 @@ mod tests {
     fn deobfuscation_from_base_64() {
         let mut p = PowerShellSession::new();
         let input = r#" $encoded = [syStem.texT.EncoDInG]::unIcoDe.geTstRiNg([char]97);$encoded"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), String::from("\u{FFFD}").into());
 
         let input = r#" [syStem.texT.EncoDInG]::unIcoDe.geTstRiNg([SYSTem.cOnVERT]::froMbasE64striNg("ZABlAGMAbwBkAGUAZAA="))"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), String::from("decoded").into());
     }
 
@@ -278,14 +278,14 @@ $nestedData = @{
 }
 "$nestedData"
         "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("System.Collections.Hashtable".to_string())
         );
 
         assert_eq!(
-            p.parse_input("$nesteddata.settings").unwrap().result(),
+            p.parse_script("$nesteddata.settings").unwrap().result(),
             PsValue::HashTable(HashMap::from([
                 ("language".to_string(), PsValue::String("en-US".to_string())),
                 ("theme".to_string(), PsValue::String("Dark".to_string())),
@@ -298,7 +298,7 @@ $nestedData = @{
         );
 
         assert_eq!(
-            p.parse_input("$nesteddata.users[0]").unwrap().result(),
+            p.parse_script("$nesteddata.users[0]").unwrap().result(),
             PsValue::HashTable(HashMap::from([
                 (
                     "skills".to_string(),
@@ -323,7 +323,7 @@ $nestedData = @{
         );
 
         let input = r#" $a=@{val = 4};$a.val"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Int(4));
         assert_eq!(
             script_res.deobfuscated(),
@@ -344,7 +344,7 @@ Write-Output "Division: $(($a / $b))"
 Write-Output "Modulo: $(($a % $b))"
 "#;
 
-        let script_result = PowerShellSession::new().parse_input(input).unwrap();
+        let script_result = PowerShellSession::new().parse_script(input).unwrap();
 
         assert_eq!(script_result.result(), PsValue::String("Modulo: 0".into()));
         assert_eq!(
@@ -410,7 +410,7 @@ Write-Output "Modulo: $(($a % $b))"
 
                 let script_result = PowerShellSession::new()
                     .with_variables(Variables::env())
-                    .parse_input(&input)
+                    .parse_script(&input)
                     .unwrap();
 
                 let expected_deobfuscated_vec = expected_deobfuscated
@@ -483,7 +483,7 @@ Write-Output "Modulo: $(($a % $b))"
         // Test for even numbers
         let mut p = PowerShellSession::new().with_variables(Variables::env());
         let input = r#" $numbers = 1..10; $numbers"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.deobfuscated(),
             vec![
@@ -500,7 +500,7 @@ Write-Output "Modulo: $(($a % $b))"
         // Test for even numbers
         let mut p = PowerShellSession::new().with_variables(Variables::env());
         let input = r#" $numbers = 1..10; $evenNumbers = $numbers | Where-Object { $_ % 2 -eq 0 }; $evenNumbers"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![
@@ -528,7 +528,7 @@ Write-Output "Modulo: $(($a % $b))"
         // Test for even numbers
         let mut p = PowerShellSession::new().with_variables(Variables::env());
         let input = r#" $numbers = 1..10; $numbers | Where { $_ % 2 -eq 0 } | ? { $_ % 3 -eq 0 }"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Int(6));
         assert_eq!(
             script_res.deobfuscated(),
@@ -546,7 +546,7 @@ function Get-Square($number) {
     return $number * $number
 }
 "Square of 5: $(Get-Square 5)" "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.deobfuscated(),
             vec![
@@ -586,7 +586,7 @@ if ($score -ge 90) {
 }
         
         "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.deobfuscated(),
             vec![
@@ -604,7 +604,7 @@ if ($score -ge 90) {
     fn format_operator() {
         let mut p = PowerShellSession::new().with_variables(Variables::env());
         let input = r#" ("{5}{2}{0}{1}{3}{6}{4}" -f 'ut',('oma'+'t'+'ion.'),'.A',('Ems'+'iUt'),'ls',('S'+'ystem.'+'Danage'+'men'+'t'),'i')"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("System.Danagement.Automation.EmsiUtils".into())
@@ -620,7 +620,7 @@ if ($score -ge 90) {
     fn encod_command() {
         let mut p = PowerShellSession::new().with_variables(Variables::env());
         let input = r#" ("{5}{2}{0}{1}{3}{6}{4}" -f 'ut',('oma'+'t'+'ion.'),'.A',('Ems'+'iUt'),'ls',('S'+'ystem.'+'Danage'+'men'+'t'),'i')"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("System.Danagement.Automation.EmsiUtils".into())
@@ -638,7 +638,7 @@ if ($score -ge 90) {
 
         //integers
         let input = r#" $a = 1,2,3;$a"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![PsValue::Int(1), PsValue::Int(2), PsValue::Int(3)])
@@ -650,7 +650,7 @@ if ($score -ge 90) {
 
         // strings
         let input = r#" $a = "x", 'yyy', "z";$a"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![
@@ -666,7 +666,7 @@ if ($score -ge 90) {
 
         // expresssions
         let input = r#" $a = 1,2+ 3,[long]4;$a"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![
@@ -683,7 +683,7 @@ if ($score -ge 90) {
 
         // variables
         let input = r#" $x = 3; $a = $x, $x+1, "count=$x";$a"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![
@@ -705,7 +705,7 @@ if ($score -ge 90) {
 
         // nested arrays
         let input = r#" $a = (1, 2), (3, 4);$a"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![
@@ -720,7 +720,7 @@ if ($score -ge 90) {
 
         // nested arrays
         let input = r#" $a = 1, "two", 3.0, $false, (Get-Date);$a"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![
@@ -742,7 +742,7 @@ if ($score -ge 90) {
 
         // array assign to another array
         let input = r#" $a = 1, 2,3;$b = $a,4,5;$b"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![
@@ -758,7 +758,7 @@ if ($score -ge 90) {
 
         // forEach-Object
         let input = r#"  $a = 1,-2,(-3) | ForEach-Object { $_ * 2 };$a"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![PsValue::Int(2), PsValue::Int(-4), PsValue::Int(-6),])
@@ -766,7 +766,7 @@ if ($score -ge 90) {
 
         // forEach-Object - parentheses
         let input = r#"  $a = (1,2,3) | ForEach-Object { $_ };$a"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![PsValue::Int(1), PsValue::Int(2), PsValue::Int(3),])
@@ -782,7 +782,7 @@ if ($score -ge 90) {
     B = (4,5),6
 }
 $a"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::HashTable(HashMap::from([
@@ -802,12 +802,12 @@ $a"#;
 
         // function argument as array
         let input = r#" function Foo($x) { $x.GetType().name + $x[2]};Foo(1,2,3)"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::String("Object[]3".into()));
 
         // function argument as array
         let input = r#" [object[]](1,2,3)"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![PsValue::Int(1), PsValue::Int(2), PsValue::Int(3)])
@@ -815,7 +815,7 @@ $a"#;
 
         // function argument as array
         let input = r#" $a = ,(42,2);$a"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![PsValue::Array(vec![
@@ -826,12 +826,12 @@ $a"#;
 
         // function argument as array
         let input = r#" function Foo($x) { $x.GetType().name + $x[2]};Foo(1,2,3)"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::String("Object[]3".into()));
 
         // function argument as array
         let input = r#" function b($x) {$x};b(1,2+3,4)"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![
@@ -845,7 +845,7 @@ $a"#;
         // function argument as array
         let input =
             r#" $a=@{val = 4};function b($x) {$x};b(1, [long]($a | Where-Object val -eq 4).val)"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![PsValue::Int(1), PsValue::Int(4)])
@@ -858,7 +858,7 @@ $a"#;
 
         //simple
         let input = r#" $a=@{val = 4};[long]($a).val"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Int(4));
         assert_eq!(
             script_res.deobfuscated(),
@@ -866,7 +866,7 @@ $a"#;
         );
 
         let input = r#" $a=@{val = 4};[long]($a | Where-Object Val -eq 4).val"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Int(4));
         assert_eq!(
             script_res.deobfuscated(),
@@ -880,19 +880,19 @@ $a"#;
 
         //simple
         let input = r#" '1a1' -replace 'a' -as [int] "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Int(11));
 
         let input = r#" '1a1' -replace ('a' -as [int])"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::String("1a1".into()));
 
         let input = r#" '2' -as [int] -shl 1"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Int(4));
 
         let input = r#" [system.text.encoding]::unicode -shl 1 "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Null);
         assert_eq!(
             script_res.errors()[0].to_string(),
@@ -900,7 +900,7 @@ $a"#;
         );
 
         let input = r#" [int] -shl 1 "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Null);
         assert_eq!(
             script_res.errors()[0].to_string(),
@@ -908,7 +908,7 @@ $a"#;
         );
 
         let input = r#" '2' -as ([string] -shl 1) "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Null);
         assert_eq!(
             script_res.errors()[0].to_string(),
@@ -916,11 +916,11 @@ $a"#;
         );
 
         let input = r#" '2' -as ([int]) "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Int(2));
 
         let input = r#" '2' -As ([int]) "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Int(2));
     }
 
@@ -929,11 +929,11 @@ $a"#;
         let mut p = PowerShellSession::new().with_variables(Variables::env());
 
         let input = r#" [int] $elo = "1"; $elo "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Int(1));
 
         let input = r#" [int] $elo = "1a": $elo"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Null);
         assert_eq!(
             script_res.errors()[0].to_string(),
@@ -941,7 +941,7 @@ $a"#;
         );
 
         let input = r#" [double] $elo = "1a": $elo"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Null);
         assert_eq!(
             script_res.errors()[0].to_string(),
@@ -949,14 +949,14 @@ $a"#;
         );
 
         let input = r#" [int[]] $elo = "1", "2"; $elo"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![PsValue::Int(1), PsValue::Int(2)])
         );
 
         let input = r#" [byte[]] $elo = "1", "2"; $elo"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![PsValue::Char(49), PsValue::Char(50)])
@@ -968,7 +968,7 @@ $a"#;
         let mut p = PowerShellSession::new().with_variables(Variables::env());
 
         let input = r#" $a = @{ elo= 2; name= "radek"}; write-output @a "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert!(script_res.output().contains("-elo 2"));
         assert!(script_res.output().contains("-name radek"));
     }
@@ -978,29 +978,29 @@ $a"#;
         let mut p = PowerShellSession::new().with_variables(Variables::env());
 
         let input = r#" @(1,2)[0] = 1 "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.errors()[0].to_string(), "Skip".to_string());
 
         let input = r#" "elo"[0] = 1 "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.errors()[0].to_string(), "Skip".to_string());
 
         let input = r#" $a = @(1,2); $a[1] = 5; $a "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![PsValue::Int(1), PsValue::Int(5)])
         );
 
         let input = r#" $a = @(1,@(2,3));$a[1] = 6;$a "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![PsValue::Int(1), PsValue::Int(6)])
         );
 
         let input = r#" $a = @(1,@(2,3));$a[1][1] = 6;$a "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![
@@ -1033,7 +1033,7 @@ process
 	Write-output elo
 }
 "#;
-        let _script_res = p.parse_input(input).unwrap();
+        let _script_res = p.parse_script(input).unwrap();
     }
 
     #[test]
@@ -1047,7 +1047,7 @@ if (($OriginalImageBase -eq [Int64]$PEInfo.EffectivePEHandle) `
 			return
 		}
 "#;
-        let _script_res = p.parse_input(input).unwrap();
+        let _script_res = p.parse_script(input).unwrap();
     }
 
     #[test]
@@ -1058,7 +1058,7 @@ if (($OriginalImageBase -eq [Int64]$PEInfo.EffectivePEHandle) `
 $ExeArgs = "crypto::cng crypto::capi `"crypto::certificates /export`" `"crypto::certificates /export /systemstore:CERT_SYSTEM_STORE_LOCAL_MACHINE`" exit"
 "#;
         let result = r#"$exeargs = "crypto::cng crypto::capi "crypto::certificates /export" "crypto::certificates /export /systemstore:CERT_SYSTEM_STORE_LOCAL_MACHINE" exit""#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.deobfuscated(), result);
     }
 
@@ -1067,7 +1067,7 @@ $ExeArgs = "crypto::cng crypto::capi `"crypto::certificates /export`" `"crypto::
         let mut p = PowerShellSession::new().with_variables(Variables::env());
 
         let input = r#" $GetProcAddress = $UnsafeNativeMethods.GetMethod('GetProcAddress', [reflection.bindingflags] "Public,Static", $null, [System.Reflection.CallingConventions]::Any, @((New-Object System.Runtime.InteropServices.HandleRef).GetType(), [string]), $null); "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert!(script_res.tokens().string_set().contains("GetProcAddress"));
     }
 
@@ -1076,7 +1076,7 @@ $ExeArgs = "crypto::cng crypto::capi `"crypto::certificates /export`" `"crypto::
         let mut p = PowerShellSession::new().with_variables(Variables::env());
 
         let input = r#" Get-ProcAddress kernel32.dll GetProcAddress "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert!(script_res.tokens().string_set().contains("GetProcAddress"));
     }
 
@@ -1091,7 +1091,7 @@ $ExeArgs = "crypto::cng crypto::capi `"crypto::certificates /export`" `"crypto::
 Write-Host "[+] EMSI DLL Handle: $hModule"
 "#;
 
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert!(script_res.tokens().string_set().contains("emsi.dll"));
     }
 
@@ -1103,7 +1103,7 @@ Write-Host "[+] EMSI DLL Handle: $hModule"
 $settings = [Ref].Assembly.GetType("System.Management.Automation.Utils").GetField("cachedGroupPolicySettings","NonPublic,Static").GetValue($null);
 "#;
 
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert!(
             script_res
                 .tokens()
@@ -1129,7 +1129,7 @@ MyPatch;
 Start-Sleep 1;
 "#;
 
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert!(
             script_res.tokens().ttypes().contains(
                 "System.Management.Automation.PSTypeName"
@@ -1147,7 +1147,7 @@ Start-Sleep 1;
 $elo.Invoke('something',(('Non'+'Public,Static') -as [String].Assembly))
 "#;
 
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert!(
             script_res
                 .tokens()
@@ -1164,7 +1164,7 @@ $elo.Invoke('something',(('Non'+'Public,Static') -as [String].Assembly))
 [System.IO.File]::WriteAllBytes("$pwd\emsi.dll", $temp)
 "#;
 
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert!(script_res.tokens().string_set().contains("$pwd\\emsi.dll"));
     }
 
@@ -1180,7 +1180,7 @@ switch ($var) {
 }
 "#;
 
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert!(script_res.tokens().string_set().contains("emsi.dll"));
     }
 }

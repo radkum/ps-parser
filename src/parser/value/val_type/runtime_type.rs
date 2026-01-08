@@ -53,15 +53,28 @@ pub(crate) trait RuntimeTypeTrait: std::fmt::Debug + Sync + Send {
 #[cfg(test)]
 mod tests {
     use super::{super::ValError, *};
+    use crate::parser::value::{Convert, Encoding};
 
+    const CONVERT: Convert = Convert {};
+    const ENCODING: Encoding = Encoding {};
     #[test]
     fn runtime_type() {
+        let mut types_map = std::collections::HashMap::new();
+        types_map.insert(
+            CONVERT.full_name().to_ascii_lowercase(),
+            Box::new(CONVERT) as _,
+        );
+        types_map.insert(
+            ENCODING.full_name().to_ascii_lowercase(),
+            Box::new(ENCODING) as _,
+        );
+
         assert_eq!(
-            ValType::runtime_type_from_str("null").unwrap_err(),
+            ValType::runtime_type_from_str("null", &types_map).unwrap_err(),
             ValError::UnknownType("null".into())
         );
 
-        let runtime_object = ValType::runtime_type_from_str("Bool".into()).unwrap();
+        let runtime_object = ValType::runtime_type_from_str("Bool".into(), &types_map).unwrap();
         let runtime_type = runtime_object.ttype();
         assert_eq!(
             Val::RuntimeType(Box::new(ValType::Bool)).ttype(),
@@ -71,7 +84,7 @@ mod tests {
             assert_eq!(rt_type.type_definition(), ValType::Bool);
         }
 
-        let runtime_object = ValType::runtime_type_from_str("char".into()).unwrap();
+        let runtime_object = ValType::runtime_type_from_str("char".into(), &types_map).unwrap();
         let runtime_type = runtime_object.ttype();
         assert_eq!(
             Val::RuntimeType(Box::new(ValType::Char)).ttype(),
@@ -81,7 +94,7 @@ mod tests {
             assert_eq!(rt_type.type_definition(), ValType::Char);
         }
 
-        let runtime_object = ValType::runtime_type_from_str("double".into()).unwrap();
+        let runtime_object = ValType::runtime_type_from_str("double".into(), &types_map).unwrap();
         let runtime_type = runtime_object.ttype();
         let val_type = ValType::Float;
         assert_eq!(
@@ -92,7 +105,7 @@ mod tests {
             assert_eq!(rt_type.type_definition(), val_type);
         }
 
-        let runtime_object = ValType::runtime_type_from_str("StRing".into()).unwrap();
+        let runtime_object = ValType::runtime_type_from_str("StRing".into(), &types_map).unwrap();
         let runtime_type = runtime_object.ttype();
         let val_type = ValType::String;
         assert_eq!(
@@ -103,7 +116,7 @@ mod tests {
             assert_eq!(rt_type.type_definition(), val_type);
         }
 
-        let runtime_object = ValType::runtime_type_from_str("long".into()).unwrap();
+        let runtime_object = ValType::runtime_type_from_str("long".into(), &types_map).unwrap();
         let runtime_type = runtime_object.ttype();
         let val_type = ValType::Int;
         assert_eq!(
@@ -114,7 +127,7 @@ mod tests {
             assert_eq!(rt_type.type_definition(), val_type);
         }
 
-        let runtime_object = ValType::runtime_type_from_str("array".into()).unwrap();
+        let runtime_object = ValType::runtime_type_from_str("array".into(), &types_map).unwrap();
         let runtime_type = runtime_object.ttype();
         let val_type = ValType::Array(None);
         assert_eq!(
@@ -130,7 +143,8 @@ mod tests {
         // ValType::RuntimeType("Array".into()));
         //assert_eq!(rt.type_definition().unwrap(), ValType::Array(None));
 
-        let runtime_object = ValType::runtime_type_from_str("hashtable".into()).unwrap();
+        let runtime_object =
+            ValType::runtime_type_from_str("hashtable".into(), &types_map).unwrap();
         let runtime_type = runtime_object.ttype();
         let val_type = ValType::HashTable;
         assert_eq!(
@@ -141,7 +155,8 @@ mod tests {
             assert_eq!(rt_type.type_definition(), val_type);
         }
 
-        let runtime_object = ValType::runtime_type_from_str("scriptblock".into()).unwrap();
+        let runtime_object =
+            ValType::runtime_type_from_str("scriptblock".into(), &types_map).unwrap();
         let runtime_type = runtime_object.ttype();
         let val_type = ValType::ScriptBlock;
         assert_eq!(
@@ -152,7 +167,8 @@ mod tests {
             assert_eq!(rt_type.type_definition(), val_type);
         }
 
-        let runtime_object = ValType::runtime_type_from_str("system.convert".into()).unwrap();
+        let runtime_object =
+            ValType::runtime_type_from_str("system.convert".into(), &types_map).unwrap();
         let runtime_type = runtime_object.ttype();
         let val_type = ValType::RuntimeObject("System.Convert".into());
         assert_eq!(
@@ -163,7 +179,8 @@ mod tests {
             assert_eq!(rt_type.type_definition(), val_type);
         }
 
-        let runtime_object = ValType::runtime_type_from_str("system.text.encoding".into()).unwrap();
+        let runtime_object =
+            ValType::runtime_type_from_str("system.text.encoding".into(), &types_map).unwrap();
         let runtime_type = runtime_object.ttype();
         let val_type = ValType::RuntimeObject("System.Text.Encoding".into());
         assert_eq!(
@@ -184,7 +201,7 @@ mod tests {
         // }
 
         assert_eq!(
-            ValType::cast("a").unwrap_err(),
+            ValType::cast("a", &types_map).unwrap_err(),
             ValError::UnknownType("a".into())
         );
     }

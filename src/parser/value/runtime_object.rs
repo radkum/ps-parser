@@ -28,7 +28,9 @@ impl From<MethodError> for RuntimeError {
 
 pub type RuntimeResult<T> = core::result::Result<T, RuntimeError>;
 
-pub(crate) trait RuntimeObjectTrait: std::fmt::Debug + std::fmt::Display {
+pub(crate) trait RuntimeObjectTrait:
+    std::fmt::Debug + std::fmt::Display + Send + Sync
+{
     fn method(&self, method_name: MethodName) -> RuntimeResult<MethodCallType> {
         Err(MethodError::NotImplemented(method_name.name().to_string()).into())
     }
@@ -138,7 +140,7 @@ mod tests {
         let mut p = PowerShellSession::new().with_variables(Variables::env());
 
         let input = r#" $a = ,('m',1234,'s');$a.gettype() "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String(
@@ -149,7 +151,7 @@ mod tests {
         );
 
         let input = r#" $a = ,('m',1234,'s');function Foo($x) { $x[0].GetType().name + $x[2]}; $b = (Foo(1,2,3));$b "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::String("Int323".into()));
 
         //this like return "a" + "msi" ".dll", object. However EDR may detect such
@@ -159,7 +161,7 @@ mod tests {
         // +$a[0][2]+(Foo(1,2,3))[0]+([string]$a.gettype())[6]+[char](97+3)
         // +[string][char]((54) | ForEach-Object { $_*2 })*2;$b "#;
         let input = r#" $a = ,('m',1234,'s');function Foo($x) { $x[0].GetType().name + $x[2]}; $b = $a.gettype()[0].basetype.name[0] +$a[0][2] +$a[0][2]+(Foo(1,2,3))[0]+([string]$a.gettype())[6]+[char](97+3) +[string][char]((54) | ForEach-Object { $_*2 })*2;$b "#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::String("AssI.dll".into()));
     }
 }

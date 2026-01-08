@@ -87,14 +87,14 @@ mod tests {
 $string = 'hello, world'
 $string = $string.trim(', world')
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::String("he".to_string()));
 
         let input = r#"
 $string = 'hello, world'
 $string = $string.trim('hed')
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("llo, worl".to_string())
@@ -104,7 +104,7 @@ $string"#;
 $string = 'hello, world '
 $string = $string.trim()
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("hello, world".to_string())
@@ -118,14 +118,14 @@ $string"#;
 $string = 'hello, world'
 $string = $string.trimend(', world')
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::String("he".to_string()));
 
         let input = r#"
 $string = 'hello, world'
 $string = $string.trimend('hed')
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("hello, worl".to_string())
@@ -135,7 +135,7 @@ $string"#;
 $string = 'hello, world '
 $string = $string.trimend()
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("\"hello, world \".trimend()".to_string())
@@ -153,7 +153,7 @@ $string"#;
 $string = 'hello, world'
 $string = $string.trimstart(', world')
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("hello, world".to_string())
@@ -163,7 +163,7 @@ $string"#;
 $string = 'hello, world'
 $string = $string.trimstart('hed')
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("llo, world".to_string())
@@ -173,7 +173,7 @@ $string"#;
 $string = 'hello, world '
 $string = $string.trimstart()
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("\"hello, world \".trimstart()".to_string())

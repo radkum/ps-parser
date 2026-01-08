@@ -43,7 +43,7 @@ mod tests {
 $string = 'Âmí'+'Ùtìl'
 $string = $string.normalize("FormD")
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::String("AmiUtil".to_string()));
     }
 }

@@ -10,7 +10,7 @@ pub(super) use scopes::SessionScope;
 use thiserror_no_std::Error;
 pub(super) use variable::{Scope, VarName};
 
-use crate::parser::{Val, value::ScriptBlock};
+use crate::parser::{RuntimeTypeTrait, Val, value::ScriptBlock};
 #[derive(Error, Debug, PartialEq, Clone)]
 pub enum VariableError {
     #[error("Variable \"{0}\" is not defined")]
@@ -33,6 +33,7 @@ pub struct Variables {
     values_persist: bool,
     global_functions: FunctionMap,
     script_functions: FunctionMap,
+    top_scope: TopScope,
     //special variables
     // status: bool, // $?
     // first_token: Option<String>,
@@ -41,10 +42,22 @@ pub struct Variables {
 }
 
 #[derive(Default, Clone)]
-enum State {
+pub(super) enum TopScope {
     #[default]
+    Session,
     Script,
+}
+
+#[derive(Clone)]
+enum State {
+    TopScope(TopScope),
     Stack(u32),
+}
+
+impl Default for State {
+    fn default() -> Self {
+        State::TopScope(TopScope::default())
+    }
 }
 
 impl Variables {
@@ -84,7 +97,8 @@ impl Variables {
     }
 
     pub fn status(&mut self) -> bool {
-        let Some(Val::Bool(b)) = self.get(&VarName::new_with_scope(Scope::Special, "$?".into()))
+        let Some(Val::Bool(b)) =
+            self.get_without_types(&VarName::new_with_scope(Scope::Special, "$?".into()))
         else {
             return false;
         };
@@ -106,12 +120,12 @@ impl Variables {
         self.load(map)
     }
 
-    pub fn init(&mut self) {
+    pub(super) fn init(&mut self, scope: TopScope) {
         if !self.values_persist {
             self.script_scope.clear();
         }
         self.scope_sessions_stack.clear();
-        self.state = State::Script;
+        self.state = State::TopScope(scope);
     }
 
     fn load(
@@ -345,16 +359,30 @@ impl Variables {
         Ok(variables)
     }
 
+    fn top_scope(&self, scope: &TopScope) -> &VariableMap {
+        match scope {
+            TopScope::Session => &self.global_scope,
+            TopScope::Script => &self.script_scope,
+        }
+    }
+
+    fn mut_top_scope(&mut self, scope: &TopScope) -> &mut VariableMap {
+        match scope {
+            TopScope::Session => &mut self.global_scope,
+            TopScope::Script => &mut self.script_scope,
+        }
+    }
+
     fn const_map_from_scope(&self, scope: &Scope) -> &VariableMap {
         match scope {
             Scope::Global => &self.global_scope,
             Scope::Script => &self.script_scope,
             Scope::Env => &self.env,
-            Scope::Local => match self.state {
-                State::Script => &self.script_scope,
+            Scope::Local => match &self.state {
+                State::TopScope(scope) => self.top_scope(scope),
                 State::Stack(depth) => {
-                    if depth < self.scope_sessions_stack.len() as u32 {
-                        &self.scope_sessions_stack[depth as usize]
+                    if *depth < self.scope_sessions_stack.len() as u32 {
+                        &self.scope_sessions_stack[*depth as usize]
                     } else {
                         &self.script_scope
                     }
@@ -367,13 +395,16 @@ impl Variables {
     }
 
     fn local_scope(&mut self) -> &mut VariableMap {
-        match self.state {
-            State::Script => &mut self.script_scope,
+        match &mut self.state {
+            State::TopScope(scope) => {
+                let scope = scope.clone();
+                self.mut_top_scope(&scope)
+            }
             State::Stack(depth) => {
-                if depth < self.scope_sessions_stack.len() as u32 {
-                    &mut self.scope_sessions_stack[depth as usize]
+                if *depth < self.scope_sessions_stack.len() as u32 {
+                    &mut self.scope_sessions_stack[*depth as usize]
                 } else {
-                    &mut self.script_scope
+                    &mut self.global_scope
                 }
             }
         }
@@ -407,7 +438,7 @@ impl Variables {
         if let Some(variable) = var {
             *variable = val;
         } else {
-            let map = self.map_from_scope(&var_name.scope.clone().unwrap_or(Scope::Local));
+            let map = self.map_from_scope(&var_name.scope.clone().unwrap_or(Scope::Script));
             map.insert(var_name.name.to_ascii_lowercase(), val);
         }
 
@@ -426,9 +457,10 @@ impl Variables {
         let name = var_name.name.to_ascii_lowercase();
         let name_str = name.as_str();
 
-        if let Some(scope) = &var_name.scope {
-            let map = self.map_from_scope(scope);
-            Ok(map.get_mut(name_str))
+        if let Some(scope) = &var_name.scope
+            && self.const_map_from_scope(scope).contains_key(name_str)
+        {
+            Ok(self.map_from_scope(scope).get_mut(name_str))
         } else {
             if Self::PREDEFINED_VARIABLES.contains_key(name_str) {
                 return Err(VariableError::ReadOnly(name.clone()));
@@ -463,7 +495,25 @@ impl Variables {
     ///
     /// * `VariableResult<Val>` - The variable's value, or an error if not
     ///   found.
-    pub(crate) fn get(&self, var_name: &VarName) -> Option<Val> {
+    pub(crate) fn get(
+        &self,
+        var_name: &VarName,
+        types_map: &HashMap<String, Box<dyn RuntimeTypeTrait>>,
+    ) -> Option<Val> {
+        let var = self.find_variable_in_scopes(var_name);
+
+        if self.force_var_eval && var.is_none() {
+            if let Some(rt) = types_map.get(var_name.name.as_str()) {
+                Some(Val::RuntimeType(rt.clone_rt()))
+            } else {
+                Some(Val::Null)
+            }
+        } else {
+            var.cloned()
+        }
+    }
+
+    pub(crate) fn get_without_types(&self, var_name: &VarName) -> Option<Val> {
         let var = self.find_variable_in_scopes(var_name);
 
         if self.force_var_eval && var.is_none() {
@@ -479,29 +529,31 @@ impl Variables {
 
         if let Some(scope) = &var_name.scope {
             let map = self.const_map_from_scope(scope);
-            map.get(name_str)
-        } else {
-            if Self::PREDEFINED_VARIABLES.contains_key(name_str) {
-                return Self::PREDEFINED_VARIABLES.get(name_str);
+            let x = map.get(name_str);
+            if x.is_some() {
+                return x;
             }
-
-            // No scope specified, check local scopes first, then globals
-            for local_scope in self.scope_sessions_stack.iter().rev() {
-                if local_scope.contains_key(name_str) {
-                    return local_scope.get(name_str);
-                }
-            }
-
-            if self.script_scope.contains_key(name_str) {
-                return self.script_scope.get(name_str);
-            }
-
-            if self.global_scope.contains_key(name_str) {
-                return self.global_scope.get(name_str);
-            }
-
-            None
         }
+        if Self::PREDEFINED_VARIABLES.contains_key(name_str) {
+            return Self::PREDEFINED_VARIABLES.get(name_str);
+        }
+
+        // No scope specified, check local scopes first, then globals
+        for local_scope in self.scope_sessions_stack.iter().rev() {
+            if local_scope.contains_key(name_str) {
+                return local_scope.get(name_str);
+            }
+        }
+
+        if self.script_scope.contains_key(name_str) {
+            return self.script_scope.get(name_str);
+        }
+
+        if self.global_scope.contains_key(name_str) {
+            return self.global_scope.get(name_str);
+        }
+
+        None
     }
 
     pub(crate) fn push_scope_session(&mut self) {
@@ -517,7 +569,7 @@ impl Variables {
             0 => {} /* unreachable */
             1 => {
                 self.scope_sessions_stack.pop();
-                self.state = State::Script;
+                self.state = State::TopScope(self.top_scope.clone());
             }
             _ => {
                 self.scope_sessions_stack.pop();
@@ -614,23 +666,23 @@ mod tests {
         let v = Variables::env();
         let mut p = PowerShellSession::new().with_variables(v);
 
-        p.parse_input(r#" $global:var_int = 5 "#).unwrap();
-        p.parse_input(r#" $global:var_string = "global";$script:var_string = "script";$local:var_string = "local" "#).unwrap();
+        p.parse_script(r#" $global:var_int = 5 "#).unwrap();
+        p.parse_script(r#" $global:var_string = "global";$script:var_string = "script";$local:var_string = "local" "#).unwrap();
 
         assert_eq!(
-            p.parse_input(r#" $var_int "#).unwrap().result(),
+            p.parse_script(r#" $var_int "#).unwrap().result(),
             PsValue::Int(5)
         );
         assert_eq!(
-            p.parse_input(r#" $var_string "#).unwrap().result(),
-            PsValue::String("global".into())
+            p.parse_script(r#" $var_string "#).unwrap().result(),
+            PsValue::String("local".into())
         );
 
         let global_variables = p.session_variables();
         assert_eq!(global_variables.get("var_int").unwrap(), &PsValue::Int(5));
         assert_eq!(
             global_variables.get("var_string").unwrap(),
-            &PsValue::String("global".into())
+            &PsValue::String("local".into())
         );
     }
 
@@ -640,7 +692,7 @@ mod tests {
         let mut p = PowerShellSession::new().with_variables(v);
 
         let script_res = p
-            .parse_input(r#" $script:var_int = 5;$var_string = "assdfa" "#)
+            .parse_script(r#" $script:var_int = 5;$var_string = "assdfa" "#)
             .unwrap();
         let script_variables = script_res.script_variables();
         assert_eq!(script_variables.get("var_int"), Some(&PsValue::Int(5)));
@@ -707,11 +759,11 @@ local_var = "local_value"
         let mut p = PowerShellSession::new().with_variables(variables);
 
         assert_eq!(
-            p.parse_input(r#" $global:name "#).unwrap().result(),
+            p.parse_script(r#" $global:name "#).unwrap().result(),
             PsValue::String("radek".into())
         );
         assert_eq!(
-            p.parse_input(r#" $global:age "#).unwrap().result(),
+            p.parse_script(r#" $global:age "#).unwrap().result(),
             PsValue::Int(30)
         );
         assert_eq!(p.safe_eval(r#" $false "#).unwrap().as_str(), "False");
@@ -742,11 +794,11 @@ local_var = "local_value"
         let variables = Variables::from_ini_string(input).unwrap().values_persist();
         let mut p = PowerShellSession::new().with_variables(variables);
         assert_eq!(
-            p.parse_input(r#" $global:name "#).unwrap().result(),
+            p.parse_script(r#" $global:name "#).unwrap().result(),
             PsValue::String("radek".into())
         );
         assert_eq!(
-            p.parse_input(r#" $global:age "#).unwrap().result(),
+            p.parse_script(r#" $global:age "#).unwrap().result(),
             PsValue::Int(30)
         );
         assert_eq!(p.safe_eval(r#" $false "#).unwrap().as_str(), "False");
@@ -759,6 +811,7 @@ local_var = "local_value"
             p.safe_eval(r#" $local_var "#).unwrap().as_str(),
             "\"local_value\""
         );
+
         assert_eq!(
             p.safe_eval(r#" $local:local_var "#).unwrap().as_str(),
             "\"local_value\""

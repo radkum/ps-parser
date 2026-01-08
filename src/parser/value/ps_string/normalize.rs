@@ -53,14 +53,14 @@ mod tests {
 $string = 'hello'
 $string = $string.padleft(2)
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::String("hello".to_string()));
 
         let input = r#"
 $string = 'hello'
 $string = $string.padleft(10)
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("     hello".to_string())
@@ -70,7 +70,7 @@ $string"#;
 $string = 'hello'
 $string = $string.padleft()
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("\"hello\".padleft()".to_string())
@@ -88,7 +88,7 @@ $string"#;
 $string = 'hello'
 $string = $string.padright(10)
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("hello     ".to_string())
@@ -98,7 +98,7 @@ $string"#;
 $string = 'hello'
 $string = $string.padright()
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("\"hello\".padright()".to_string())

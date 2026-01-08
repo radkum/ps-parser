@@ -208,7 +208,7 @@ $string = $string.replace('o,','o')
 $string = $string.replace(' ','.')
 $string = $string.replace('wo','d')
 $string = $string.replace('rld','ll');$string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::String("elo.dll".to_string()));
     }
 
@@ -220,7 +220,7 @@ $string = 'hello'
 $string = $string.insert(1,'r')
 $string = $string.insert(4,"dll")
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("hreldlllo".to_string())
@@ -234,7 +234,7 @@ $string"#;
 $string = 'hello world'
 $string = $string.split('l')
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![
@@ -249,7 +249,7 @@ $string"#;
 $string = 'hello world'
 $string = $string.split('l', 2)
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![
@@ -262,7 +262,7 @@ $string"#;
 $string = 'hello world'
 $string = $string.split('z', 2)
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::Array(vec![PsValue::String("hello world".to_string()),])
@@ -272,7 +272,7 @@ $string"#;
 $string = 'hello world'
 $string = $string.split('z', 0)
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Array(vec![]));
     }
 }

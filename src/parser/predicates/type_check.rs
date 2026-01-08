@@ -32,7 +32,7 @@ mod tests {
     fn test_typecheck() {
         let mut p = PowerShellSession::new();
         assert_eq!(
-            p.parse_input(r#" 42 -iSnot [string] "#).unwrap().result(),
+            p.parse_script(r#" 42 -iSnot [string] "#).unwrap().result(),
             PsValue::Bool(true)
         );
 

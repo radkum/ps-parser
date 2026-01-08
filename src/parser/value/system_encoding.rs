@@ -121,13 +121,13 @@ mod tests {
     fn test_builtint_objects() {
         let mut p = PowerShellSession::new();
         assert_eq!(
-            p.parse_input(r#" [system.text.encoding]::unicode "#)
+            p.parse_script(r#" [system.text.encoding]::unicode "#)
                 .unwrap()
                 .result(),
             PsValue::String("System.Text.UnicodeEncoding".into())
         );
         assert_eq!(
-            p.parse_input(r#" [system.text.encoding]"#)
+            p.parse_script(r#" [system.text.encoding]"#)
                 .unwrap()
                 .result(),
             PsValue::String(
@@ -137,25 +137,25 @@ mod tests {
             )
         );
         assert_eq!(
-            p.parse_input(r#" [system.text.encoding].name"#)
+            p.parse_script(r#" [system.text.encoding].name"#)
                 .unwrap()
                 .result(),
             PsValue::String("Encoding".into())
         );
         assert_eq!(
-            p.parse_input(r#" [system.text.encoding].basetype.name"#)
+            p.parse_script(r#" [system.text.encoding].basetype.name"#)
                 .unwrap()
                 .result(),
             PsValue::String("System.Object".into())
         );
         assert_eq!(
-            p.parse_input(r#" [system.text.encoding]"adsf" "#)
+            p.parse_script(r#" [system.text.encoding]"adsf" "#)
                 .unwrap()
                 .result(),
             PsValue::Null
         );
         assert_eq!(
-            p.parse_input(r#" [system.text.encoding]"adsf" "#)
+            p.parse_script(r#" [system.text.encoding]"adsf" "#)
                 .unwrap()
                 .errors()[0]
                 .to_string(),

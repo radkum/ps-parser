@@ -498,7 +498,7 @@ fn powershell(
                         .collect::<Vec<u16>>(),
                 )
             {
-                if let Ok(script_result) = ps.parse_input(&decoded_str) {
+                if let Ok(script_result) = ps.parse_script(&decoded_str) {
                     if script_result.deobfuscated().is_empty() {
                         *s = decoded_str;
                     } else {
@@ -527,33 +527,33 @@ mod tests {
     fn test_where_object() {
         let mut p = PowerShellSession::new();
         let input = r#"$numbers = 1..10;$evenNumbers = $numbers | Where-Object { $_ % 2 -eq 0 };$evenNumbers"#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
         assert_eq!(
             s.result().to_string(),
             vec!["2", "4", "6", "8", "10"].join(NEWLINE)
         );
 
         let input = r#"5 | where-object {$_ -eq 5}"#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
         assert_eq!(s.result(), PsValue::Int(5));
 
         let input = r#"5,4 | where-object {$_ -eq 5}"#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
         assert_eq!(s.result(), PsValue::Int(5));
 
         let input = r#"5,4 | where {$_ -gt 3}"#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
         assert_eq!(
             s.result(),
             PsValue::Array(vec![PsValue::Int(5), PsValue::Int(4)])
         );
 
         let input = r#"5,4 | where {$_ -lt 3}"#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
         assert_eq!(s.result(), PsValue::Null);
 
         let input = r#"@(@{val = 4},@{val = 3}) | where val -lt 4"#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
         assert_eq!(
             s.result(),
             PsValue::HashTable(std::collections::HashMap::from([(
@@ -567,18 +567,18 @@ mod tests {
     fn test_foreach_object() {
         let mut p = PowerShellSession::new();
         let input = r#"1..5 | foreach { $_ *2 }"#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
         assert_eq!(
             s.result().to_string(),
             vec!["2", "4", "6", "8", "10"].join(NEWLINE)
         );
 
         let input = r#"5 | % {$_ + 5}"#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
         assert_eq!(s.result(), PsValue::Int(10));
 
         let input = r#"5,4 | foreach {$_ /2}"#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
         assert_eq!(
             s.result(),
             PsValue::Array(vec![PsValue::Float(2.5), PsValue::Int(2)])
@@ -590,7 +590,7 @@ mod tests {
         // assign not existing value, without forcing evaluation
         let mut p = PowerShellSession::new().with_variables(Variables::env());
         let input = r#" $global:var = $env:programfiles; Write-output $var"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
 
         assert_eq!(
             script_res.result(),
@@ -616,7 +616,7 @@ mod tests {
         let mut p = PowerShellSession::new();
         let input = r#""Execution Policy: $(Get-ExecutionPolicy)"
 "Current Location: $(Get-Location)""#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
 
         // Get-ExecutionPolicy is built-in function
         assert_eq!(
@@ -636,7 +636,7 @@ mod tests {
     fn param_from_var() {
         let mut p = PowerShellSession::new();
         let input = r#"$x = "Process";Get-ExecutionPolicy -Scope $x"#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
 
         // Get-ExecutionPolicy is built-in function
         assert_eq!(
@@ -649,7 +649,7 @@ mod tests {
     fn double_quoted_string() {
         let mut p = PowerShellSession::new();
         let input = r#"$x = 5;$y = 3;$result = "Sum: $($x + $y)""#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
 
         // Get-ExecutionPolicy is built-in function
         assert_eq!(
@@ -662,7 +662,7 @@ mod tests {
     fn encoded_command() {
         let mut p = PowerShellSession::new();
         let input = r#"powershell.exe -encodedc VwByAGkAdABlAC0ASABvAHMAdAAgACIAdAB3AGUAZQB0ACwAIAB0AHcAZQBlAHQAIQAiAA=="#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
 
         assert_eq!(
             s.deobfuscated().trim(),
@@ -674,7 +674,7 @@ mod tests {
     fn encoded_command2() {
         let mut p = PowerShellSession::new();
         let input = r#"powershell.exe -e JgAgACgAZwBjAG0AIAAoACcAaQBlAHsAMAB9ACcAIAAtAGYAIAAnAHgAJwApACkAIAAoACIAVwByACIAKwAiAGkAdAAiACsAIgBlAC0ASAAiACsAIgBvAHMAdAAgACcASAAiACsAIgBlAGwAIgArACIAbABvACwAIABmAHIAIgArACIAbwBtACAAUAAiACsAIgBvAHcAIgArACIAZQByAFMAIgArACIAaAAiACsAIgBlAGwAbAAhACcAIgApAA=="#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
 
         assert_eq!(
             s.deobfuscated().trim(),
@@ -687,7 +687,7 @@ mod tests {
     fn encoded_command3() {
         let mut p = PowerShellSession::new();
         let input = r#"& (gcm ('ie{0}' -f 'x')) ("Wr"+"it"+"e-H"+"ost 'H"+"el"+"lo, fr"+"om P"+"ow"+"erS"+"h"+"ell!'")"#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
 
         assert_eq!(
             s.deobfuscated().trim(),

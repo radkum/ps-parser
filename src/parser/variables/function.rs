@@ -54,7 +54,7 @@ function Add-Numbers($a, $b) {
 "#;
 
         let mut session = PowerShellSession::new();
-        let script_result = session.parse_input(input).unwrap();
+        let script_result = session.parse_script(input).unwrap();
         assert_eq!(script_result.result(), PsValue::Int(15));
         assert_eq!(script_result.deobfuscated(), deobfuscated.trim());
     }
@@ -78,7 +78,7 @@ function Get-Greeting($name = "World") {
 "#;
 
         let mut session = PowerShellSession::new();
-        let script_result = session.parse_input(input).unwrap();
+        let script_result = session.parse_script(input).unwrap();
         assert_eq!(script_result.deobfuscated().trim(), deobfuscated.trim());
         assert_eq!(
             script_result.result(),
@@ -100,7 +100,7 @@ function Test-Empty() {
         "#;
 
         let mut session = PowerShellSession::new();
-        let script_result = session.parse_input(input).unwrap();
+        let script_result = session.parse_script(input).unwrap();
         assert_eq!(script_result.deobfuscated().trim(), deobfuscated.trim());
         assert_eq!(script_result.result(), PsValue::Null);
     }
@@ -142,7 +142,7 @@ function Test-Parameters {
 "#;
 
         let mut session = PowerShellSession::new();
-        let script_result = session.parse_input(input).unwrap();
+        let script_result = session.parse_script(input).unwrap();
         assert_eq!(script_result.deobfuscated().trim(), deobfuscated.trim());
     }
 
@@ -155,8 +155,8 @@ function Test-Parameters {
         "#;
 
         let mut session = PowerShellSession::new();
-        let _ = session.parse_input(input).unwrap();
-        let script_result = session.parse_input("Add-Numbers 5 10").unwrap();
+        let _ = session.parse_script(input).unwrap();
+        let script_result = session.parse_script("Add-Numbers 5 10").unwrap();
         assert_eq!(script_result.result(), PsValue::Int(15));
     }
 

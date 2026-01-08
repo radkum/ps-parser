@@ -45,7 +45,7 @@ mod tests {
 $string = 'Hello, World*'
 $string = $string.toupper()
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("HELLO, WORLD*".to_string())
@@ -55,7 +55,7 @@ $string"#;
 $string = 'Hello, World*'
 $string = $string.toupperinvariant()
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("HELLO, WORLD*".to_string())
@@ -65,7 +65,7 @@ $string"#;
 $string = 'Hello, World*'
 $string = $string.toupper("adf")
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("HELLO, WORLD*".to_string())
@@ -75,7 +75,7 @@ $string"#;
 $string = 'Hello, World*'
 $string = $string.toupperinvariant("adf")
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("\"Hello, World*\".toupperinvariant(\"adf\")".to_string())
@@ -95,7 +95,7 @@ $string"#;
 $string = 'HELLO, world*'
 $string = $string.tolower()
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("hello, world*".to_string())
@@ -105,7 +105,7 @@ $string"#;
 $string = 'HELLO, world*'
 $string = $string.tolowerinvariant()
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("hello, world*".to_string())
@@ -115,7 +115,7 @@ $string"#;
 $string = 'HELLO, world*'
 $string = $string.tolower(', world')
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("hello, world*".to_string())
@@ -125,7 +125,7 @@ $string"#;
 $string = 'HELLO, world*'
 $string = $string.tolowerinvariant('hed')
 $string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("\"HELLO, world*\".tolowerinvariant(\"hed\")".to_string())

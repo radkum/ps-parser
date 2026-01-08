@@ -80,20 +80,20 @@ mod tests {
     fn test_builtint_objects() {
         let mut p = PowerShellSession::new();
         assert_eq!(
-            p.parse_input(r#" [system.convert].name "#)
+            p.parse_script(r#" [system.convert].name "#)
                 .unwrap()
                 .result(),
             PsValue::String("Convert".into())
         );
         assert_eq!(
-            p.parse_input(r#" [system.convert] "#).unwrap().result(),
+            p.parse_script(r#" [system.convert] "#).unwrap().result(),
             PsValue::String(
                 "IsPublic\tIsSerial\tName\tBaseType\n--------\t--------\t----\t--------\n    \
                  true\t    true\tConvert\tSystem.Object"
                     .into()
             )
         );
-        let script_res = p.parse_input(r#" [system.convert]0 "#).unwrap();
+        let script_res = p.parse_script(r#" [system.convert]0 "#).unwrap();
         assert_eq!(script_res.result(), PsValue::Null);
         assert_eq!(
             script_res.errors()[0].to_string(),

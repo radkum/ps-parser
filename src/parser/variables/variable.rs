@@ -1,3 +1,5 @@
+use smart_default::SmartDefault;
+
 #[derive(Debug, Eq, Hash, PartialEq, Clone, Default)]
 pub(crate) struct VarName {
     pub scope: Option<Scope>,
@@ -33,9 +35,10 @@ impl std::fmt::Display for VarName {
     }
 }
 
-#[derive(Debug, Eq, Hash, PartialEq, Clone)]
+#[derive(Debug, Eq, Hash, PartialEq, Clone, SmartDefault)]
 pub(crate) enum Scope {
     Special,
+    #[default]
     Global,
     Script,
     Local,

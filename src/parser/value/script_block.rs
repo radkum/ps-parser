@@ -243,7 +243,10 @@ impl ScriptBlock {
         }
 
         let (script_last_output, _) = ps.parse_subscript(self.body.as_str())?;
-        if let Some(val) = ps.variables.get(&VarName::new(None, "this".to_string())) {
+        if let Some(val) = ps
+            .variables
+            .get_without_types(&VarName::new(None, "this".to_string()))
+        {
             *this = val.clone();
         }
         Ok(script_last_output)
@@ -258,7 +261,7 @@ mod tests {
     fn simple() {
         let mut p = PowerShellSession::new();
         let input = r#"$scriptblock = {3};$scriptblock"#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
         assert_eq!(s.result().to_string(), "3".to_string());
     }
 
@@ -266,7 +269,7 @@ mod tests {
     fn test_script_block() {
         let mut p = PowerShellSession::new();
         let input = r#"$elo = 3;$sb = { param($x, $y = 4); $x+$y+$elo};&$sb 1 2"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result().to_string(), "6".to_string());
         assert_eq!(
             script_res.deobfuscated(),
@@ -280,7 +283,7 @@ mod tests {
     fn test_script_block_default_args() {
         let mut p = PowerShellSession::new();
         let input = r#"$elo = 3;$sb = { param($x, $y = 4); $x+$y+$elo};.$sb 1"#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
         assert_eq!(s.result().to_string(), "8".to_string());
     }
 
@@ -288,7 +291,7 @@ mod tests {
     fn test_non_existing_script_block() {
         let mut p = PowerShellSession::new();
         let input = r#"$elo = 3;$sb = { param($x, $y = 4); $x+$y+$elo};.$sb2 1"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert!(script_res.result().to_string().is_empty(),);
         assert_eq!(
             script_res.deobfuscated(),
@@ -311,7 +314,7 @@ mod tests {
     fn test_script_block_value_assignment() {
         let mut p = PowerShellSession::new();
         let input = r#"$scriptBlock = {param($x, $y) return $x + $y};& $scriptBlock 10 20"#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
         assert_eq!(s.result().to_string(), "30".to_string());
     }
 
@@ -319,7 +322,7 @@ mod tests {
     fn test_script_block_without_assignment() {
         let mut p = PowerShellSession::new();
         let input = r#"& {param($x, $y) return $x + $y} 10 20 40"#;
-        let s = p.parse_input(input).unwrap();
+        let s = p.parse_script(input).unwrap();
         assert_eq!(s.deobfuscated(), "30".to_string());
         assert_eq!(s.result().to_string(), "30".to_string());
     }

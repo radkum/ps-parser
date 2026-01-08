@@ -79,25 +79,25 @@ mod tests {
         let input = r#"
 $string = 'hello, world'
 $string = $string.substring(1, 4);$string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::String("ello".to_string()));
 
         let input = r#"
 $string = 'hello, world'
 $string = $string.substring(7);$string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::String("world".to_string()));
 
         let input = r#"
 $string = 'hello, world'
 $string = $string.substring(7,5);$string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::String("world".to_string()));
 
         let input = r#"
 $string = 'hello, world'
 $string = $string.substring(7,6);$string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.errors()[0].to_string(),
             "MethodError: Exception calling \"Substring\" with \"2\" argument(s): \"Index and \
@@ -112,13 +112,13 @@ $string = $string.substring(7,6);$string"#;
         let input = r#"
 $string = 'hello, world'
 $string = $string.substring(12);$string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::String("".to_string()));
 
         let input = r#"
 $string = 'hello, world'
 $string = $string.substring(13);$string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.errors()[0].to_string(),
             "MethodError: Exception calling \"Substring\" with \"1\" argument(s): \"startIndex \
@@ -129,7 +129,7 @@ $string = $string.substring(13);$string"#;
         let input = r#"
 $string = 'hello, world'
 $string = $string.substring(5,0);$string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::String("".to_string()));
     }
 
@@ -139,19 +139,19 @@ $string = $string.substring(5,0);$string"#;
         let input = r#"
 $string = 'hello, world'
 $string = $string.remove(1, 4);$string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::String("h, world".to_string()));
 
         let input = r#"
 $string = 'hello, world'
 $string = $string.remove(7);$string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::String("hello, ".to_string()));
 
         let input = r#"
 $string = 'hello, world'
 $string = $string.remove(7,15);$string"#;
-        let script_res = p.parse_input(input).unwrap();
+        let script_res = p.parse_script(input).unwrap();
         assert_eq!(
             script_res.result(),
             PsValue::String("\"hello, world\".remove(7, 15)".to_string())

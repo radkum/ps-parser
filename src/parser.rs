@@ -6,15 +6,17 @@ mod stream_message;
 mod token;
 mod value;
 mod variables;
+
 use std::collections::HashMap;
 
 pub(crate) use command::CommandError;
 use command::{Command, CommandElem};
 pub(crate) use stream_message::StreamMessage;
 use value::{
-    ClassProperties, ClassType, MethodName, Param, RuntimeObjectTrait, ScriptBlock, ValResult,
+    ClassProperties, ClassType, Convert, Encoding, MethodName, Param, RuntimeObjectTrait,
+    RuntimeTypeTrait, ScriptBlock, ValResult,
 };
-use variables::{Scope, SessionScope};
+use variables::{Scope, SessionScope, TopScope};
 type ParserResult<T> = core::result::Result<T, ParserError>;
 use error::ParserError;
 type PestError = pest::error::Error<Rule>;
@@ -85,6 +87,8 @@ pub struct PowerShellSession {
     errors: Vec<ParserError>,
     results: Vec<Results>,
     skip_error: u32,
+    default_scope: Scope,
+    types_map: HashMap<String, Box<dyn RuntimeTypeTrait>>,
 }
 
 impl Default for PowerShellSession {
@@ -92,7 +96,8 @@ impl Default for PowerShellSession {
         Self::new()
     }
 }
-
+const CONVERT: Convert = Convert {};
+const ENCODING: Encoding = Encoding {};
 impl<'a> PowerShellSession {
     /// Creates a new PowerShell parsing session with default settings.
     ///
@@ -114,12 +119,24 @@ impl<'a> PowerShellSession {
     /// assert_eq!(result, "True");
     /// ```
     pub fn new() -> Self {
+        let mut types_map = HashMap::new();
+        types_map.insert(
+            CONVERT.full_name().to_ascii_lowercase(),
+            Box::new(CONVERT) as _,
+        );
+        types_map.insert(
+            ENCODING.full_name().to_ascii_lowercase(),
+            Box::new(ENCODING) as _,
+        );
+
         Self {
             variables: Variables::new(),
             tokens: Tokens::new(),
             errors: Vec::new(),
             results: Vec::new(),
             skip_error: 0,
+            default_scope: Scope::Global,
+            types_map,
         }
     }
 
@@ -184,13 +201,13 @@ impl<'a> PowerShellSession {
     /// assert_eq!(result, "Hello World");
     /// ```
     pub fn safe_eval(&mut self, script: &str) -> Result<String, ParserError> {
-        let script_res = self.parse_input(script)?;
+        let script_res = self.parse_command(script)?;
         Ok(script_res.result().to_string())
     }
 
     pub fn deobfuscate_script(&mut self, script: &str) -> Result<String, ParserError> {
         self.push_scope_session();
-        let script_res = self.parse_input(script)?;
+        let script_res = self.parse_script(script)?;
         self.pop_scope_session();
         Ok(script_res.deobfuscated().to_string())
     }
@@ -235,15 +252,37 @@ impl<'a> PowerShellSession {
     /// use ps_parser::PowerShellSession;
     ///
     /// let mut session = PowerShellSession::new();
-    /// let script_result = session.parse_input("$a = 42; Write-Output $a").unwrap();
+    /// let script_result = session.parse_command("$a = 42; Write-Output $a").unwrap();
     ///
     /// println!("Final result: {:?}", script_result.result());
     /// println!("Generated output: {:?}", script_result.output());
     /// println!("Parsing errors: {:?}", script_result.errors());
     /// println!("Deobfuscated code: {:?}", script_result.deobfuscated());
     /// ```
-    pub fn parse_input(&mut self, input: &str) -> Result<ScriptResult, ParserError> {
-        self.variables.init();
+    pub fn parse_script(&mut self, input: &str) -> Result<ScriptResult, ParserError> {
+        self.variables.init(TopScope::Script);
+        self.default_scope = Scope::Script;
+
+        let (script_last_output, mut result) = self.parse_subscript(input)?;
+        self.variables.clear_script_functions();
+        Ok(ScriptResult::new(
+            script_last_output,
+            std::mem::take(&mut result.output),
+            std::mem::take(&mut result.deobfuscated),
+            std::mem::take(&mut self.tokens),
+            std::mem::take(&mut self.errors),
+            self.variables
+                .script_scope()
+                .into_iter()
+                .map(|(k, v)| (k, v.into()))
+                .collect(),
+        ))
+    }
+
+    pub fn parse_command(&mut self, input: &str) -> Result<ScriptResult, ParserError> {
+        self.variables.init(TopScope::Session);
+        self.default_scope = Scope::Global;
+
         let (script_last_output, mut result) = self.parse_subscript(input)?;
         self.variables.clear_script_functions();
         Ok(ScriptResult::new(
@@ -314,16 +353,11 @@ impl<'a> PowerShellSession {
         Ok((script_last_output, self.results.pop().unwrap_or_default()))
     }
 
-    fn add_function(
-        &mut self,
-        name: String,
-        func: ScriptBlock,
-        scope: Option<Scope>,
-    ) -> ParserResult<Val> {
+    fn add_function(&mut self, name: String, func: ScriptBlock, scope: Scope) -> ParserResult<Val> {
         // let func_str= func.to_function(&name, &scope);
         // self.add_deobfuscated_statement(func_str);
 
-        if let Some(Scope::Global) = &scope {
+        if scope == Scope::Global {
             self.variables.add_global_function(name.clone(), func);
         } else {
             self.variables.add_script_function(name.clone(), func);
@@ -344,9 +378,9 @@ impl<'a> PowerShellSession {
         let scope = if next_token.as_rule() == Rule::scope_keyword {
             let scope = Scope::from(next_token.as_str());
             next_token = pair.next().unwrap();
-            Some(scope)
+            scope
         } else {
-            None
+            self.default_scope.clone()
         };
 
         let function_name_token = next_token;
@@ -556,7 +590,9 @@ impl<'a> PowerShellSession {
         self.statement_block_collect_tokens(clause_body.clone());
 
         //now we can evaluate the condition
-        if switch_clause_condition.as_str().to_ascii_lowercase() == "default"
+        if switch_clause_condition
+            .as_str()
+            .eq_ignore_ascii_case("default")
             && let Ok(result) = self.safe_eval_statements(clause_body.clone())
         {
             return result;
@@ -675,12 +711,10 @@ impl<'a> PowerShellSession {
             }
         }
         let class_type = ClassType::new(class_name.clone(), properties, HashMap::new(), methods);
-        if let Ok(mut value) = value::RUNTIME_TYPE_MAP.try_lock() {
-            value.insert(
-                class_name.to_ascii_lowercase(),
-                Box::new(class_type.clone()),
-            );
-        }
+        self.types_map.insert(
+            class_name.to_ascii_lowercase(),
+            Box::new(class_type.clone()),
+        );
         Ok(Val::Null)
     }
 
@@ -821,7 +855,7 @@ impl<'a> PowerShellSession {
     fn get_variable(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::variable);
         let var_name = Self::parse_variable(token)?;
-        let Some(var) = self.variables.get(&var_name) else {
+        let Some(var) = self.variables.get(&var_name, &self.types_map) else {
             return Err(ParserError::VariableError(VariableError::NotDefined(
                 var_name.name,
             )));
@@ -931,7 +965,9 @@ impl<'a> PowerShellSession {
                 match token.as_rule() {
                     Rule::variable => {
                         let var_name = Self::parse_variable(token)?;
-                        self.variables.get(&var_name).unwrap_or_default()
+                        self.variables
+                            .get(&var_name, &self.types_map)
+                            .unwrap_or_default()
                     }
                     Rule::parenthesized_expression => self.eval_parenthesized_expression(token)?,
                     _ => unexpected_token!(token),
@@ -943,7 +979,9 @@ impl<'a> PowerShellSession {
                 let to_sub = match token.as_rule() {
                     Rule::variable => {
                         let var_name = Self::parse_variable(token)?;
-                        self.variables.get(&var_name).unwrap_or_default()
+                        self.variables
+                            .get(&var_name, &self.types_map)
+                            .unwrap_or_default()
                     }
                     Rule::parenthesized_expression => self.eval_parenthesized_expression(token)?,
                     _ => unexpected_token!(token),
@@ -954,7 +992,10 @@ impl<'a> PowerShellSession {
             Rule::pre_inc_expression => {
                 let variable_token = token.into_inner().next().unwrap();
                 let var_name = Self::parse_variable(variable_token)?;
-                let mut var = self.variables.get(&var_name).unwrap_or_default();
+                let mut var = self
+                    .variables
+                    .get(&var_name, &self.types_map)
+                    .unwrap_or_default();
                 var.inc()?;
 
                 self.variables.set(&var_name, var.clone())?;
@@ -963,7 +1004,10 @@ impl<'a> PowerShellSession {
             Rule::pre_dec_expression => {
                 let variable_token = token.into_inner().next().unwrap();
                 let var_name = Self::parse_variable(variable_token)?;
-                let mut var = self.variables.get(&var_name).unwrap_or_default();
+                let mut var = self
+                    .variables
+                    .get(&var_name, &self.types_map)
+                    .unwrap_or_default();
                 var.dec()?;
 
                 self.variables.set(&var_name, var.clone())?;
@@ -1238,7 +1282,10 @@ impl<'a> PowerShellSession {
             Rule::post_inc_expression => {
                 let variable_token = token.into_inner().next().unwrap();
                 let var_name = Self::parse_variable(variable_token)?;
-                let mut var = self.variables.get(&var_name).unwrap_or_default();
+                let mut var = self
+                    .variables
+                    .get(&var_name, &self.types_map)
+                    .unwrap_or_default();
                 let var_to_return = var.clone();
 
                 var.inc()?;
@@ -1250,7 +1297,10 @@ impl<'a> PowerShellSession {
             Rule::post_dec_expression => {
                 let variable_token = token.into_inner().next().unwrap();
                 let var_name = Self::parse_variable(variable_token)?;
-                let mut var = self.variables.get(&var_name).unwrap_or_default();
+                let mut var = self
+                    .variables
+                    .get(&var_name, &self.types_map)
+                    .unwrap_or_default();
                 let var_to_return = var.clone();
 
                 var.dec()?;
@@ -1266,12 +1316,12 @@ impl<'a> PowerShellSession {
 
     fn get_valtype_from_type_literal(&mut self, token: Pair<'a>) -> ParserResult<ValType> {
         let type_literal = self.parse_type_literal(token)?;
-        Ok(ValType::cast(type_literal.as_str())?)
+        Ok(ValType::cast(type_literal.as_str(), &self.types_map)?)
     }
 
     fn eval_type_literal(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         let type_literal = self.parse_type_literal(token)?;
-        match ValType::runtime_type_from_str(type_literal.as_str()) {
+        match ValType::runtime_type_from_str(type_literal.as_str(), &self.types_map) {
             Ok(val_type) => Ok(val_type),
             Err(err) => {
                 self.errors.push(err.into());
@@ -2032,7 +2082,10 @@ impl<'a> PowerShellSession {
                 Rule::argument_list => args.push(CommandElem::ArgList(token_string)),
                 Rule::splatten_arg => {
                     let var_name = Self::parse_scoped_variable(command_element_token)?;
-                    let var = self.variables.get(&var_name).unwrap_or_default();
+                    let var = self
+                        .variables
+                        .get(&var_name, &self.types_map)
+                        .unwrap_or_default();
                     if let Val::HashTable(h) = var {
                         for (k, v) in h {
                             args.push(CommandElem::Parameter(format!("-{}", k)));
@@ -2259,7 +2312,10 @@ impl<'a> PowerShellSession {
             token = pairs.next().unwrap();
         }
         let (var_name, access) = self.parse_assignable_variable(token)?;
-        let mut variable = self.variables.get(&var_name).unwrap_or_default();
+        let mut variable = self
+            .variables
+            .get(&var_name, &self.types_map)
+            .unwrap_or_default();
         let mut accessed_elem = &mut variable;
 
         // sometimes we have variable access like $a[0].Property, and we need access
