@@ -48,6 +48,16 @@ pub(super) enum TopScope {
     Script,
 }
 
+impl From<Scope> for TopScope {
+    fn from(scope: Scope) -> Self {
+        match scope {
+            Scope::Global => TopScope::Session,
+            Scope::Script => TopScope::Script,
+            _ => TopScope::Script,
+        }
+    }
+}
+
 #[derive(Clone)]
 enum State {
     TopScope(TopScope),
@@ -359,14 +369,24 @@ impl Variables {
         Ok(variables)
     }
 
-    fn top_scope(&self, scope: &TopScope) -> &VariableMap {
+    fn top_scope(&self, scope: Option<&TopScope>) -> &VariableMap {
+        let scope = if let Some(s) = scope {
+            s
+        } else {
+            &self.top_scope
+        };
         match scope {
             TopScope::Session => &self.global_scope,
             TopScope::Script => &self.script_scope,
         }
     }
 
-    fn mut_top_scope(&mut self, scope: &TopScope) -> &mut VariableMap {
+    fn mut_top_scope(&mut self, scope: Option<&TopScope>) -> &mut VariableMap {
+        let scope = if let Some(s) = scope {
+            s
+        } else {
+            &self.top_scope
+        };
         match scope {
             TopScope::Session => &mut self.global_scope,
             TopScope::Script => &mut self.script_scope,
@@ -379,7 +399,7 @@ impl Variables {
             Scope::Script => &self.script_scope,
             Scope::Env => &self.env,
             Scope::Local => match &self.state {
-                State::TopScope(scope) => self.top_scope(scope),
+                State::TopScope(scope) => self.top_scope(Some(scope)),
                 State::Stack(depth) => {
                     if *depth < self.scope_sessions_stack.len() as u32 {
                         &self.scope_sessions_stack[*depth as usize]
@@ -398,7 +418,7 @@ impl Variables {
         match &mut self.state {
             State::TopScope(scope) => {
                 let scope = scope.clone();
-                self.mut_top_scope(&scope)
+                self.mut_top_scope(Some(&scope))
             }
             State::Stack(depth) => {
                 if *depth < self.scope_sessions_stack.len() as u32 {
@@ -409,15 +429,16 @@ impl Variables {
             }
         }
     }
-    fn map_from_scope(&mut self, scope: &Scope) -> &mut VariableMap {
+    fn map_from_scope(&mut self, scope: Option<&Scope>) -> &mut VariableMap {
         match scope {
-            Scope::Global => &mut self.global_scope,
-            Scope::Script => &mut self.script_scope,
-            Scope::Env => &mut self.env,
-            Scope::Local => self.local_scope(),
-            Scope::Special => {
+            Some(Scope::Global) => &mut self.global_scope,
+            Some(Scope::Script) => &mut self.script_scope,
+            Some(Scope::Env) => &mut self.env,
+            Some(Scope::Local) => self.local_scope(),
+            Some(Scope::Special) => {
                 &mut self.global_scope //todo!(),
             }
+            None => self.mut_top_scope(None),
         }
     }
 
@@ -438,7 +459,7 @@ impl Variables {
         if let Some(variable) = var {
             *variable = val;
         } else {
-            let map = self.map_from_scope(&var_name.scope.clone().unwrap_or(Scope::Script));
+            let map = self.map_from_scope(var_name.scope.as_ref());
             map.insert(var_name.name.to_ascii_lowercase(), val);
         }
 
@@ -460,7 +481,7 @@ impl Variables {
         if let Some(scope) = &var_name.scope
             && self.const_map_from_scope(scope).contains_key(name_str)
         {
-            Ok(self.map_from_scope(scope).get_mut(name_str))
+            Ok(self.map_from_scope(Some(scope)).get_mut(name_str))
         } else {
             if Self::PREDEFINED_VARIABLES.contains_key(name_str) {
                 return Err(VariableError::ReadOnly(name.clone()));

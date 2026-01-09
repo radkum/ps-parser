@@ -87,8 +87,17 @@ pub struct PowerShellSession {
     errors: Vec<ParserError>,
     results: Vec<Results>,
     skip_error: u32,
-    default_scope: Scope,
+    default_scope: TopScope,
     types_map: HashMap<String, Box<dyn RuntimeTypeTrait>>,
+}
+
+impl Clone for PowerShellSession {
+    fn clone(&self) -> Self {
+        Self {
+            variables: self.variables.clone(),
+            ..Default::default()
+        }
+    }
 }
 
 impl Default for PowerShellSession {
@@ -135,7 +144,7 @@ impl<'a> PowerShellSession {
             errors: Vec::new(),
             results: Vec::new(),
             skip_error: 0,
-            default_scope: Scope::Global,
+            default_scope: TopScope::Session,
             types_map,
         }
     }
@@ -260,8 +269,8 @@ impl<'a> PowerShellSession {
     /// println!("Deobfuscated code: {:?}", script_result.deobfuscated());
     /// ```
     pub fn parse_script(&mut self, input: &str) -> Result<ScriptResult, ParserError> {
-        self.variables.init(TopScope::Script);
-        self.default_scope = Scope::Script;
+        self.default_scope = TopScope::Script;
+        self.variables.init(self.default_scope.clone());
 
         let (script_last_output, mut result) = self.parse_subscript(input)?;
         self.variables.clear_script_functions();
@@ -280,8 +289,8 @@ impl<'a> PowerShellSession {
     }
 
     pub fn parse_command(&mut self, input: &str) -> Result<ScriptResult, ParserError> {
-        self.variables.init(TopScope::Session);
-        self.default_scope = Scope::Global;
+        self.default_scope = TopScope::Session;
+        self.variables.init(self.default_scope.clone());
 
         let (script_last_output, mut result) = self.parse_subscript(input)?;
         self.variables.clear_script_functions();
@@ -353,11 +362,16 @@ impl<'a> PowerShellSession {
         Ok((script_last_output, self.results.pop().unwrap_or_default()))
     }
 
-    fn add_function(&mut self, name: String, func: ScriptBlock, scope: Scope) -> ParserResult<Val> {
+    fn add_function(
+        &mut self,
+        name: String,
+        func: ScriptBlock,
+        scope: TopScope,
+    ) -> ParserResult<Val> {
         // let func_str= func.to_function(&name, &scope);
         // self.add_deobfuscated_statement(func_str);
 
-        if scope == Scope::Global {
+        if let TopScope::Session = scope {
             self.variables.add_global_function(name.clone(), func);
         } else {
             self.variables.add_script_function(name.clone(), func);
@@ -375,10 +389,10 @@ impl<'a> PowerShellSession {
         check_rule!(function_keyword_token, Rule::function_keyword);
 
         let mut next_token = pair.next().unwrap();
-        let scope = if next_token.as_rule() == Rule::scope_keyword {
+        let scope: TopScope = if next_token.as_rule() == Rule::scope_keyword {
             let scope = Scope::from(next_token.as_str());
             next_token = pair.next().unwrap();
-            scope
+            scope.into()
         } else {
             self.default_scope.clone()
         };
