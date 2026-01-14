@@ -198,8 +198,6 @@ impl Command {
 pub(crate) enum CommandElem {
     Parameter(String),
     Argument(Val),
-    #[allow(dead_code)]
-    ArgList(String),
 }
 
 impl From<Val> for CommandElem {
@@ -213,7 +211,6 @@ impl CommandElem {
         match self {
             CommandElem::Parameter(s) => s.clone(),
             CommandElem::Argument(v) => v.cast_to_string(),
-            CommandElem::ArgList(s) => s.clone(),
         }
     }
 }
@@ -364,7 +361,6 @@ fn extract_message(args: &[CommandElem]) -> String {
             CommandElem::Argument(val) => {
                 output.push(val.display());
             }
-            CommandElem::ArgList(_) => {}
         }
     }
     output.join(" ")

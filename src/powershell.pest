@@ -67,7 +67,6 @@ switch_body = _{ "{" ~ switch_clause+ ~ "}" }
 switch_clause = { switch_clause_condition ~  statement_block }
 switch_clause_condition = _{ primary_expression | command_token }
 
-
 foreach_statement = { ^"foreach" ~ foreach_parameter? ~ "(" ~ variable ~ ^"in" ~ pipeline ~ ")" ~ statement_block }
 foreach_parameter = { ^"-parallel" }
 

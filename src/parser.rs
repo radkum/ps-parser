@@ -1,5 +1,6 @@
 mod command;
 mod error;
+mod formatting;
 mod predicates;
 mod script_result;
 mod stream_message;
@@ -1663,119 +1664,28 @@ impl<'a> PowerShellSession {
         Ok(res)
     }
 
-    fn eval_format_impl(&mut self, format: Val, mut pairs: Pairs<'a>) -> ParserResult<Val> {
-        fn format_with_vec(fmt: &str, args: Vec<Val>) -> ParserResult<String> {
-            fn strange_special_case(fmt: &str, n: i64) -> String {
-                fn split_digits(n: i64) -> Vec<u8> {
-                    n.abs() // ignore sign for digit splitting
-                        .to_string()
-                        .chars()
-                        .filter_map(|c| c.to_digit(10).map(|opt| opt as u8))
-                        .collect()
-                }
-
-                //"{0:31sdfg,0100a0b00}" -f 578 evals to 310100a5b78
-                let mut digits = split_digits(n);
-                digits.reverse();
-                let mut fmt_vec = fmt.as_bytes().to_vec();
-                fmt_vec.reverse();
-
-                let mut i = 0;
-                for digit in digits {
-                    while i < fmt_vec.len() {
-                        if fmt_vec[i] != b'0' {
-                            i += 1
-                        } else {
-                            fmt_vec[i] = digit + b'0';
-                            break;
-                        }
-                    }
-                }
-                fmt_vec.reverse();
-                String::from_utf8(fmt_vec).unwrap_or_default()
-            }
-
-            let mut output = String::new();
-            let mut i = 0;
-
-            while i < fmt.len() {
-                if fmt[i..].starts_with('{') {
-                    if let Some(end) = fmt[i..].find('}') {
-                        let token = &fmt[i + 1..i + end];
-                        let formatted = if token.contains(':') {
-                            let mut parts = token.split(':');
-                            let index: usize = if let Some(p) = parts.next() {
-                                p.parse().unwrap_or(0)
-                            } else {
-                                0
-                            };
-
-                            let spec = parts.next();
-                            match args.get(index) {
-                                Some(val) => match spec {
-                                    Some(s) if s.starts_with('N') => {
-                                        let precision = s[1..].parse::<usize>().unwrap_or(2);
-                                        if let Ok(f) = val.cast_to_float() {
-                                            format!("{:.1$}", f, precision)
-                                        } else {
-                                            val.cast_to_string().to_string()
-                                        }
-                                    }
-                                    Some(s) => strange_special_case(s, val.cast_to_int()?),
-                                    None => val.cast_to_string().to_string(),
-                                },
-                                None => format!("{{{}}}", token), /* leave as-is if index out of
-                                                                   * bounds */
-                            }
-                        } else if token.contains(',') {
-                            let mut parts = token.split(',');
-                            let index: usize = parts.next().unwrap().parse().unwrap_or(0);
-                            let spec = parts.next();
-                            match args.get(index) {
-                                Some(val) => match spec {
-                                    Some(s) => {
-                                        let spaces = s.parse::<usize>().unwrap_or(0);
-                                        let spaces_str = " ".repeat(spaces);
-                                        format!("{spaces_str}{}", val.cast_to_string())
-                                    }
-                                    _ => val.cast_to_string().to_string(),
-                                },
-                                None => format!("{{{}}}", token), /* leave as-is if index out of
-                                                                   * bounds */
-                            }
-                        } else {
-                            let index: usize =
-                                Val::String(token.to_string().into()).cast_to_int()? as usize;
-                            match args.get(index) {
-                                Some(val) => val.cast_to_string().to_string(),
-                                None => format!("{{{}}}", token), /* leave as-is if index out of
-                                                                   * bounds */
-                            }
-                        };
-
-                        output.push_str(&formatted);
-                        i += end + 1;
-                    } else {
-                        output.push('{');
-                        i += 1;
-                    }
-                } else {
-                    output.push(fmt[i..].chars().next().unwrap());
-                    i += 1;
-                }
-            }
-
-            Ok(output)
-        }
-
+    fn eval_format_impl(
+        &mut self,
+        format: Vec<Val>,
+        mut pairs: Pairs<'a>,
+    ) -> ParserResult<Option<Vec<Val>>> {
         Ok(if let Some(token) = pairs.next() {
-            let first_fmt = format.cast_to_string();
-
             let second_fmt = self.eval_range_exp(token)?;
-            let res = self.eval_format_impl(second_fmt, pairs)?;
-            Val::String(format_with_vec(first_fmt.as_str(), res.cast_to_array())?.into())
+            let format_arg =
+                if let Some(vec_args) = self.eval_format_impl(second_fmt.cast_to_array(), pairs)? {
+                    vec_args
+                } else {
+                    second_fmt.into_array()
+                };
+
+            Some(
+                formatting::format_ps_vec(format, &format_arg)?
+                    .iter()
+                    .map(|v| Val::String(v.into()))
+                    .collect(),
+            )
         } else {
-            format
+            None
         })
     }
 
@@ -1783,7 +1693,18 @@ impl<'a> PowerShellSession {
         check_rule!(token, Rule::format_exp);
         let mut pairs = token.into_inner();
         let format = self.eval_range_exp(pairs.next().unwrap())?;
-        self.eval_format_impl(format, pairs)
+        if let Some(vec_args) = self.eval_format_impl(format.cast_to_array(), pairs)? {
+            Ok(Val::String(
+                vec_args
+                    .iter()
+                    .map(|v| v.cast_to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .into(),
+            ))
+        } else {
+            Ok(format)
+        }
     }
 
     fn eval_mult(&mut self, token: Pair<'a>) -> ParserResult<Val> {
@@ -2093,7 +2014,19 @@ impl<'a> PowerShellSession {
                 Rule::command_parameter => {
                     args.push(CommandElem::Parameter(token_string.to_ascii_lowercase()))
                 }
-                Rule::argument_list => args.push(CommandElem::ArgList(token_string)),
+                Rule::argument_list => {
+                    let expression_token = command_element_token.into_inner().next().unwrap();
+                    let Ok(expr_res) = self.eval_expression(expression_token) else {
+                        continue;
+                    };
+                    if let Val::Array(arr) = expr_res {
+                        for v in arr {
+                            args.push(CommandElem::Argument(v));
+                        }
+                    } else {
+                        args.push(CommandElem::Argument(expr_res));
+                    }
+                }
                 Rule::splatten_arg => {
                     let var_name = Self::parse_scoped_variable(command_element_token)?;
                     let var = self

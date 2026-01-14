@@ -755,6 +755,14 @@ impl Val {
         self.cast_to_typed_array(None).unwrap_or_default()
     }
 
+    pub(crate) fn into_array(self) -> Vec<Self> {
+        if let Val::Array(v) = self {
+            v.clone()
+        } else {
+            vec![self.clone()]
+        }
+    }
+
     fn repeat(v: &[Val], amount: usize) -> Vec<Val> {
         let mut res = v.to_owned();
         for _ in 1..amount {

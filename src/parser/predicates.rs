@@ -170,7 +170,7 @@ mod tests {
         );
         assert_eq!(
             p.safe_eval(r#" "|{0,10}|" -f "Hi" "#).unwrap().as_str(),
-            "|          Hi|"
+            "|        Hi|"
         );
         assert_eq!(
             p.safe_eval(

@@ -4,6 +4,7 @@ use thiserror_no_std::Error;
 
 use super::{
     CommandError, PestError,
+    formatting::FormatError,
     predicates::{BitwiseError, OpError},
     value::{MethodError, RuntimeError, ValError},
     variables::VariableError,
@@ -40,6 +41,9 @@ pub enum ParserError {
 
     #[error("NotImplementedError: {0}")]
     NotImplemented(String),
+
+    #[error("FormatError: {0}")]
+    FormatError(FormatError),
 
     #[error("Skip")]
     Skip,
@@ -98,5 +102,11 @@ impl std::error::Error for ParserError {}
 impl From<ParseFloatError> for ParserError {
     fn from(value: ParseFloatError) -> Self {
         Self::ParseFloatError(value)
+    }
+}
+
+impl From<FormatError> for ParserError {
+    fn from(value: FormatError) -> Self {
+        Self::FormatError(value)
     }
 }

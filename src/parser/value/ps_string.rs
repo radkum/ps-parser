@@ -26,6 +26,12 @@ impl From<String> for PsString {
     }
 }
 
+impl From<&String> for PsString {
+    fn from(s: &String) -> Self {
+        PsString(s.clone())
+    }
+}
+
 impl RuntimeObjectTrait for PsString {
     fn method(&self, method_name: MethodName) -> RuntimeResult<MethodCallType> {
         let name = method_name.name();

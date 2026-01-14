@@ -27,7 +27,7 @@ pub struct Variables {
     env: VariableMap,
     global_scope: VariableMap,
     script_scope: VariableMap,
-    scope_sessions_stack: Vec<VariableMap>,
+    local_scopes_stack: Vec<VariableMap>,
     state: State,
     force_var_eval: bool,
     values_persist: bool,
@@ -41,7 +41,7 @@ pub struct Variables {
     // current_pipeline: Option<String>,
 }
 
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub(super) enum TopScope {
     #[default]
     Session,
@@ -134,8 +134,9 @@ impl Variables {
         if !self.values_persist {
             self.script_scope.clear();
         }
-        self.scope_sessions_stack.clear();
-        self.state = State::TopScope(scope);
+        self.local_scopes_stack.clear();
+        self.state = State::TopScope(scope.clone());
+        self.top_scope = scope;
     }
 
     fn load(
@@ -387,6 +388,7 @@ impl Variables {
         } else {
             &self.top_scope
         };
+
         match scope {
             TopScope::Session => &mut self.global_scope,
             TopScope::Script => &mut self.script_scope,
@@ -401,8 +403,8 @@ impl Variables {
             Scope::Local => match &self.state {
                 State::TopScope(scope) => self.top_scope(Some(scope)),
                 State::Stack(depth) => {
-                    if *depth < self.scope_sessions_stack.len() as u32 {
-                        &self.scope_sessions_stack[*depth as usize]
+                    if *depth < self.local_scopes_stack.len() as u32 {
+                        &self.local_scopes_stack[*depth as usize]
                     } else {
                         &self.script_scope
                     }
@@ -421,8 +423,8 @@ impl Variables {
                 self.mut_top_scope(Some(&scope))
             }
             State::Stack(depth) => {
-                if *depth < self.scope_sessions_stack.len() as u32 {
-                    &mut self.scope_sessions_stack[*depth as usize]
+                if *depth < self.local_scopes_stack.len() as u32 {
+                    &mut self.local_scopes_stack[*depth as usize]
                 } else {
                     &mut self.global_scope
                 }
@@ -488,7 +490,7 @@ impl Variables {
             }
 
             // No scope specified, check local scopes first, then globals
-            for local_scope in self.scope_sessions_stack.iter_mut().rev() {
+            for local_scope in self.local_scopes_stack.iter_mut().rev() {
                 if local_scope.contains_key(name_str) {
                     return Ok(local_scope.get_mut(name_str));
                 }
@@ -560,7 +562,7 @@ impl Variables {
         }
 
         // No scope specified, check local scopes first, then globals
-        for local_scope in self.scope_sessions_stack.iter().rev() {
+        for local_scope in self.local_scopes_stack.iter().rev() {
             if local_scope.contains_key(name_str) {
                 return local_scope.get(name_str);
             }
@@ -581,20 +583,20 @@ impl Variables {
         let current_map = self.local_scope();
         let new_map = current_map.clone();
 
-        self.scope_sessions_stack.push(new_map);
-        self.state = State::Stack(self.scope_sessions_stack.len() as u32 - 1);
+        self.local_scopes_stack.push(new_map);
+        self.state = State::Stack(self.local_scopes_stack.len() as u32 - 1);
     }
 
     pub(crate) fn pop_scope_session(&mut self) {
-        match self.scope_sessions_stack.len() {
+        match self.local_scopes_stack.len() {
             0 => {} /* unreachable */
             1 => {
-                self.scope_sessions_stack.pop();
+                self.local_scopes_stack.pop();
                 self.state = State::TopScope(self.top_scope.clone());
             }
             _ => {
-                self.scope_sessions_stack.pop();
-                self.state = State::Stack(self.scope_sessions_stack.len() as u32 - 1);
+                self.local_scopes_stack.pop();
+                self.state = State::Stack(self.local_scopes_stack.len() as u32 - 1);
             }
         }
     }

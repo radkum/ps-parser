@@ -1011,6 +1011,26 @@ $a"#;
     }
 
     #[test]
+    fn format_expresssion() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#" "!{2}!","!{2}!{1}!{0}!" -f 1, "elo{0}", "{0}" -f 'q1'  "#;
+        let script_res = p.parse_script(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::String("!q1! !q1!eloq1!1!".into())
+        );
+
+        let input = r#" "{0:00} {1:000} {2:000000}" -f 7, 24, 365  "#;
+        let script_res = p.parse_script(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::String("07 024 000365".into()));
+
+        let input = r#" "{0} vs. {{0}}" -f 'foo'  "#;
+        let script_res = p.parse_script(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::String("foo vs. {0}".into()));
+    }
+
+    #[test]
     fn script_param_block() {
         let mut p = PowerShellSession::new().with_variables(Variables::env());
 
@@ -1182,5 +1202,89 @@ switch ($var) {
 
         let script_res = p.parse_script(input).unwrap();
         assert!(script_res.tokens().string_set().contains("emsi.dll"));
+    }
+
+    #[test]
+    fn format_obfuscation() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#"
+"{6}{3}{1}{4}{2}{0}{5}" -f([chaR]117 +'t'+'il'),[char]97,([char]101+'m'+'si'), (("{0}{2}" -f '.M','an','an')+'age'+'men'+'t.'),('u'+'to'+("{0}{2}{1}" -f 'ma','.','tion')),'s',(("{1}{0}"-f 't','Sys')+'em')
+"#;
+
+        let script_res = p.parse_script(input).unwrap();
+        assert!(
+            script_res
+                .tokens()
+                .string_set()
+                .contains("System.Management.automation.emsiutils")
+        );
+    }
+
+    #[test]
+    fn format_obfuscation_1() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#"
+$a."AssEmbly"."GETTYPe"(
+(
+	"{6}{3}{1}{4}{2}{0}{5}" -f([chaR]117 +'t'+'il'),[char]97,([char]101+'m'+'si'), (("{0}{2}" -f '.M','an','an')+'age'+'men'+'t.'),('u'+'to'+("{0}{2}{1}" -f 'ma','.','tion')),'s',(("{1}{0}"-f 't','Sys')+'em')
+))
+"#;
+
+        let script_res = p.parse_script(input).unwrap();
+        assert!(
+            script_res
+                .tokens()
+                .string_set()
+                .contains("System.Management.automation.emsiutils")
+        );
+    }
+
+    #[test]
+    fn format_obfuscation_2() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#"
+"getfiElD"(
+	(  "{0}{2}{1}" -f('e'+'msi'),'d',('I'+("{0}{1}" -f 'ni','tF')+("{1}{0}"-f 'ile','a'))  ),
+	("{2}{4}{0}{1}{3}" -f ('S'+'tat'),'i',('Non'+("{1}{0}" -f'ubl','P')+'i'),'c','c,')
+)
+"#;
+
+        let script_res = p.parse_script(input).unwrap();
+        assert!(script_res.tokens().string_set().contains("emsiInitFailed"));
+        assert!(
+            script_res
+                .tokens()
+                .string_set()
+                .contains("NonPublic,Static")
+        );
+    }
+
+    #[test]
+    fn format_obfuscation_3() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        let input = r#"
+ SeT-Item('V'+'aR' + 'IA' + (("{1}{0}"-f'1','blE:')+'q2') + ('uZ'+'x')) 
+([TYpE]("{1}{0}"-F'F','rE'));
+(Get-varIABLE ( ('1Q'+'2U')  +'zX'  ) -VaL)."AssEmbly"."GETTYPe"(
+(
+	"{6}{3}{1}{4}{2}{0}{5}" -f([chaR]117 +'t'+'il'),[char]97,([char]101+'m'+'si'), (("{0}{2}" -f '.M','an','an')+'age'+'men'+'t.'),('u'+'to'+("{0}{2}{1}" -f 'ma','.','tion')),'s',(("{1}{0}"-f 't','Sys')+'em')
+))."getfiElD"(
+	(  "{0}{2}{1}" -f('e'+'msi'),'d',('I'+("{0}{1}" -f 'ni','tF')+("{1}{0}"-f 'ile','a'))  ),
+	("{2}{4}{0}{1}{3}" -f ('S'+'tat'),'i',('Non'+("{1}{0}" -f'ubl','P')+'i'),'c','c,')
+)."sETVaLUE"(  ${nULl},${tRuE} )
+"#;
+
+        let script_res = p.parse_script(input).unwrap();
+        assert!(script_res.tokens().string_set().contains("emsiInitFailed"));
+        assert!(
+            script_res
+                .tokens()
+                .string_set()
+                .contains("System.Management.automation.emsiutils")
+        );
     }
 }
