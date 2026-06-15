@@ -1,12 +1,15 @@
 use super::{MethodError, MethodResult, PsString, Val};
 
 impl PsString {
+    /// Validates arguments and returns (start_char_index, length_in_chars).
+    /// Uses character counts (not byte counts) to match PowerShell semantics.
     fn args_for_remove_and_substring(
         &self,
         args: Vec<Val>,
         fn_name: &str,
     ) -> MethodResult<(usize, usize)> {
         let PsString(input) = self;
+        let char_count = input.chars().count();
 
         if args.len() != 2 && args.len() != 1 {
             //something wrong
@@ -26,7 +29,7 @@ impl PsString {
             }
 
             let length = args[1].cast_to_int()? as usize;
-            if start_index + length > input.len() {
+            if start_index + length > char_count {
                 return Err(MethodError::Exception(format!(
                     "Exception calling \"{}\" with \"2\" argument(s): \"Index and length must \
                      refer to a location within the string. Parameter name: length\"",
@@ -35,10 +38,10 @@ impl PsString {
             }
             length
         } else {
-            input.len()
+            char_count.saturating_sub(start_index)
         };
 
-        if start_index > input.len() {
+        if start_index > char_count {
             return Err(MethodError::Exception(format!(
                 "Exception calling \"{}\" with \"1\" argument(s): \"startIndex cannot be larger \
                  than length of string. Parameter name: startIndex\"",
@@ -46,16 +49,15 @@ impl PsString {
             )));
         }
 
-        let end_index = std::cmp::min(start_index + length, input.len());
-        Ok((start_index, end_index))
+        Ok((start_index, length))
     }
 
     pub(super) fn substring(&self, args: Vec<Val>) -> MethodResult<Val> {
         //string Substring(int startIndex)
         //string Substring(int startIndex, int length)
         let PsString(input) = self;
-        let (start_index, end_index) = self.args_for_remove_and_substring(args, "Substring")?;
-        let res = input[start_index..end_index].to_string();
+        let (start_index, length) = self.args_for_remove_and_substring(args, "Substring")?;
+        let res: String = input.chars().skip(start_index).take(length).collect();
         Ok(Val::String(PsString(res)))
     }
 
@@ -63,8 +65,10 @@ impl PsString {
         //string Remove(int startIndex, int count)
         //string Remove(int startIndex)
         let PsString(input) = self;
-        let (start_index, end_index) = self.args_for_remove_and_substring(args, "Remove")?;
-        let res = input[..start_index].to_string() + &input[end_index..];
+        let (start_index, length) = self.args_for_remove_and_substring(args, "Remove")?;
+        let prefix: String = input.chars().take(start_index).collect();
+        let suffix: String = input.chars().skip(start_index + length).collect();
+        let res = prefix + &suffix;
         Ok(Val::String(PsString(res)))
     }
 }
@@ -162,5 +166,53 @@ $string = $string.remove(7,15);$string"#;
              must refer to a location within the string. Parameter name: length\""
                 .to_string()
         );
+    }
+
+    #[test]
+    fn substring_utf8() {
+        let mut p = PowerShellSession::new();
+        // "żółć" has 4 characters but 8 bytes in UTF-8
+        let input = r#"
+$string = 'żółć'
+$string.substring(1, 2)"#;
+        let script_res = p.parse_script(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::String("ół".to_string()));
+
+        let input = r#"
+$string = 'żółć'
+$string.substring(2)"#;
+        let script_res = p.parse_script(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::String("łć".to_string()));
+
+        // Mixed ASCII and non-ASCII
+        let input = r#"
+$string = 'ażółćb'
+$string.substring(1, 4)"#;
+        let script_res = p.parse_script(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::String("żółć".to_string()));
+    }
+
+    #[test]
+    fn remove_utf8() {
+        let mut p = PowerShellSession::new();
+        // "żółć" has 4 characters but 8 bytes in UTF-8
+        let input = r#"
+$string = 'żółć'
+$string.remove(1, 2)"#;
+        let script_res = p.parse_script(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::String("żć".to_string()));
+
+        let input = r#"
+$string = 'żółć'
+$string.remove(2)"#;
+        let script_res = p.parse_script(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::String("żó".to_string()));
+
+        // Mixed ASCII and non-ASCII
+        let input = r#"
+$string = 'ażółćb'
+$string.remove(1, 4)"#;
+        let script_res = p.parse_script(input).unwrap();
+        assert_eq!(script_res.result(), PsValue::String("ab".to_string()));
     }
 }
