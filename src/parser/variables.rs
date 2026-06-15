@@ -410,9 +410,9 @@ impl Variables {
                     }
                 }
             },
-            Scope::Special => {
-                &self.global_scope //todo!(),
-            }
+            Scope::Special => &self.global_scope, /* todo() - special variables should be
+                                                   * stored separately, but for now we can
+                                                   * store them in global scope */
         }
     }
 
@@ -437,9 +437,7 @@ impl Variables {
             Some(Scope::Script) => &mut self.script_scope,
             Some(Scope::Env) => &mut self.env,
             Some(Scope::Local) => self.local_scope(),
-            Some(Scope::Special) => {
-                &mut self.global_scope //todo!(),
-            }
+            Some(Scope::Special) => &mut self.global_scope, /* todo() - special variables should be stored separately, but for now we can store them in global scope */
             None => self.mut_top_scope(None),
         }
     }

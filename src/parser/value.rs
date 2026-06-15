@@ -188,9 +188,9 @@ impl Val {
                 let s2 = val.cast_to_string();
                 str_cmp(s1, &s2, case_insensitive) == std::cmp::Ordering::Greater
             }
-            Val::Array(_) => todo!(),
+            Val::Array(_) => false, // on default false, but it should be todo!(),
             Val::HashTable(_) => false, // HashTables can't be compared with >
-            Val::RuntimeObject(_) => todo!(),
+            Val::RuntimeObject(_) => false, // on default false, but it should be todo!(),
             Val::RuntimeType(_) => false, // Add logic if needed
             Val::ScriptBlock(_) => false, // ScriptBlocks can't be compared
             Val::ScriptText(_) => false,
@@ -209,9 +209,9 @@ impl Val {
                 let s2 = val.cast_to_string();
                 str_cmp(s1, &s2, case_insensitive) == std::cmp::Ordering::Less
             }
-            Val::Array(_) => todo!(),
+            Val::Array(_) => false, // on default false, but it should be todo!(),,
             Val::HashTable(_) => false, // HashTables can't be compared with <
-            Val::RuntimeObject(_) => todo!(),
+            Val::RuntimeObject(_) => false, // on default false, but it should be todo!(),
             Val::RuntimeType(_) => false, // Add logic if needed
             Val::ScriptBlock(_) => false, // ScriptBlocks can't be compared
             Val::ScriptText(_) => false,

@@ -36,6 +36,15 @@ use crate::parser::{command::CommandOutput, value::RuntimeError};
 type Pair<'i> = ::pest::iterators::Pair<'i, Rule>;
 type Pairs<'i> = ::pest::iterators::Pairs<'i, Rule>;
 
+trait IteratorExt: Iterator {
+    fn try_next(&mut self) -> Result<Self::Item, ParserError> {
+        self.next().ok_or(ParserError::NotImplemented(
+            "unexpected end of tokens".into(),
+        ))
+    }
+}
+impl<T: Iterator> IteratorExt for T {}
+
 pub(crate) const NEWLINE: &str = "\n";
 
 macro_rules! unexpected_token {
@@ -320,7 +329,7 @@ impl<'a> PowerShellSession {
 
         if let Rule::program = program_token.as_rule() {
             let mut pairs = program_token.into_inner();
-            let _script_param_block_token = pairs.next().unwrap();
+            let _script_param_block_token = pairs.try_next()?;
             if let Some(named_blocks) = pairs.peek()
                 && named_blocks.as_rule() == Rule::named_blocks
             {
@@ -386,13 +395,13 @@ impl<'a> PowerShellSession {
 
         let mut pair = token.into_inner();
 
-        let function_keyword_token = pair.next().unwrap();
+        let function_keyword_token = pair.try_next()?;
         check_rule!(function_keyword_token, Rule::function_keyword);
 
-        let mut next_token = pair.next().unwrap();
+        let mut next_token = pair.try_next()?;
         let scope: TopScope = if next_token.as_rule() == Rule::scope_keyword {
             let scope = Scope::from(next_token.as_str());
-            next_token = pair.next().unwrap();
+            next_token = pair.try_next()?;
             scope.into()
         } else {
             self.default_scope.clone()
@@ -437,8 +446,8 @@ impl<'a> PowerShellSession {
         self.if_statement_collect_tokens(token.clone());
 
         let mut pair = token.into_inner();
-        let condition_token = pair.next().unwrap();
-        let true_token = pair.next().unwrap();
+        let condition_token = pair.try_next()?;
+        let true_token = pair.try_next()?;
         let condition_val = self.eval_pipeline(condition_token.clone())?;
         let res = if condition_val.cast_to_bool() {
             self.eval_statement_block(true_token)?
@@ -446,8 +455,8 @@ impl<'a> PowerShellSession {
             if token.as_rule() == Rule::elseif_clauses {
                 for else_if in token.into_inner() {
                     let mut pairs = else_if.into_inner();
-                    let condition_token = pairs.next().unwrap();
-                    let statement_token = pairs.next().unwrap();
+                    let condition_token = pairs.try_next()?;
+                    let statement_token = pairs.try_next()?;
                     let condition_val = self.eval_pipeline(condition_token)?;
                     if condition_val.cast_to_bool() {
                         return self.eval_statement_block(statement_token);
@@ -459,7 +468,7 @@ impl<'a> PowerShellSession {
                 token = token2;
             }
             if token.as_rule() == Rule::else_condition {
-                let statement_token = token.into_inner().next().unwrap();
+                let statement_token = token.into_inner().try_next()?;
                 self.eval_statement_block(statement_token)?
             } else {
                 Val::Null
@@ -488,8 +497,8 @@ impl<'a> PowerShellSession {
         check_rule!(token, Rule::if_statement);
 
         let mut pair = token.into_inner();
-        let condition_token = pair.next().unwrap();
-        let true_token = pair.next().unwrap();
+        let condition_token = pair.try_next()?;
+        let true_token = pair.try_next()?;
         let _condition_val = self
             .eval_pipeline(condition_token.clone())
             .unwrap_or_default();
@@ -503,8 +512,8 @@ impl<'a> PowerShellSession {
             if token.as_rule() == Rule::elseif_clauses {
                 for else_if in token.into_inner() {
                     let mut pairs = else_if.into_inner();
-                    let condition_token = pairs.next().unwrap();
-                    let statement_token = pairs.next().unwrap();
+                    let condition_token = pairs.try_next()?;
+                    let statement_token = pairs.try_next()?;
                     let _condition_val = self.eval_pipeline(condition_token).unwrap_or_default();
 
                     if let Err(err) = self.eval_statement_block(statement_token) {
@@ -520,7 +529,7 @@ impl<'a> PowerShellSession {
                 token = token2;
             }
             if token.as_rule() == Rule::else_condition {
-                let statement_token = token.into_inner().next().unwrap();
+                let statement_token = token.into_inner().try_next()?;
                 if let Err(err) = self.eval_statement_block(statement_token) {
                     log::debug!(
                         "Error during if_statement_collect_tokens (else block): {:?}",
@@ -548,12 +557,12 @@ impl<'a> PowerShellSession {
 
     fn eval_flow_control_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::flow_control_statement);
-        let token = token.into_inner().next().unwrap();
+        let token = token.into_inner().try_next()?;
 
         Ok(match token.as_rule() {
             Rule::flow_control_label_statement => Val::Null, //TODO
             Rule::flow_control_pipeline_statement => {
-                let token = token.into_inner().next().unwrap();
+                let token = token.into_inner().try_next()?;
                 //todo: throw, return or exit
                 if let Some(pipeline_token) = token.into_inner().next() {
                     self.eval_pipeline(pipeline_token)?
@@ -569,9 +578,9 @@ impl<'a> PowerShellSession {
         check_rule!(token, Rule::switch_statement);
         let mut pairs = token.into_inner();
 
-        let mut token = pairs.next().unwrap();
+        let mut token = pairs.try_next()?;
         if Rule::switch_parameters == token.as_rule() {
-            token = pairs.next().unwrap();
+            token = pairs.try_next()?;
         }
 
         let condition = match token.as_rule() {
@@ -582,7 +591,7 @@ impl<'a> PowerShellSession {
 
         for case_token in pairs {
             check_rule!(case_token, Rule::switch_clause);
-            let v = self.parse_switch_case(case_token, &condition);
+            let v = self.parse_switch_case(case_token, &condition)?;
             match v.len() {
                 0 => {}
                 1 => return Ok(v.into_iter().next().unwrap()),
@@ -593,12 +602,16 @@ impl<'a> PowerShellSession {
         Ok(Val::Null)
     }
 
-    fn parse_switch_case(&mut self, token: Pair<'a>, switch_condition: &Option<Val>) -> Vec<Val> {
+    fn parse_switch_case(
+        &mut self,
+        token: Pair<'a>,
+        switch_condition: &Option<Val>,
+    ) -> ParserResult<Vec<Val>> {
         check_rule!(token, Rule::switch_clause);
         let mut pairs = token.into_inner();
 
-        let switch_clause_condition = pairs.next().unwrap();
-        let clause_body = pairs.next().unwrap();
+        let switch_clause_condition = pairs.try_next()?;
+        let clause_body = pairs.try_next()?;
         check_rule!(clause_body, Rule::statement_block);
 
         //first collect tokens
@@ -610,7 +623,7 @@ impl<'a> PowerShellSession {
             .eq_ignore_ascii_case("default")
             && let Ok(result) = self.safe_eval_statements(clause_body.clone())
         {
-            return result;
+            return Ok(result);
         } else if switch_clause_condition.as_rule() == Rule::primary_expression
             && let Some(condition) = switch_condition
         {
@@ -621,17 +634,17 @@ impl<'a> PowerShellSession {
             if condition.eq(val, false).unwrap_or_default()
                 && let Ok(result) = self.safe_eval_statements(clause_body)
             {
-                return result;
+                return Ok(result);
             }
         }
-        vec![]
+        Ok(vec![])
     }
 
     fn parse_class_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::class_statement);
         let mut pair = token.into_inner();
 
-        let class_name_token = pair.next().unwrap();
+        let class_name_token = pair.try_next()?;
         check_rule!(class_name_token, Rule::simple_name);
         let class_name = class_name_token.as_str().to_string();
 
@@ -646,16 +659,16 @@ impl<'a> PowerShellSession {
                     // we don't want care about attributes here. It's todo in future
                     let mut prop_pair = prop_pair.skip_while(|p| p.as_rule() == Rule::attribute);
 
-                    let mut token = prop_pair.next().unwrap();
+                    let mut token = prop_pair.try_next()?;
                     let _is_static = if token.as_rule() == Rule::class_attribute_static {
-                        token = prop_pair.next().unwrap();
+                        token = prop_pair.try_next()?;
                         true
                     } else {
                         false
                     };
 
                     let _is_hidden = if token.as_rule() == Rule::class_attribute_hidden {
-                        token = prop_pair.next().unwrap();
+                        token = prop_pair.try_next()?;
                         true
                     } else {
                         false
@@ -663,7 +676,7 @@ impl<'a> PowerShellSession {
 
                     let ttype = if token.as_rule() == Rule::type_literal {
                         let ttype = self.get_valtype_from_type_literal(token)?;
-                        token = prop_pair.next().unwrap();
+                        token = prop_pair.try_next()?;
                         Some(ttype)
                     } else {
                         None
@@ -683,16 +696,16 @@ impl<'a> PowerShellSession {
                     // we don't want care about attributes here. It's todo in future
                     let mut prop_pair = prop_pair.skip_while(|p| p.as_rule() == Rule::attribute);
 
-                    let mut token = prop_pair.next().unwrap();
+                    let mut token = prop_pair.try_next()?;
                     let _is_static = if token.as_rule() == Rule::class_attribute_static {
-                        token = prop_pair.next().unwrap();
+                        token = prop_pair.try_next()?;
                         true
                     } else {
                         false
                     };
 
                     let _is_hidden = if token.as_rule() == Rule::class_attribute_hidden {
-                        token = prop_pair.next().unwrap();
+                        token = prop_pair.try_next()?;
                         true
                     } else {
                         false
@@ -700,7 +713,7 @@ impl<'a> PowerShellSession {
 
                     let _ttype = if token.as_rule() == Rule::type_literal {
                         let ttype = self.eval_type_literal(token)?.ttype();
-                        token = prop_pair.next().unwrap();
+                        token = prop_pair.try_next()?;
                         Some(ttype)
                     } else {
                         None
@@ -708,10 +721,10 @@ impl<'a> PowerShellSession {
                     check_rule!(token, Rule::simple_name);
                     let method_name = token.as_str().to_ascii_lowercase();
 
-                    let mut token = prop_pair.next().unwrap();
+                    let mut token = prop_pair.try_next()?;
                     let parameters = if token.as_rule() == Rule::parameter_list {
                         let params = self.parse_parameter_list(token)?;
-                        token = prop_pair.next().unwrap();
+                        token = prop_pair.try_next()?;
                         params
                     } else {
                         vec![]
@@ -804,7 +817,7 @@ impl<'a> PowerShellSession {
         let mut res_str = String::new();
         let pairs = token.into_inner();
         for token in pairs {
-            let token = token.into_inner().next().unwrap();
+            let token = token.into_inner().try_next()?;
             let token_str = token.as_str();
             let res = match token.as_rule() {
                 Rule::variable => self.get_variable(token).map(|v| v.cast_to_string()),
@@ -830,7 +843,7 @@ impl<'a> PowerShellSession {
     fn eval_string_literal(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::string_literal);
         let mut pair = token.into_inner();
-        let token = pair.next().unwrap();
+        let token = pair.try_next()?;
         let cloned_token = token.clone();
 
         let mut is_expandable = false;
@@ -881,11 +894,11 @@ impl<'a> PowerShellSession {
     fn parse_scoped_variable(token: Pair<'a>) -> ParserResult<VarName> {
         //can be scoped or splatted
         let mut pairs = token.into_inner();
-        let mut token = pairs.next().unwrap();
+        let mut token = pairs.try_next()?;
 
         let scope = if token.as_rule() == Rule::scope_keyword {
             let scope = token.as_str().to_ascii_lowercase();
-            token = pairs.next().unwrap();
+            token = pairs.try_next()?;
             check_rule!(token, Rule::var_name);
             Some(Scope::from(scope.as_str()))
         } else {
@@ -897,7 +910,7 @@ impl<'a> PowerShellSession {
     fn skip_value_access(&mut self, token: Pair<'a>) -> ParserResult<()> {
         check_rule!(token, Rule::value_access);
         let mut pair = token.into_inner();
-        let token = pair.next().unwrap();
+        let token = pair.try_next()?;
         let mut val = self.eval_value(token)?;
         let _ = self.eval_element_access_ref(pair.next().unwrap(), &mut val)?;
         Err(ParserError::Skip)
@@ -918,7 +931,7 @@ impl<'a> PowerShellSession {
     ) -> ParserResult<(VarName, Option<Pairs<'a>>)> {
         check_rule!(token, Rule::assignable_variable);
         let mut pair = token.into_inner();
-        let token = pair.next().unwrap();
+        let token = pair.try_next()?;
         match token.as_rule() {
             Rule::variable => {
                 let var_name = Self::parse_variable(token)?;
@@ -927,7 +940,7 @@ impl<'a> PowerShellSession {
             }
             Rule::variable_access => {
                 let mut pairs = token.into_inner();
-                let var_token = pairs.next().unwrap();
+                let var_token = pairs.try_next()?;
                 let var_name = Self::parse_variable(var_token)?;
                 // let mut object = &mut var;
                 // for token in pairs {
@@ -945,7 +958,7 @@ impl<'a> PowerShellSession {
     fn parse_variable(token: Pair<'a>) -> ParserResult<VarName> {
         check_rule!(token, Rule::variable);
         let mut pair = token.into_inner();
-        let token = pair.next().unwrap();
+        let token = pair.try_next()?;
 
         Ok(match token.as_rule() {
             Rule::special_variable => {
@@ -955,7 +968,7 @@ impl<'a> PowerShellSession {
                 Self::parse_variable(token.into_inner().next().unwrap())?
             }
             Rule::braced_variable => {
-                let token = token.into_inner().next().unwrap();
+                let token = token.into_inner().try_next()?;
                 let var = token.as_str().to_ascii_lowercase();
                 let splits: Vec<&str> = var.split(":").collect();
                 if splits.len() == 2 {
@@ -972,11 +985,11 @@ impl<'a> PowerShellSession {
     fn eval_pre_arithmetic(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::pre_arithmetic);
         let mut pair = token.into_inner();
-        let token = pair.next().unwrap();
+        let token = pair.try_next()?;
 
         let res = match token.as_rule() {
             Rule::pre_plus_expression => {
-                let token = token.into_inner().next().unwrap();
+                let token = token.into_inner().try_next()?;
                 match token.as_rule() {
                     Rule::variable => {
                         let var_name = Self::parse_variable(token)?;
@@ -989,7 +1002,7 @@ impl<'a> PowerShellSession {
                 }
             }
             Rule::pre_minus_expression => {
-                let token = token.into_inner().next().unwrap();
+                let token = token.into_inner().try_next()?;
                 let mut v = Val::default();
                 let to_sub = match token.as_rule() {
                     Rule::variable => {
@@ -1005,7 +1018,7 @@ impl<'a> PowerShellSession {
                 v
             }
             Rule::pre_inc_expression => {
-                let variable_token = token.into_inner().next().unwrap();
+                let variable_token = token.into_inner().try_next()?;
                 let var_name = Self::parse_variable(variable_token)?;
                 let mut var = self
                     .variables
@@ -1017,7 +1030,7 @@ impl<'a> PowerShellSession {
                 var
             }
             Rule::pre_dec_expression => {
-                let variable_token = token.into_inner().next().unwrap();
+                let variable_token = token.into_inner().try_next()?;
                 let var_name = Self::parse_variable(variable_token)?;
                 let mut var = self
                     .variables
@@ -1037,18 +1050,18 @@ impl<'a> PowerShellSession {
     fn eval_expression_with_unary_operator(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::expression_with_unary_operator);
         let mut pair = token.into_inner();
-        let token = pair.next().unwrap();
+        let token = pair.try_next()?;
 
         let res = match token.as_rule() {
             Rule::pre_arithmetic => self.eval_pre_arithmetic(token)?,
             Rule::cast_expression => self.eval_cast_expression(token)?,
             Rule::negate_op => {
-                let unary_token = pair.next().unwrap();
+                let unary_token = pair.try_next()?;
                 let unary = self.eval_unary_exp(unary_token)?;
                 Val::Bool(!unary.cast_to_bool())
             }
             Rule::bitwise_negate_op => {
-                let unary_token = pair.next().unwrap();
+                let unary_token = pair.try_next()?;
                 let unary = self.eval_unary_exp(unary_token)?;
                 Val::Int(!unary.cast_to_int()?)
             }
@@ -1061,7 +1074,7 @@ impl<'a> PowerShellSession {
     fn eval_argument_list(&mut self, token: Pair<'a>) -> ParserResult<Vec<Val>> {
         check_rule!(token, Rule::argument_list);
         let mut pairs = token.into_inner();
-        let token = pairs.next().unwrap();
+        let token = pairs.try_next()?;
 
         self.skip_error += 1;
 
@@ -1077,20 +1090,20 @@ impl<'a> PowerShellSession {
 
     fn eval_member_access(&mut self, token: Pair<'a>) -> ParserResult<String> {
         //check_rule!(token, Rule::member_access);
-        let member_name_token = token.into_inner().next().unwrap();
+        let member_name_token = token.into_inner().try_next()?;
         let member_name = member_name_token.as_str().to_ascii_lowercase();
 
         Ok(member_name)
     }
 
-    fn method_is_static(&mut self, token: Pair<'a>) -> bool {
+    fn method_is_static(&mut self, token: Pair<'a>) -> ParserResult<bool> {
         check_rule!(token, Rule::method_invocation);
         let mut pairs = token.into_inner();
 
-        let access = pairs.next().unwrap();
+        let access = pairs.try_next()?;
         match access.as_rule() {
-            Rule::member_access => false,
-            Rule::static_access => true,
+            Rule::member_access => Ok(false),
+            Rule::static_access => Ok(true),
             _ => unexpected_token!(access),
         }
     }
@@ -1105,7 +1118,7 @@ impl<'a> PowerShellSession {
 
         let mut pairs = token.into_inner();
 
-        let access = pairs.next().unwrap();
+        let access = pairs.try_next()?;
         let method_name = self.eval_member_access(access)?;
 
         let args = if let Some(token) = pairs.next() {
@@ -1144,7 +1157,7 @@ impl<'a> PowerShellSession {
         object: &'b mut Val,
     ) -> ParserResult<&'b mut Val> {
         let mut pairs = token.into_inner();
-        let index_token = pairs.next().unwrap();
+        let index_token = pairs.try_next()?;
         check_rule!(index_token, Rule::expression);
         let index = self.eval_expression(index_token)?;
         Ok(object.get_index_ref(index)?)
@@ -1152,7 +1165,7 @@ impl<'a> PowerShellSession {
 
     fn eval_element_access(&mut self, token: Pair<'a>, object: &Val) -> ParserResult<Val> {
         let mut pairs = token.into_inner();
-        let index_token = pairs.next().unwrap();
+        let index_token = pairs.try_next()?;
         check_rule!(index_token, Rule::expression);
         let index = self.eval_expression(index_token)?;
         Ok(object.get_index(index)?)
@@ -1195,7 +1208,7 @@ impl<'a> PowerShellSession {
             }
             Rule::member_access => object.readonly_member(get_member_name(token))?.clone(),
             Rule::method_invocation => {
-                let static_method = self.method_is_static(token.clone());
+                let static_method = self.method_is_static(token.clone())?;
                 let (function_name, args) = self.eval_method_invocation(token, object)?;
                 let mangled_name = MethodName::from_args(function_name.as_str(), &args);
 
@@ -1222,7 +1235,7 @@ impl<'a> PowerShellSession {
     fn eval_value_access(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::value_access);
         let mut pairs = token.into_inner();
-        let token = pairs.next().unwrap();
+        let token = pairs.try_next()?;
 
         let mut object = self.eval_value(token)?;
         for token in pairs {
@@ -1235,7 +1248,7 @@ impl<'a> PowerShellSession {
     fn parse_access(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::value_access);
         let mut pairs = token.into_inner();
-        let token = pairs.next().unwrap();
+        let token = pairs.try_next()?;
 
         let mut object = self
             .eval_value(token.clone())
@@ -1251,7 +1264,7 @@ impl<'a> PowerShellSession {
                     object.push_str(token.as_str());
                 }
                 Rule::method_invocation => {
-                    let static_method = self.method_is_static(token.clone());
+                    let static_method = self.method_is_static(token.clone())?;
                     let (method_name, args) = self
                         .eval_method_invocation(token.clone(), &Val::ScriptText(object.clone()))?;
                     log::trace!("Method: {:?} {:?}", &method_name, &args);
@@ -1269,7 +1282,7 @@ impl<'a> PowerShellSession {
                 }
                 Rule::element_access => {
                     let mut pairs = token.into_inner();
-                    let index_token = pairs.next().unwrap();
+                    let index_token = pairs.try_next()?;
                     check_rule!(index_token, Rule::expression);
                     let index = self.eval_expression(index_token)?;
                     object = format!("{}[{}]", object, index);
@@ -1283,7 +1296,7 @@ impl<'a> PowerShellSession {
     fn eval_primary_expression(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::primary_expression);
         let mut pair = token.into_inner();
-        let token = pair.next().unwrap();
+        let token = pair.try_next()?;
         let res = match token.as_rule() {
             Rule::value_access => match self.eval_value_access(token.clone()) {
                 Ok(res) => res,
@@ -1295,7 +1308,7 @@ impl<'a> PowerShellSession {
             },
             Rule::value => self.eval_value(token)?,
             Rule::post_inc_expression => {
-                let variable_token = token.into_inner().next().unwrap();
+                let variable_token = token.into_inner().try_next()?;
                 let var_name = Self::parse_variable(variable_token)?;
                 let mut var = self
                     .variables
@@ -1310,7 +1323,7 @@ impl<'a> PowerShellSession {
                 var_to_return
             }
             Rule::post_dec_expression => {
-                let variable_token = token.into_inner().next().unwrap();
+                let variable_token = token.into_inner().try_next()?;
                 let var_name = Self::parse_variable(variable_token)?;
                 let mut var = self
                     .variables
@@ -1348,7 +1361,7 @@ impl<'a> PowerShellSession {
     fn parse_type_literal(&mut self, token: Pair<'a>) -> ParserResult<String> {
         check_rule!(token, Rule::type_literal);
 
-        let token = token.into_inner().next().unwrap();
+        let token = token.into_inner().try_next()?;
         check_rule!(token, Rule::type_spec);
         let type_literal = token.as_str().to_ascii_lowercase();
         self.tokens.push(Token::type_literal(type_literal.clone()));
@@ -1410,7 +1423,7 @@ impl<'a> PowerShellSession {
     fn eval_hash_key(&mut self, token: Pair<'a>) -> ParserResult<String> {
         check_rule!(token, Rule::key_expression);
         let mut pairs = token.into_inner();
-        let key_token = pairs.next().unwrap();
+        let key_token = pairs.try_next()?;
 
         Ok(match key_token.as_rule() {
             Rule::simple_name => key_token.as_str().to_ascii_lowercase(),
@@ -1426,8 +1439,8 @@ impl<'a> PowerShellSession {
         check_rule!(token, Rule::hash_entry);
 
         let mut pairs = token.into_inner();
-        let token_key = pairs.next().unwrap();
-        let token_value = pairs.next().unwrap();
+        let token_key = pairs.try_next()?;
+        let token_value = pairs.try_next()?;
         let value = match token_value.as_rule() {
             //Rule::statement => self.eval_statement(token_value)?,
             Rule::type_literal => self.eval_type_literal(token_value)?,
@@ -1450,14 +1463,14 @@ impl<'a> PowerShellSession {
 
     fn eval_parenthesized_expression(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::parenthesized_expression);
-        let token = token.into_inner().next().unwrap();
+        let token = token.into_inner().try_next()?;
         self.safe_eval_pipeline(token)
     }
 
     fn eval_value(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::value);
         let mut pair = token.into_inner();
-        let token = pair.next().unwrap();
+        let token = pair.try_next()?;
 
         let res = match token.as_rule() {
             Rule::parenthesized_expression => self.eval_parenthesized_expression(token)?,
@@ -1491,14 +1504,14 @@ impl<'a> PowerShellSession {
         check_rule!(token, Rule::number_literal);
         let mut negate = false;
         let mut pairs = token.into_inner();
-        let mut token = pairs.next().unwrap();
+        let mut token = pairs.try_next()?;
 
         //first handle prefix sign: + or -
         if token.as_rule() == Rule::minus {
             negate = true;
-            token = pairs.next().unwrap();
+            token = pairs.try_next()?;
         } else if token.as_rule() == Rule::plus {
-            token = pairs.next().unwrap();
+            token = pairs.try_next()?;
         }
 
         let mut val = self.eval_number(token)?;
@@ -1525,14 +1538,14 @@ impl<'a> PowerShellSession {
     fn eval_number(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::number);
         let mut pairs = token.into_inner();
-        let token = pairs.next().unwrap();
+        let token = pairs.try_next()?;
         let v = match token.as_rule() {
             Rule::decimal_integer => {
-                let int_val = token.into_inner().next().unwrap();
+                let int_val = token.into_inner().try_next()?;
                 Val::Int(int_val.as_str().parse::<i64>().unwrap())
             }
             Rule::hex_integer => {
-                let int_val = token.into_inner().next().unwrap();
+                let int_val = token.into_inner().try_next()?;
                 Val::Int(i64::from_str_radix(int_val.as_str(), 16).unwrap())
             }
             Rule::float => {
@@ -1547,7 +1560,7 @@ impl<'a> PowerShellSession {
 
     fn eval_unary_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::unary_exp);
-        let token = token.into_inner().next().unwrap();
+        let token = token.into_inner().try_next()?;
         match token.as_rule() {
             Rule::expression_with_unary_operator => self.eval_expression_with_unary_operator(token),
             Rule::primary_expression => self.eval_primary_expression(token),
@@ -1558,7 +1571,7 @@ impl<'a> PowerShellSession {
     fn eval_array_literal_exp_special_case(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::array_literal_exp_special_case);
         let mut pairs = token.into_inner();
-        let token = pairs.next().unwrap();
+        let token = pairs.try_next()?;
 
         let val = self.eval_array_literal_exp(token)?;
         Ok(Val::Array(vec![val]))
@@ -1582,7 +1595,7 @@ impl<'a> PowerShellSession {
         check_rule!(token, Rule::array_literal_exp);
         let mut arr = Vec::new();
         let mut pairs = token.into_inner();
-        let token = pairs.next().unwrap();
+        let token = pairs.try_next()?;
 
         //if array literal starts with ',' we must eval single element as array too
         if let Rule::array_literal_exp_special_case = token.as_rule() {
@@ -1625,10 +1638,10 @@ impl<'a> PowerShellSession {
         }
         check_rule!(token, Rule::range_exp);
         let mut pairs = token.into_inner();
-        let mut token = pairs.next().unwrap();
+        let mut token = pairs.try_next()?;
 
         let _is_minus = if let Rule::additive_op = token.as_rule() {
-            token = pairs.next().unwrap();
+            token = pairs.try_next()?;
             true
         } else {
             false
@@ -1636,11 +1649,11 @@ impl<'a> PowerShellSession {
 
         let res = match token.as_rule() {
             Rule::decimal_integer => {
-                let int_val = token.into_inner().next().unwrap();
+                let int_val = token.into_inner().try_next()?;
                 let left = int_val.as_str().parse::<i64>().unwrap();
-                let mut token = pairs.next().unwrap();
+                let mut token = pairs.try_next()?;
                 let _is_minus = if let Rule::additive_op = token.as_rule() {
-                    token = pairs.next().unwrap();
+                    token = pairs.try_next()?;
                     true
                 } else {
                     false
@@ -1720,7 +1733,7 @@ impl<'a> PowerShellSession {
                 )));
             };
 
-            let postfix = pairs.next().unwrap();
+            let postfix = pairs.try_next()?;
             let right_op = self.eval_format_exp(postfix)?;
             res = fun(res, right_op)?;
         }
@@ -1732,7 +1745,7 @@ impl<'a> PowerShellSession {
         check_rule!(token, Rule::additive_exp);
 
         let mut pairs = token.into_inner();
-        let token = pairs.next().unwrap();
+        let token = pairs.try_next()?;
         let mut res = match token.as_rule() {
             Rule::multiplicative_exp => self.eval_mult(token)?,
             _ => unexpected_token!(token),
@@ -1747,7 +1760,7 @@ impl<'a> PowerShellSession {
                 )));
             };
 
-            let mult = pairs.next().unwrap();
+            let mult = pairs.try_next()?;
             let right_op = match mult.as_rule() {
                 Rule::multiplicative_exp => self.eval_mult(mult)?,
                 Rule::pre_arithmetic => self.eval_pre_arithmetic(mult)?,
@@ -1793,7 +1806,7 @@ impl<'a> PowerShellSession {
     fn eval_comparison_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::comparison_exp);
         let mut pairs = token.into_inner();
-        let token = pairs.next().unwrap();
+        let token = pairs.try_next()?;
 
         // we need to handle strange case. -split and -join can be invoke without
         // previous expression, eg. "-join 'some'"
@@ -1812,7 +1825,7 @@ impl<'a> PowerShellSession {
                 )));
             };
 
-            let token = pairs.next().unwrap();
+            let token = pairs.try_next()?;
             let right_op = match token.as_rule() {
                 Rule::script_block_expression => {
                     let script_block = self.parse_script_block_expression(token)?;
@@ -1884,7 +1897,7 @@ impl<'a> PowerShellSession {
         let attribute_list_pairs = token.into_inner();
         for attribute_token in attribute_list_pairs {
             check_rule!(attribute_token, Rule::attribute);
-            let attribute_type_token = attribute_token.into_inner().next().unwrap();
+            let attribute_type_token = attribute_token.into_inner().try_next()?;
             match attribute_type_token.as_rule() {
                 Rule::attribute_info => {
                     //skip for now
@@ -1903,11 +1916,11 @@ impl<'a> PowerShellSession {
     fn parse_script_parameter(&mut self, token: Pair<'a>) -> ParserResult<Param> {
         check_rule!(token, Rule::script_parameter);
         let mut pairs = token.into_inner();
-        let mut token = pairs.next().unwrap();
+        let mut token = pairs.try_next()?;
 
         let type_literal = if token.as_rule() == Rule::attribute_list {
             let type_literal = self.parse_attribute_list(token).unwrap_or(None);
-            token = pairs.next().unwrap();
+            token = pairs.try_next()?;
             type_literal
         } else {
             None
@@ -1918,7 +1931,7 @@ impl<'a> PowerShellSession {
 
         let default_value = if let Some(default_value_token) = pairs.next() {
             check_rule!(default_value_token, Rule::script_parameter_default);
-            let default_value_expr = default_value_token.into_inner().next().unwrap();
+            let default_value_expr = default_value_token.into_inner().try_next()?;
             let default_value = self.eval_primary_expression(default_value_expr)?;
             Some(default_value)
         } else {
@@ -1942,7 +1955,7 @@ impl<'a> PowerShellSession {
                 )));
             };
 
-            let mult = pairs.next().unwrap();
+            let mult = pairs.try_next()?;
             let right_op = self.eval_as_exp(mult)?;
             res = fun(res, right_op)?;
         }
@@ -1971,7 +1984,7 @@ impl<'a> PowerShellSession {
         check_rule!(token, Rule::cmdlet_command);
 
         let mut pairs = token.into_inner();
-        let token = pairs.next().unwrap();
+        let token = pairs.try_next()?;
         let command_name = match token.as_rule() {
             Rule::command_name => token.as_str(),
             Rule::where_command_name => "where-object",
@@ -1993,7 +2006,7 @@ impl<'a> PowerShellSession {
             let token_string = command_element_token.as_str().to_string();
             match command_element_token.as_rule() {
                 Rule::command_argument => {
-                    let arg_token = command_element_token.into_inner().next().unwrap();
+                    let arg_token = command_element_token.into_inner().try_next()?;
                     let arg = match arg_token.as_rule() {
                         Rule::array_literal_exp => self.eval_array_literal_exp(arg_token)?,
                         Rule::script_block_expression => {
@@ -2015,7 +2028,7 @@ impl<'a> PowerShellSession {
                     args.push(CommandElem::Parameter(token_string.to_ascii_lowercase()))
                 }
                 Rule::argument_list => {
-                    let expression_token = command_element_token.into_inner().next().unwrap();
+                    let expression_token = command_element_token.into_inner().try_next()?;
                     let Ok(expr_res) = self.eval_expression(expression_token) else {
                         continue;
                     };
@@ -2055,7 +2068,7 @@ impl<'a> PowerShellSession {
         let command_str = token.as_str().to_string();
 
         let mut pairs = token.into_inner();
-        let command_token = pairs.next().unwrap();
+        let command_token = pairs.try_next()?;
         let mut command = match command_token.as_rule() {
             Rule::cmdlet_command => self.parse_cmdlet_command_name(command_token)?,
             Rule::invocation_command => self.parse_invocation_command(command_token)?,
@@ -2102,7 +2115,7 @@ impl<'a> PowerShellSession {
     fn parse_invocation_command(&mut self, token: Pair<'a>) -> ParserResult<Command> {
         check_rule!(token, Rule::invocation_command);
 
-        let invocation_command_token = token.into_inner().next().unwrap();
+        let invocation_command_token = token.into_inner().try_next()?;
 
         let mut session_scope = match invocation_command_token.as_rule() {
             Rule::current_scope_invocation_command => SessionScope::Current,
@@ -2110,7 +2123,7 @@ impl<'a> PowerShellSession {
             _ => unexpected_token!(invocation_command_token),
         };
 
-        let token_inner = invocation_command_token.into_inner().next().unwrap();
+        let token_inner = invocation_command_token.into_inner().try_next()?;
 
         let mut command = match token_inner.as_rule() {
             Rule::cmdlet_command => {
@@ -2136,7 +2149,7 @@ impl<'a> PowerShellSession {
     fn eval_redirected_expression(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::redirected_expression);
 
-        let expression_token = token.into_inner().next().unwrap();
+        let expression_token = token.into_inner().try_next()?;
         //todo: handle redirections
 
         self.eval_expression(expression_token)
@@ -2158,7 +2171,7 @@ impl<'a> PowerShellSession {
                 )));
             };
 
-            let mult = pairs.next().unwrap();
+            let mult = pairs.try_next()?;
             let right_op = self.eval_bitwise_exp(mult)?;
             res = Val::Bool(fun(res, right_op));
         }
@@ -2187,7 +2200,7 @@ impl<'a> PowerShellSession {
     fn eval_pipeline_with_tail(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::pipeline_with_tail);
         let mut pairs = token.into_inner();
-        let token = pairs.next().unwrap();
+        let token = pairs.try_next()?;
 
         let result: Val = match token.as_rule() {
             Rule::redirected_expression => self.eval_redirected_expression(token)?,
@@ -2208,7 +2221,7 @@ impl<'a> PowerShellSession {
     fn eval_pipeline(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_rule!(token, Rule::pipeline);
         let mut pairs = token.into_inner();
-        let token = pairs.next().unwrap();
+        let token = pairs.try_next()?;
 
         match token.as_rule() {
             Rule::assignment_exp => self.eval_assigment_exp(token),
@@ -2235,10 +2248,10 @@ impl<'a> PowerShellSession {
         check_rule!(token, Rule::cast_expression);
 
         let mut pairs = token.into_inner();
-        let type_token = pairs.next().unwrap();
+        let type_token = pairs.try_next()?;
         check_rule!(type_token, Rule::type_literal);
         let val_type = self.eval_type_literal(type_token)?;
-        let token = pairs.next().unwrap();
+        let token = pairs.try_next()?;
         let res = match token.as_rule() {
             Rule::parenthesized_expression => self.eval_parenthesized_expression(token)?,
             Rule::unary_exp => self.eval_unary_exp(token)?,
@@ -2253,10 +2266,10 @@ impl<'a> PowerShellSession {
         let mut specified_type = None;
 
         let mut pairs = token.into_inner();
-        let mut token = pairs.next().unwrap();
+        let mut token = pairs.try_next()?;
         if token.as_rule() == Rule::type_literal {
             specified_type = Some(self.eval_type_literal(token)?);
-            token = pairs.next().unwrap();
+            token = pairs.try_next()?;
         }
         let (var_name, access) = self.parse_assignable_variable(token)?;
         let mut variable = self
@@ -2272,13 +2285,13 @@ impl<'a> PowerShellSession {
                 accessed_elem = self.variable_access(token, accessed_elem)?;
             }
         }
-        let assignement_op = pairs.next().unwrap();
+        let assignement_op = pairs.try_next()?;
 
         //get operand
-        let op = assignement_op.into_inner().next().unwrap();
+        let op = assignement_op.into_inner().try_next()?;
         let pred = ArithmeticPred::get(op.as_str());
 
-        let right_token = pairs.next().unwrap();
+        let right_token = pairs.try_next()?;
         let right_op = self.eval_statement(right_token.clone())?;
 
         let Some(pred) = pred else {
