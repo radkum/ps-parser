@@ -286,7 +286,10 @@ fn main() {
         "test_scripts/enc_oneliner.ps1",
     ];
     for path in corpus {
-        let text = std::fs::read_to_string(path).unwrap();
+        // local samples (e.g. enc_oneliner.ps1) are not in the repo
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
         let lines: Vec<&str> = text.lines().collect();
 
         // every single line on its own, and every line truncated at each char boundary
