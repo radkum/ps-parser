@@ -161,7 +161,7 @@ fn apply_numeric_format(value: &str, format: &str) -> Option<String> {
 
         if format.starts_with('N') {
             // N + digits
-            let precision = format[1..].parse::<usize>().unwrap_or(2);
+            let precision = format[1..].parse::<u16>().map_or(2, usize::from);
             // Rust thousands separator: {num:,.precision$}
             return Some(format!(
                 "{num:.precision$}",
@@ -169,7 +169,7 @@ fn apply_numeric_format(value: &str, format: &str) -> Option<String> {
                 precision = precision
             ));
         } else if format.starts_with('F') {
-            let precision = format[1..].parse::<usize>().unwrap_or(2);
+            let precision = format[1..].parse::<u16>().map_or(2, usize::from);
             return Some(format!(
                 "{num:.precision$}",
                 num = num,
@@ -179,7 +179,7 @@ fn apply_numeric_format(value: &str, format: &str) -> Option<String> {
         // other numeric formats can be added here (G, E, etc.)
     } else if format.chars().all(|c| c == '0') {
         // integer zero-padding
-        let width = format.len();
+        let width = format.len().min(u16::MAX as usize);
         let num: i64 = value.parse().ok()?;
         return Some(format!("{:0width$}", num, width = width));
     } else if let Ok(v) = value.parse::<i64>()
@@ -241,7 +241,7 @@ pub fn format_ps(format: &str, args: &[String]) -> Result<String, FormatError> {
 
                 // Alignment (PowerShell-compatible)
                 if let Some(align) = p.alignment {
-                    let width = align.abs() as usize;
+                    let width = align.unsigned_abs().min(u16::MAX as u32) as usize;
                     if align < 0 {
                         formatted = format!("{:<width$}", formatted);
                     } else {

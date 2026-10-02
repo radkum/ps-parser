@@ -6,7 +6,7 @@ impl PsString {
         args: Vec<Val>,
         fn_name: &str,
     ) -> MethodResult<(usize, usize)> {
-        let PsString(input) = self;
+        let len = self.0.chars().count();
 
         if args.len() != 2 && args.len() != 1 {
             //something wrong
@@ -26,7 +26,7 @@ impl PsString {
             }
 
             let length = args[1].cast_to_int()? as usize;
-            if start_index + length > input.len() {
+            if start_index.saturating_add(length) > len {
                 return Err(MethodError::Exception(format!(
                     "Exception calling \"{}\" with \"2\" argument(s): \"Index and length must \
                      refer to a location within the string. Parameter name: length\"",
@@ -35,10 +35,10 @@ impl PsString {
             }
             length
         } else {
-            input.len()
+            len
         };
 
-        if start_index > input.len() {
+        if start_index > len {
             return Err(MethodError::Exception(format!(
                 "Exception calling \"{}\" with \"1\" argument(s): \"startIndex cannot be larger \
                  than length of string. Parameter name: startIndex\"",
@@ -46,7 +46,7 @@ impl PsString {
             )));
         }
 
-        let end_index = std::cmp::min(start_index + length, input.len());
+        let end_index = std::cmp::min(start_index + length, len);
         Ok((start_index, end_index))
     }
 
@@ -55,7 +55,11 @@ impl PsString {
         //string Substring(int startIndex, int length)
         let PsString(input) = self;
         let (start_index, end_index) = self.args_for_remove_and_substring(args, "Substring")?;
-        let res = input[start_index..end_index].to_string();
+        let res: String = input
+            .chars()
+            .skip(start_index)
+            .take(end_index - start_index)
+            .collect();
         Ok(Val::String(PsString(res)))
     }
 
@@ -64,7 +68,11 @@ impl PsString {
         //string Remove(int startIndex)
         let PsString(input) = self;
         let (start_index, end_index) = self.args_for_remove_and_substring(args, "Remove")?;
-        let res = input[..start_index].to_string() + &input[end_index..];
+        let res: String = input
+            .chars()
+            .take(start_index)
+            .chain(input.chars().skip(end_index))
+            .collect();
         Ok(Val::String(PsString(res)))
     }
 }

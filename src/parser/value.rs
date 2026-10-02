@@ -29,6 +29,10 @@ pub(crate) use val_error::ValError;
 pub(crate) use val_type::RuntimeTypeTrait;
 pub(super) use val_type::ValType;
 pub type ValResult<T> = core::result::Result<T, ValError>;
+
+// script-controlled sizes above these are refused instead of exhausting memory
+pub(crate) const MAX_STRING_LEN: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_ARRAY_LEN: usize = 1_000_000;
 use runtime_object::RuntimeResult;
 
 use super::NEWLINE;
@@ -244,7 +248,9 @@ impl Val {
                 *self = if val.ttype() == ValType::Float {
                     Val::Float(self.cast_to_float()? + val.cast_to_float()?)
                 } else {
-                    Val::Int(self.cast_to_int()? + val.cast_to_int()?)
+                    let (a, b) = (self.cast_to_int()?, val.cast_to_int()?);
+                    a.checked_add(b)
+                        .map_or(Val::Float(a as f64 + b as f64), Val::Int)
                 };
             }
             Val::Char(_) | Val::String(_) => {
@@ -285,7 +291,11 @@ impl Val {
     fn inc_or_dec_operation(&mut self, amount: i64, op: String) -> ValResult<()> {
         match self {
             Val::Null => *self = Val::Int(amount),
-            Val::Int(i) => *self = Val::Int(*i + amount),
+            Val::Int(i) => {
+                *self = i
+                    .checked_add(amount)
+                    .map_or(Val::Float(*i as f64 + amount as f64), Val::Int)
+            }
             Val::Float(f) => *self = Val::Float(*f + amount as f64),
             Val::NonDisplayed(box_val) => box_val.inc_or_dec_operation(amount, op)?,
             _ => {
@@ -311,6 +321,10 @@ impl Val {
     pub fn sub(&mut self, val: Val) -> ValResult<()> {
         if let ValType::Null = self.ttype() {
             *self = val.ttype().init();
+            // init() of Null-like types gives Null again, which would recurse forever
+            if let ValType::Null = self.ttype() {
+                *self = Val::Int(0);
+            }
             self.sub(val)?;
             return Ok(());
         }
@@ -345,7 +359,10 @@ impl Val {
         if self.ttype() == ValType::Float || val.ttype() == ValType::Float {
             *self = Val::Float(self.cast_to_float()? - val.cast_to_float()?);
         } else {
-            *self = Val::Int(self.cast_to_int()? - val.cast_to_int()?);
+            let (a, b) = (self.cast_to_int()?, val.cast_to_int()?);
+            *self = a
+                .checked_sub(b)
+                .map_or(Val::Float(a as f64 - b as f64), Val::Int);
         }
 
         Ok(())
@@ -359,7 +376,9 @@ impl Val {
                 if self.ttype() == ValType::Float || val.ttype() == ValType::Float {
                     Ok(Val::Float(self.cast_to_float()? * val.cast_to_float()?))
                 } else {
-                    Ok(Val::Int(self.cast_to_int()? * val.cast_to_int()?))
+                    let (a, b) = (self.cast_to_int()?, val.cast_to_int()?);
+                    Ok(a.checked_mul(b)
+                        .map_or(Val::Float(a as f64 * b as f64), Val::Int))
                 }
             }
             Val::Char(_) => Err(ValError::OperationNotDefined(
@@ -369,14 +388,17 @@ impl Val {
             ))?,
             Val::String(PsString(s)) => {
                 let repeat_count = val.cast_to_int()?;
-                if repeat_count < 0 {
+                if repeat_count < 0 || s.len().saturating_mul(repeat_count as usize) > MAX_STRING_LEN
+                {
                     Err(ValError::ArgumentOutOfRange("*".to_string(), repeat_count))?
                 }
                 Ok(Val::String(PsString(s.repeat(repeat_count as usize))))
             }
             Val::Array(v) => {
                 let repeat_count = val.cast_to_int()?;
-                if repeat_count < 0 {
+                if repeat_count < 0
+                    || v.len().max(1).saturating_mul(repeat_count as usize) > MAX_ARRAY_LEN
+                {
                     Err(ValError::ArgumentOutOfRange("*".to_string(), repeat_count))?
                 }
                 Ok(Val::Array(Self::repeat(v, repeat_count as usize)))
@@ -412,14 +434,15 @@ impl Val {
             Val::Bool(_) | Val::Int(_) | Val::Char(_) | Val::String(_) => {
                 //if second operand isn't float and can be divided without rest, we can cast it
                 // to Int
-                if val.ttype() != ValType::Float && (self.cast_to_int()? % val.cast_to_int()? == 0)
+                if val.ttype() != ValType::Float
+                    && self.cast_to_int()?.checked_rem(val.cast_to_int()?) == Some(0)
                 {
                     Val::Int(self.cast_to_int()? / val.cast_to_int()?)
                 } else {
                     Val::Float(self.cast_to_float()? / val.cast_to_float()?)
                 }
             }
-            Val::Float(_) => Val::Float(self.cast_to_float()? / self.cast_to_float()?),
+            Val::Float(_) => Val::Float(self.cast_to_float()? / val.cast_to_float()?),
             _ => Err(ValError::OperationNotDefined(
                 "/".to_string(),
                 self.ttype().to_string(),
@@ -450,13 +473,15 @@ impl Val {
             Val::Bool(_) | Val::Int(_) | Val::Char(_) | Val::String(_) => {
                 //if second operand isn't float and can be divided without rest, we can cast it
                 // to Int
-                if val.ttype() != ValType::Float {
-                    Val::Int(self.cast_to_int()? % val.cast_to_int()?)
+                if val.ttype() != ValType::Float
+                    && let Some(rem) = self.cast_to_int()?.checked_rem(val.cast_to_int()?)
+                {
+                    Val::Int(rem)
                 } else {
                     Val::Float(self.cast_to_float()? % val.cast_to_float()?)
                 }
             }
-            Val::Float(_) => Val::Float(self.cast_to_float()? % self.cast_to_float()?),
+            Val::Float(_) => Val::Float(self.cast_to_float()? % val.cast_to_float()?),
             _ => Err(ValError::OperationNotDefined(
                 "%".to_string(),
                 self.ttype().to_string(),
@@ -764,8 +789,8 @@ impl Val {
     }
 
     fn repeat(v: &[Val], amount: usize) -> Vec<Val> {
-        let mut res = v.to_owned();
-        for _ in 1..amount {
+        let mut res = vec![];
+        for _ in 0..amount {
             res.append(&mut v.to_owned());
         }
         res
@@ -1240,5 +1265,31 @@ mod tests {
                 .unwrap(),
             vec![Val::String("7".into())]
         );
+    }
+
+    #[test]
+    fn test_div_and_modulo_float() {
+        let mut val = Val::Float(5.0);
+        val.div(Val::Int(2)).unwrap();
+        assert_eq!(val, Val::Float(2.5));
+
+        let mut val = Val::Float(5.5);
+        val.modulo(Val::Int(2)).unwrap();
+        assert_eq!(val, Val::Float(1.5));
+    }
+
+    #[test]
+    fn test_mul_array_by_zero() {
+        let mut val = Val::Array(vec![Val::Int(1), Val::Int(2)]);
+        val.mul(Val::Int(0)).unwrap();
+        assert_eq!(val, Val::Array(vec![]));
+    }
+
+    #[test]
+    fn test_float_exponent_without_sign() {
+        let mut ps = crate::PowerShellSession::new();
+        assert_eq!(ps.safe_eval("1e3").unwrap(), "1000");
+        assert_eq!(ps.safe_eval("'a' * 3e0").unwrap(), "aaa");
+        assert_eq!(ps.safe_eval("1e+3").unwrap(), "1000");
     }
 }

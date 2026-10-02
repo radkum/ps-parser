@@ -1,4 +1,5 @@
 use super::{MethodError, MethodResult, PsString, Val};
+use crate::parser::value::MAX_STRING_LEN;
 
 impl PsString {
     pub(super) fn pad_left(&self, args: Vec<Val>) -> MethodResult<Val> {
@@ -14,6 +15,9 @@ impl PsString {
         };
 
         let padding = width.saturating_sub(input.len() as i64);
+        if padding > MAX_STRING_LEN as i64 {
+            return Err(MethodError::new_incorrect_args("PadLeft", args));
+        }
         if padding > 0 {
             input.insert_str(0, &" ".repeat(padding as usize));
         }
@@ -34,6 +38,9 @@ impl PsString {
         };
 
         let padding = width.saturating_sub(input.len() as i64);
+        if padding > MAX_STRING_LEN as i64 {
+            return Err(MethodError::new_incorrect_args("PadRight", args));
+        }
         if padding > 0 {
             input.push_str(&" ".repeat(padding as usize));
         }

@@ -47,6 +47,12 @@ pub enum ParserError {
 
     #[error("Skip")]
     Skip,
+
+    #[error("Panic: {0}")]
+    Panic(String),
+
+    #[error("Nesting too deep")]
+    NestingTooDeep,
 }
 
 impl From<PestError> for ParserError {

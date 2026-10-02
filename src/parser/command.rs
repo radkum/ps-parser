@@ -221,6 +221,12 @@ fn where_object(
     ps: &mut PowerShellSession,
 ) -> ParserResult<CommandOutput> {
     log::debug!("args: {:?}", args);
+    if args.len() < 2 {
+        return Err(CommandError::IncorrectArgs(
+            "Where-Object requires at least two arguments".into(),
+        )
+        .into());
+    }
 
     let CommandElem::Argument(argument) = args[0].clone() else {
         return Err(CommandError::IncorrectArgs(
@@ -484,15 +490,22 @@ fn powershell(
             }
         }
 
+        // -enc officially carries UTF-16LE, but malware often encodes plain ASCII
+        fn decode_encoded_command(bytes: &[u8]) -> Option<String> {
+            if bytes.len().is_multiple_of(2) && bytes.contains(&0) {
+                let units = bytes
+                    .chunks_exact(2)
+                    .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+                    .collect::<Vec<u16>>();
+                return String::from_utf16(&units).ok();
+            }
+            String::from_utf8(bytes.to_vec()).ok()
+        }
+
         for i in index_to_decode {
-            if let Some(CommandElem::Argument(Val::ScriptText(s))) = &mut args[i]
+            if let Some(Some(CommandElem::Argument(Val::ScriptText(s)))) = args.get_mut(i)
                 && let Ok(decoded_bytes) = BASE64_STANDARD.decode(s.clone())
-                && let Ok(decoded_str) = String::from_utf16(
-                    &decoded_bytes
-                        .chunks(2)
-                        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-                        .collect::<Vec<u16>>(),
-                )
+                && let Some(decoded_str) = decode_encoded_command(&decoded_bytes)
             {
                 if let Ok(script_result) = ps.parse_script(&decoded_str) {
                     if script_result.deobfuscated().is_empty() {

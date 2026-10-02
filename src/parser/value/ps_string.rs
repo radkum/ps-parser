@@ -119,13 +119,22 @@ impl PsString {
             return Err(MethodError::new_incorrect_args("Insert", args));
         };
 
+        let Some(byte_idx) = input
+            .char_indices()
+            .map(|(i, _)| i)
+            .chain([input.len()])
+            .nth(idx as usize)
+        else {
+            return Err(MethodError::new_incorrect_args("Insert", args));
+        };
+
         let value = if args[1].ttype() == ValType::String || args[1].ttype() == ValType::Char {
             args[1].cast_to_string()
         } else {
             Err(MethodError::new_incorrect_args("Insert", args))?
         };
 
-        input.insert_str(idx as usize, value.as_str());
+        input.insert_str(byte_idx, value.as_str());
         Ok(Val::String(PsString(input)))
     }
 

@@ -84,7 +84,7 @@ pub fn bxor(a: Val, b: Val) -> BitwiseResult<Val> {
 }
 
 fn shl_imp(a: i64, b: i64) -> i64 {
-    a << b
+    a.wrapping_shl(b as u32)
 }
 
 pub fn shl(a: Val, b: Val) -> BitwiseResult<Val> {
@@ -94,7 +94,7 @@ pub fn shl(a: Val, b: Val) -> BitwiseResult<Val> {
 }
 
 fn shr_imp(a: i64, b: i64) -> i64 {
-    a >> b
+    a.wrapping_shr(b as u32)
 }
 
 pub fn shr(a: Val, b: Val) -> BitwiseResult<Val> {

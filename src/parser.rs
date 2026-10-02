@@ -8,14 +8,14 @@ mod token;
 mod value;
 mod variables;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub(crate) use command::CommandError;
 use command::{Command, CommandElem};
 pub(crate) use stream_message::StreamMessage;
 use value::{
     ClassProperties, ClassType, Convert, Encoding, MethodName, Param, RuntimeObjectTrait,
-    RuntimeTypeTrait, ScriptBlock, ValResult,
+    RuntimeTypeTrait, ScriptBlock, ValError, ValResult,
 };
 use variables::{Scope, SessionScope, TopScope};
 type ParserResult<T> = core::result::Result<T, ParserError>;
@@ -65,6 +65,120 @@ macro_rules! not_implemented {
     };
 }
 
+// stack overflow aborts the process, so deep nesting is rejected with an error before that happens
+const STACK_BUDGET: usize = 512 * 1024;
+const PEST_STACK_PER_LEVEL: usize = if cfg!(debug_assertions) { 40 * 1024 } else { 8 * 1024 };
+
+thread_local! {
+    static STACK_BASE: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+struct StackBase(bool);
+
+impl StackBase {
+    fn enter() -> Self {
+        let here = 0u8;
+        let outermost = STACK_BASE.with(|base| base.get().is_none());
+        if outermost {
+            STACK_BASE.with(|base| base.set(Some(&here as *const u8 as usize)));
+        }
+        StackBase(outermost)
+    }
+}
+
+impl Drop for StackBase {
+    fn drop(&mut self) {
+        if self.0 {
+            STACK_BASE.with(|base| base.set(None));
+        }
+    }
+}
+
+fn check_stack(extra: usize) -> ParserResult<()> {
+    let here = 0u8;
+    let used = STACK_BASE
+        .with(|base| base.get())
+        .map_or(0, |base| base.saturating_sub(&here as *const u8 as usize));
+    if used + extra > STACK_BUDGET {
+        Err(ParserError::NestingTooDeep)
+    } else {
+        Ok(())
+    }
+}
+
+// counts code nesting only: brackets inside strings and comments don't make pest recurse
+fn max_nesting(input: &str) -> usize {
+    let chars: Vec<char> = input.chars().collect();
+    let skip_until = |mut i: usize, end: [char; 2]| {
+        while i + 1 < chars.len() && [chars[i], chars[i + 1]] != end {
+            i += 1;
+        }
+        i + 1
+    };
+    // '"' / '@' mark an open "..." / @"..."@ string, anything else an open bracket
+    let mut stack: Vec<char> = vec![];
+    let (mut depth, mut max) = (0usize, 0usize);
+    let mut i = 0;
+    while i < chars.len() {
+        let (c, next) = (chars[i], chars.get(i + 1).copied());
+        match stack.last() {
+            Some(&string @ ('"' | '@')) => match (c, next) {
+                ('`', _) | ('"', Some('"')) if string == '"' => i += 1,
+                ('`', _) => i += 1,
+                ('"', _) if string == '"' => _ = stack.pop(),
+                ('"', Some('@')) => {
+                    stack.pop();
+                    i += 1;
+                }
+                ('$', Some('(')) => {
+                    stack.push('(');
+                    depth += 1;
+                    max = max.max(depth);
+                    i += 1;
+                }
+                _ => {}
+            },
+            _ => match (c, next) {
+                ('`', _) => i += 1,
+                ('#', _) => {
+                    while i + 1 < chars.len() && chars[i + 1] != '\n' {
+                        i += 1;
+                    }
+                }
+                ('<', Some('#')) => i = skip_until(i + 2, ['#', '>']),
+                ('@', Some('\'')) => i = skip_until(i + 2, ['\'', '@']),
+                ('@', Some('"')) => {
+                    stack.push('@');
+                    i += 1;
+                }
+                ('\'', _) => {
+                    i += 1;
+                    while i < chars.len() && (chars[i] != '\'' || next_is(&chars, i, '\'')) {
+                        i += if chars[i] == '\'' { 2 } else { 1 };
+                    }
+                }
+                ('"', _) => stack.push('"'),
+                ('(' | '{' | '[', _) => {
+                    stack.push(c);
+                    depth += 1;
+                    max = max.max(depth);
+                }
+                (')' | '}' | ']', _) if stack.last().is_some() => {
+                    stack.pop();
+                    depth -= 1;
+                }
+                _ => {}
+            },
+        }
+        i += 1;
+    }
+    max
+}
+
+fn next_is(chars: &[char], i: usize, c: char) -> bool {
+    chars.get(i + 1) == Some(&c)
+}
+
 #[derive(Default, Clone)]
 pub(crate) struct Results {
     output: Vec<StreamMessage>,
@@ -90,6 +204,10 @@ pub struct PowerShellSession {
     skip_error: u32,
     default_scope: TopScope,
     types_map: HashMap<String, Box<dyn RuntimeTypeTrait>>,
+    // blocks whose tokens were already collected; re-collecting nested blocks is exponential
+    collected: HashSet<String>,
+    // index of the last failed element access, reused by parse_access instead of evaluating it again
+    failed_index: Option<((usize, usize), Val)>,
 }
 
 impl Clone for PowerShellSession {
@@ -147,6 +265,8 @@ impl<'a> PowerShellSession {
             skip_error: 0,
             default_scope: TopScope::Session,
             types_map,
+            collected: HashSet::new(),
+            failed_index: None,
         }
     }
 
@@ -272,6 +392,8 @@ impl<'a> PowerShellSession {
     pub fn parse_script(&mut self, input: &str) -> Result<ScriptResult, ParserError> {
         self.default_scope = TopScope::Script;
         self.variables.init(self.default_scope.clone());
+        self.collected.clear();
+        let _stack_base = StackBase::enter();
 
         let (script_last_output, mut result) = self.parse_subscript(input)?;
         self.variables.clear_script_functions();
@@ -292,6 +414,8 @@ impl<'a> PowerShellSession {
     pub fn parse_command(&mut self, input: &str) -> Result<ScriptResult, ParserError> {
         self.default_scope = TopScope::Session;
         self.variables.init(self.default_scope.clone());
+        self.collected.clear();
+        let _stack_base = StackBase::enter();
 
         let (script_last_output, mut result) = self.parse_subscript(input)?;
         self.variables.clear_script_functions();
@@ -310,6 +434,7 @@ impl<'a> PowerShellSession {
     }
 
     pub(crate) fn parse_subscript(&mut self, input: &str) -> Result<(Val, Results), ParserError> {
+        check_stack(max_nesting(input) * PEST_STACK_PER_LEVEL)?;
         let mut pairs = PowerShellSession::parse(Rule::program, input)?;
         //create new scope for script
         self.results.push(Results::new());
@@ -335,7 +460,19 @@ impl<'a> PowerShellSession {
                     _ => {}
                 };
 
-                let result = self.eval_statement(token.clone());
+                let results_len = self.results.len();
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    self.eval_statement(token.clone())
+                }))
+                .unwrap_or_else(|payload| {
+                    self.results.truncate(results_len);
+                    let msg = payload
+                        .downcast_ref::<&str>()
+                        .map(|s| s.to_string())
+                        .or_else(|| payload.downcast_ref::<String>().cloned())
+                        .unwrap_or_default();
+                    Err(ParserError::Panic(msg))
+                });
                 self.variables.set_status(result.is_ok());
 
                 if let Ok(Val::NonDisplayed(_)) = &result {
@@ -475,6 +612,9 @@ impl<'a> PowerShellSession {
         //we want collect tokens from each case, but we need to preserve all variables
         //to consider: maybe instead of collecting tokens, we should return whole
         // deobfuscated if statement
+        if !self.collected.insert(token.as_str().to_string()) {
+            return;
+        }
         let results = self.results.clone();
         let current_variables = self.variables.clone();
         if let Err(err) = self.impl_if_statement_collect_tokens(token.clone()) {
@@ -537,6 +677,9 @@ impl<'a> PowerShellSession {
         //we want collect tokens from each case, but we need to preserve all variables
         //to consider: maybe instead of collecting tokens, we should return whole
         // deobfuscated if statement
+        if !self.collected.insert(token.as_str().to_string()) {
+            return;
+        }
         let results = self.results.clone();
         let current_variables = self.variables.clone();
         if let Err(err) = self.eval_statement_block(token.clone()) {
@@ -722,6 +865,7 @@ impl<'a> PowerShellSession {
                     let script_block = self.parse_script_block(token)?.with_params(parameters);
                     methods.insert(method_name.full_name().to_string(), script_block);
                 }
+                Rule::statement_terminator | Rule::simple_name => {}
                 _ => unexpected_token!(member_token),
             }
         }
@@ -734,6 +878,7 @@ impl<'a> PowerShellSession {
     }
 
     fn eval_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_stack(0)?;
         match token.as_rule() {
             Rule::pipeline => self.eval_pipeline(token),
             Rule::if_statement => self.eval_if_statement(token),
@@ -899,7 +1044,9 @@ impl<'a> PowerShellSession {
         let mut pair = token.into_inner();
         let token = pair.next().unwrap();
         let mut val = self.eval_value(token)?;
-        let _ = self.eval_element_access_ref(pair.next().unwrap(), &mut val)?;
+        if let Some(access) = pair.next() {
+            let _ = self.eval_element_access_ref(access, &mut val)?;
+        }
         Err(ParserError::Skip)
     }
 
@@ -1151,11 +1298,15 @@ impl<'a> PowerShellSession {
     }
 
     fn eval_element_access(&mut self, token: Pair<'a>, object: &Val) -> ParserResult<Val> {
+        let key = (token.as_str().as_ptr() as usize, token.as_str().len());
         let mut pairs = token.into_inner();
         let index_token = pairs.next().unwrap();
         check_rule!(index_token, Rule::expression);
         let index = self.eval_expression(index_token)?;
-        Ok(object.get_index(index)?)
+        object.get_index(index.clone()).map_err(|err| {
+            self.failed_index = Some((key, index));
+            err.into()
+        })
     }
 
     fn variable_access<'b>(
@@ -1268,10 +1419,16 @@ impl<'a> PowerShellSession {
                     )
                 }
                 Rule::element_access => {
-                    let mut pairs = token.into_inner();
-                    let index_token = pairs.next().unwrap();
-                    check_rule!(index_token, Rule::expression);
-                    let index = self.eval_expression(index_token)?;
+                    let key = (token.as_str().as_ptr() as usize, token.as_str().len());
+                    let index = match self.failed_index.take_if(|(failed_key, _)| *failed_key == key) {
+                        Some((_, index)) => index,
+                        _ => {
+                            let mut pairs = token.into_inner();
+                            let index_token = pairs.next().unwrap();
+                            check_rule!(index_token, Rule::expression);
+                            self.eval_expression(index_token)?
+                        }
+                    };
                     object = format!("{}[{}]", object, index);
                 }
                 _ => unexpected_token!(token),
@@ -1285,8 +1442,12 @@ impl<'a> PowerShellSession {
         let mut pair = token.into_inner();
         let token = pair.next().unwrap();
         let res = match token.as_rule() {
+            Rule::value_access if token.clone().into_inner().count() == 1 => {
+                self.eval_value(token.into_inner().next().unwrap())?
+            }
             Rule::value_access => match self.eval_value_access(token.clone()) {
                 Ok(res) => res,
+                Err(ParserError::NestingTooDeep) => Err(ParserError::NestingTooDeep)?,
                 Err(err) => {
                     log::debug!("eval_access error: {:?}", err);
                     self.errors.push(err);
@@ -1390,6 +1551,9 @@ impl<'a> PowerShellSession {
         //we want collect tokens from each case, but we need to preserve all variables
         //to consider: maybe instead of collecting tokens, we should return whole
         // deobfuscated if statement
+        if !self.collected.insert(script_body.to_string()) {
+            return;
+        }
         let results = self.results.clone();
         let current_variables = self.variables.clone();
         let errors = self.errors.clone();
@@ -1602,7 +1766,10 @@ impl<'a> PowerShellSession {
     }
 
     fn eval_range_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
-        fn range(mut left: i64, right: i64) -> Vec<Val> {
+        fn range(mut left: i64, right: i64) -> ParserResult<Vec<Val>> {
+            if left.abs_diff(right) >= value::MAX_ARRAY_LEN as u64 {
+                Err(ValError::ArgumentOutOfRange("..".to_string(), right))?
+            }
             let mut v = Vec::new();
             if left <= right {
                 loop {
@@ -1621,7 +1788,7 @@ impl<'a> PowerShellSession {
                     left -= 1;
                 }
             }
-            v.into_iter().map(Val::Int).collect()
+            Ok(v.into_iter().map(Val::Int).collect())
         }
         check_rule!(token, Rule::range_exp);
         let mut pairs = token.into_inner();
@@ -1637,7 +1804,9 @@ impl<'a> PowerShellSession {
         let res = match token.as_rule() {
             Rule::decimal_integer => {
                 let int_val = token.into_inner().next().unwrap();
-                let left = int_val.as_str().parse::<i64>().unwrap();
+                let left = int_val.as_str().parse::<i64>().map_err(|_| {
+                    ValError::InvalidCast(int_val.as_str().to_string(), "Int64".to_string())
+                })?;
                 let mut token = pairs.next().unwrap();
                 let _is_minus = if let Rule::additive_op = token.as_rule() {
                     token = pairs.next().unwrap();
@@ -1646,14 +1815,14 @@ impl<'a> PowerShellSession {
                     false
                 };
                 let right = self.eval_array_literal_exp(token)?.cast_to_int()?;
-                Val::Array(range(left, right))
+                Val::Array(range(left, right)?)
             }
             Rule::array_literal_exp => {
                 let res = self.eval_array_literal_exp(token)?;
                 if let Some(token) = pairs.next() {
                     let left = res.cast_to_int()?;
                     let right = self.eval_array_literal_exp(token)?.cast_to_int()?;
-                    Val::Array(range(left, right))
+                    Val::Array(range(left, right)?)
                 } else {
                     res
                 }
@@ -2143,6 +2312,7 @@ impl<'a> PowerShellSession {
     }
 
     fn eval_expression(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_stack(0)?;
         check_rule!(token, Rule::expression);
         let token_string = token.as_str().trim().to_string();
 
@@ -2206,6 +2376,7 @@ impl<'a> PowerShellSession {
     }
 
     fn eval_pipeline(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_stack(0)?;
         check_rule!(token, Rule::pipeline);
         let mut pairs = token.into_inner();
         let token = pairs.next().unwrap();
@@ -2502,5 +2673,29 @@ $ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([b
 "#;
 
         let _ = PowerShellSession::parse(Rule::program, input).unwrap();
+    }
+
+    #[test]
+    fn max_nesting_ignores_strings_and_comments() {
+        assert_eq!(max_nesting("((1))"), 2);
+        assert_eq!(max_nesting("$x -replace '\\(', ''"), 0);
+        assert_eq!(max_nesting(&"$x = $x -replace '\\(', ''\n".repeat(100)), 0);
+        assert_eq!(max_nesting("\"(((\""), 0);
+        assert_eq!(max_nesting("\"$(1 + $(2))\""), 2);
+        assert_eq!(max_nesting("\"a $(\"b $(1)\")\""), 2);
+        assert_eq!(max_nesting("# ((((\n(1)"), 1);
+        assert_eq!(max_nesting("<# (((( #> (1)"), 1);
+        assert_eq!(max_nesting("@'\n((((\n'@\n(1)"), 1);
+        assert_eq!(max_nesting("@\"\n(( \" $(1)\n\"@"), 1);
+        assert_eq!(max_nesting("'it''s ((' + (1)"), 1);
+        assert_eq!(max_nesting("\"say \"\"(\"\" $(1)\""), 1);
+        assert_eq!(max_nesting("\"`\"(\" + (1)"), 1);
+        assert_eq!(max_nesting("`(1"), 0);
+    }
+
+    #[test]
+    fn failed_index_not_evaluated_twice() {
+        let mut ps = PowerShellSession::new();
+        assert_eq!(ps.safe_eval("$a=@(1,2); $i=5; $a[0][$i++]; $i").unwrap(), "6");
     }
 }

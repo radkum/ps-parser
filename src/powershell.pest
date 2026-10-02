@@ -176,9 +176,8 @@ bitwise_operator = { ^"-band" | ^"-bor" | ^"-bxor" | ^"-shl" | ^"-shr" }
 as_expression = {comparison_exp ~ (^"-as" ~ primary_expression)*}
 // strange case. -split and -join can be invoke without previous expression, eg. "-join 'some'"
 comparison_exp = {
-    additive_exp ~split_op ~ script_block_expression |
-    (additive_exp ~ (string_op ~ additive_exp)*) | 
-    empty ~ ((join_op | split_op) ~ additive_exp)+ 
+    additive_exp ~ (split_op ~ script_block_expression | (string_op ~ additive_exp)*) |
+    empty ~ ((join_op | split_op) ~ additive_exp)+
     }
 empty = {""}
 
@@ -229,11 +228,11 @@ pre_dec_expression = { "--" ~ variable }
 cast_expression = { !WHITESPACE ~ type_literal ~(unary_exp | parenthesized_expression) }
 
 //------------------------------------PRIMARY EXPRESSSION
+// value_access with zero accessors stands for a plain value, so value is parsed only once
 primary_expression = {
-    value_access
-    | post_inc_expression
+    post_inc_expression
     | post_dec_expression
-    | value 
+    | value_access
 }
 post_inc_expression = ${ variable ~ "++" ~ !plus }
 post_dec_expression = { variable ~ "--" }
@@ -244,7 +243,7 @@ value_access = { value ~
         | member_access
         | static_access
         | element_access
-    )+
+    )*
 }
 member_access = { "." ~ member_name }
 static_access = { "::" ~ member_name }
@@ -256,13 +255,14 @@ method_invocation = { (member_access | static_access) ~ "(" ~ argument_list? ~ "
 
 // --------------- PIPELINE
 pipeline_statement = _{ pipeline ~ statement_terminator? }
-pipeline = { assignment_exp | pipeline_with_tail }
-pipeline_with_tail = {(redirected_expression | command) ~ pipeline_tail?}
+// try assignment only when "=" follows, so the left side isn't parsed twice; $ keeps trailing whitespace out of the span
+pipeline = ${ pipeline_with_tail ~ !((WHITESPACE | COMMENT)* ~ assignement_op) | assignment_exp }
+pipeline_with_tail = !{(redirected_expression | command) ~ pipeline_tail?}
 redirected_expression = { expression ~ redirection? }
 pipeline_tail = { ("|" ~ command)+ }
 
-assignment_exp = { type_literal? ~ assignable_variable ~ assignement_op ~ (if_statement | pipeline) }
-assignable_variable = { variable_access | value_access | variable}
+assignment_exp = !{ type_literal? ~ assignable_variable ~ assignement_op ~ (if_statement | pipeline) }
+assignable_variable = { variable_access | variable | value_access }
 variable_access = { variable ~ 
     (
         member_access
@@ -488,7 +488,7 @@ float = {float_1 | float_2 | float_3}
 float_1 = { ASCII_DIGIT+ ~ "." ~ !"." ~ ASCII_DIGIT* ~ float_mantis? }
 float_2 = @{ "." ~ ASCII_DIGIT+ ~ float_mantis? }
 float_3 = @{ ASCII_DIGIT+ ~ float_mantis }
-float_mantis = {^"e" ~ ("+" | "-") ~ ASCII_DIGIT+}
+float_mantis = {^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+}
 
 
 //----------------------TYPE LITERAL
