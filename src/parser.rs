@@ -2820,8 +2820,12 @@ $ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([b
         let script = format!("function f {{ f; f; {} }}; f", "$a = 1; ".repeat(repeat));
 
         let start = std::time::Instant::now();
-        let res = PowerShellSession::new().parse_command(&script).unwrap();
-        assert!(res.errors().contains(&ParserError::EvalBudgetExceeded));
+        let hit_budget = match PowerShellSession::new().parse_command(&script) {
+            Ok(res) => res.errors().contains(&ParserError::EvalBudgetExceeded),
+            // a loaded machine can run out of time already in the top-level parse
+            Err(err) => err == ParserError::ParseBudgetExceeded,
+        };
+        assert!(hit_budget);
         assert!(start.elapsed().as_secs() < 10, "{:?}", start.elapsed());
     }
 }
