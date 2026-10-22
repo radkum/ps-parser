@@ -56,6 +56,9 @@ pub enum ParserError {
 
     #[error("Parse budget exceeded")]
     ParseBudgetExceeded,
+
+    #[error("Evaluation budget exceeded")]
+    EvalBudgetExceeded,
 }
 
 impl From<PestError> for ParserError {

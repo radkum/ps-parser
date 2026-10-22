@@ -80,6 +80,7 @@ impl StackBase {
         let outermost = STACK_BASE.with(|base| base.get().is_none());
         if outermost {
             STACK_BASE.with(|base| base.set(Some(&here as *const u8 as usize)));
+            EVAL_STEPS.set(0);
         }
         StackBase(outermost)
     }
@@ -100,6 +101,24 @@ fn check_stack(extra: usize) -> ParserResult<()> {
         .map_or(0, |base| base.saturating_sub(&here as *const u8 as usize));
     if used + extra > STACK_BUDGET {
         Err(ParserError::NestingTooDeep)
+    } else {
+        Ok(())
+    }
+}
+
+// the stack guard bounds recursion depth but not width, e.g. `function f { f; f }; f` makes 2^depth calls;
+// real scripts need a few thousand steps, a function call step costs ~13us in release
+const EVAL_STEPS_BUDGET: u64 = 100_000;
+
+thread_local! {
+    static EVAL_STEPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+fn eval_step() -> ParserResult<()> {
+    let steps = EVAL_STEPS.get() + 1;
+    EVAL_STEPS.set(steps);
+    if steps > EVAL_STEPS_BUDGET {
+        Err(ParserError::EvalBudgetExceeded)
     } else {
         Ok(())
     }
@@ -917,6 +936,7 @@ impl<'a> PowerShellSession {
 
     fn eval_statement(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_stack(0)?;
+        eval_step()?;
         match token.as_rule() {
             Rule::pipeline => self.eval_pipeline(token),
             Rule::if_statement => self.eval_if_statement(token),
@@ -2353,6 +2373,7 @@ impl<'a> PowerShellSession {
 
     fn eval_expression(&mut self, token: Pair<'a>) -> ParserResult<Val> {
         check_stack(0)?;
+        eval_step()?;
         check_rule!(token, Rule::expression);
         let token_string = token.as_str().trim().to_string();
 
@@ -2765,5 +2786,20 @@ $ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([b
             })
             .sum();
         assert!(arg_bytes < script.len(), "{arg_bytes}");
+    }
+
+    #[test]
+    fn wide_call_tree_hits_eval_budget() {
+        // 10^6 calls at depth 7, shallow enough for the stack guard
+        let mut script = "function f0 { 1 }\n".to_string();
+        for i in 1..7 {
+            script += &format!("function f{i} {{ {} }}\n", vec![format!("f{}", i - 1); 10].join("; "));
+        }
+        script += "f6";
+
+        let start = std::time::Instant::now();
+        let res = PowerShellSession::new().parse_command(&script).unwrap();
+        assert!(res.errors().contains(&ParserError::EvalBudgetExceeded));
+        assert!(start.elapsed().as_secs() < 60, "{:?}", start.elapsed());
     }
 }
