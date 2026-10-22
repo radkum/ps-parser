@@ -53,6 +53,9 @@ pub enum ParserError {
 
     #[error("Nesting too deep")]
     NestingTooDeep,
+
+    #[error("Parse budget exceeded")]
+    ParseBudgetExceeded,
 }
 
 impl From<PestError> for ParserError {

@@ -22,7 +22,6 @@ type ParserResult<T> = core::result::Result<T, ParserError>;
 use error::ParserError;
 type PestError = pest::error::Error<Rule>;
 use pest::Parser;
-use pest_derive::Parser;
 use predicates::{ArithmeticPred, BitwisePred, LogicalPred, StringPred};
 pub use script_result::{PsValue, ScriptResult};
 pub use token::{CommandToken, ExpressionToken, MethodToken, StringExpandableToken, Token, Tokens};
@@ -179,6 +178,45 @@ fn next_is(chars: &[char], i: usize, c: char) -> bool {
     chars.get(i + 1) == Some(&c)
 }
 
+// PEG backtracking is exponential on some inputs (e.g. unclosed brackets), so grammar rule calls
+// are capped; real code needs ~100 rule calls per input byte
+const PARSE_STEPS_BASE: u64 = 1_000_000;
+const PARSE_STEPS_PER_BYTE: u64 = 1_000;
+
+thread_local! {
+    static PARSE_STEPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static PARSE_BUDGET: std::cell::Cell<u64> = const { std::cell::Cell::new(u64::MAX) };
+}
+
+// called on entry of every grammar rule by the parser generated in build.rs; once the budget is
+// spent all rules fail at once
+pub(crate) fn parse_step<T>(state: T) -> Result<T, T> {
+    let steps = PARSE_STEPS.get() + 1;
+    PARSE_STEPS.set(steps);
+    if steps > PARSE_BUDGET.get() {
+        Err(state)
+    } else {
+        Ok(state)
+    }
+}
+
+fn parse_program(input: &str) -> ParserResult<Pairs<'_>> {
+    PARSE_STEPS.set(0);
+    PARSE_BUDGET.set(
+        PARSE_STEPS_BASE.saturating_add(PARSE_STEPS_PER_BYTE.saturating_mul(input.len() as u64)),
+    );
+    let res = PowerShellSession::parse(Rule::program, input);
+    let exceeded = PARSE_STEPS.get() > PARSE_BUDGET.get();
+    PARSE_BUDGET.set(u64::MAX);
+    res.map_err(|err| {
+        if exceeded {
+            ParserError::ParseBudgetExceeded
+        } else {
+            err.into()
+        }
+    })
+}
+
 #[derive(Default, Clone)]
 pub(crate) struct Results {
     output: Vec<StreamMessage>,
@@ -194,8 +232,8 @@ impl Results {
     }
 }
 
-#[derive(Parser)]
-#[grammar = "powershell.pest"]
+include!(concat!(env!("OUT_DIR"), "/powershell_parser.rs"));
+
 pub struct PowerShellSession {
     variables: Variables,
     tokens: Tokens,
@@ -435,7 +473,7 @@ impl<'a> PowerShellSession {
 
     pub(crate) fn parse_subscript(&mut self, input: &str) -> Result<(Val, Results), ParserError> {
         check_stack(max_nesting(input) * PEST_STACK_PER_LEVEL)?;
-        let mut pairs = PowerShellSession::parse(Rule::program, input)?;
+        let mut pairs = parse_program(input)?;
         //create new scope for script
         self.results.push(Results::new());
 
@@ -2697,5 +2735,17 @@ $ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([b
     fn failed_index_not_evaluated_twice() {
         let mut ps = PowerShellSession::new();
         assert_eq!(ps.safe_eval("$a=@(1,2); $i=5; $a[0][$i++]; $i").unwrap(), "6");
+    }
+
+    #[test]
+    fn unclosed_nesting_hits_parse_budget() {
+        for open in ["(", "$(", "@(", "{"] {
+            let start = std::time::Instant::now();
+            // bypasses the stack guard, which in debug builds rejects this depth on its own
+            let input = open.repeat(24);
+            let res = parse_program(&input);
+            assert_eq!(res.err(), Some(ParserError::ParseBudgetExceeded), "{open}");
+            assert!(start.elapsed().as_secs() < 5, "{open}: {:?}", start.elapsed());
+        }
     }
 }

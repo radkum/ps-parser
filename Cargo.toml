@@ -23,7 +23,6 @@ icu = { version = "1.4", optional = true, features = ["compiled_data"] }
 configparser = "3.1.0"
 log = "0.4.27"
 pest = "2.8.3"
-pest_derive = "2.8.3"
 regex = "1.11.1"
 smart-default = "0.7.1"
 thiserror-no-std = "2.0.2"
@@ -32,6 +31,8 @@ phf = { version = "0.13.1", features = ["macros"] }
 
 [build-dependencies]
 pest_generator = "2.7"
+proc-macro2 = "1"
+quote = "1"
 
 [features]
 default = ["en-us"]
