@@ -113,10 +113,6 @@ impl Command {
             CommandInner::ScriptBlock(_) => "ScriptBlock".to_string(),
         }
     }
-
-    pub(crate) fn args(&self) -> Vec<String> {
-        self.args.iter().map(|arg| arg.display()).collect()
-    }
 }
 
 impl std::fmt::Display for Command {
