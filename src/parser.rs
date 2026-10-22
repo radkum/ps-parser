@@ -2270,13 +2270,15 @@ impl<'a> PowerShellSession {
         };
 
         let mut args = self.parse_command_args(pairs)?;
+        // the piped value was already tokenized upstream; keeping it here makes tokens quadratic in pipeline length
+        let token_args = args.iter().map(CommandElem::display).collect();
         if let Some(arg) = piped_arg {
             args.insert(0, CommandElem::Argument(arg));
         }
 
         command.with_args(args);
         self.tokens
-            .push(Token::command(command_str, command.name(), command.args()));
+            .push(Token::command(command_str, command.name(), token_args));
 
         match command.execute(self) {
             Ok(CommandOutput {
@@ -2747,5 +2749,21 @@ $ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([b
             assert_eq!(res.err(), Some(ParserError::ParseBudgetExceeded), "{open}");
             assert!(start.elapsed().as_secs() < 5, "{open}: {:?}", start.elapsed());
         }
+    }
+
+    #[test]
+    fn pipeline_tokens_do_not_grow_with_piped_values() {
+        let script = vec!["Foo-Bar"; 2000].join(" | ");
+        let res = PowerShellSession::new().parse_command(&script).unwrap();
+        let arg_bytes: usize = res
+            .tokens()
+            .all()
+            .iter()
+            .filter_map(|t| match t {
+                Token::Command(cmd) => Some(cmd.args().iter().map(String::len).sum::<usize>()),
+                _ => None,
+            })
+            .sum();
+        assert!(arg_bytes < script.len(), "{arg_bytes}");
     }
 }
