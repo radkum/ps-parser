@@ -503,7 +503,12 @@ fn powershell(
                 && let Ok(decoded_bytes) = BASE64_STANDARD.decode(s.clone())
                 && let Some(decoded_str) = decode_encoded_command(&decoded_bytes)
             {
-                if let Ok(script_result) = ps.parse_script(&decoded_str) {
+                // a session of its own: parse_script on `ps` would take the outer tokens and
+                // reset its variables
+                if let Ok(script_result) = ps.clone().parse_script(&decoded_str) {
+                    for token in script_result.tokens().all() {
+                        ps.tokens.push(token);
+                    }
                     if script_result.deobfuscated().is_empty() {
                         *s = decoded_str;
                     } else {
@@ -685,6 +690,33 @@ mod tests {
             s.deobfuscated().trim(),
             vec![r#"powershell -command gcm iex Write-Host 'Hello, from PowerShell!'"#,]
                 .join(NEWLINE)
+        );
+    }
+
+    #[test]
+    fn encoded_command_keeps_outer_and_adds_decoded_tokens() {
+        use crate::Token;
+
+        let mut p = PowerShellSession::new();
+        // Write-Output 'AmsiUtils'
+        let input = "$x = 'outer'; powershell -enc \
+                     VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAEEAbQBzAGkAVQB0AGkAbABzACcA; Get-Date";
+        let s = p.parse_script(input).unwrap();
+
+        let tokens = s.tokens();
+        let strings = tokens.lowercased_string_set();
+        assert!(strings.contains("outer"), "{strings:?}");
+        assert!(strings.contains("amsiutils"), "{strings:?}");
+        assert!(
+            tokens
+                .all()
+                .iter()
+                .any(|t| matches!(t, Token::Command(c) if c.name() == "Get-Date"))
+        );
+        assert!(
+            tokens.methods_and_commands().contains("Write-Output"),
+            "{:?}",
+            tokens.methods_and_commands()
         );
     }
 
