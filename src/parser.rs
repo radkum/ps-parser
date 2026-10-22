@@ -81,6 +81,7 @@ impl StackBase {
         if outermost {
             STACK_BASE.with(|base| base.set(Some(&here as *const u8 as usize)));
             EVAL_STEPS.set(0);
+            DEADLINE.set(Some(std::time::Instant::now() + TIME_BUDGET));
         }
         StackBase(outermost)
     }
@@ -90,6 +91,7 @@ impl Drop for StackBase {
     fn drop(&mut self) {
         if self.0 {
             STACK_BASE.with(|base| base.set(None));
+            DEADLINE.set(None);
         }
     }
 }
@@ -109,15 +111,22 @@ fn check_stack(extra: usize) -> ParserResult<()> {
 // the stack guard bounds recursion depth but not width, e.g. `function f { f; f }; f` makes 2^depth calls;
 // real scripts need a few thousand steps, a function call step costs ~13us in release
 const EVAL_STEPS_BUDGET: u64 = 100_000;
+// a step's cost is not bounded (a call re-parses the function body), so parse and eval time is capped too
+const TIME_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
 
 thread_local! {
     static EVAL_STEPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static DEADLINE: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
+}
+
+fn deadline_passed() -> bool {
+    DEADLINE.get().is_some_and(|d| std::time::Instant::now() > d)
 }
 
 fn eval_step() -> ParserResult<()> {
     let steps = EVAL_STEPS.get() + 1;
     EVAL_STEPS.set(steps);
-    if steps > EVAL_STEPS_BUDGET {
+    if steps > EVAL_STEPS_BUDGET || deadline_passed() {
         Err(ParserError::EvalBudgetExceeded)
     } else {
         Ok(())
@@ -212,7 +221,8 @@ thread_local! {
 pub(crate) fn parse_step<T>(state: T) -> Result<T, T> {
     let steps = PARSE_STEPS.get() + 1;
     PARSE_STEPS.set(steps);
-    if steps > PARSE_BUDGET.get() {
+    if steps > PARSE_BUDGET.get() || (steps % 4096 == 0 && deadline_passed()) {
+        PARSE_BUDGET.set(0);
         Err(state)
     } else {
         Ok(state)
@@ -2801,5 +2811,17 @@ $ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([b
         let res = PowerShellSession::new().parse_command(&script).unwrap();
         assert!(res.errors().contains(&ParserError::EvalBudgetExceeded));
         assert!(start.elapsed().as_secs() < 60, "{:?}", start.elapsed());
+    }
+
+    #[test]
+    fn recursion_with_large_body_hits_eval_deadline() {
+        // every call re-parses the body but counts as a few steps only; debug builds parse ~10x slower
+        let repeat = if cfg!(debug_assertions) { 2000 } else { 8000 };
+        let script = format!("function f {{ f; f; {} }}; f", "$a = 1; ".repeat(repeat));
+
+        let start = std::time::Instant::now();
+        let res = PowerShellSession::new().parse_command(&script).unwrap();
+        assert!(res.errors().contains(&ParserError::EvalBudgetExceeded));
+        assert!(start.elapsed().as_secs() < 10, "{:?}", start.elapsed());
     }
 }
