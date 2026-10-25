@@ -932,7 +932,7 @@ $a"#;
         let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Int(1));
 
-        let input = r#" [int] $elo = "1a": $elo"#;
+        let input = r#" [int] $elo = "1a"; $elo"#;
         let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Null);
         assert_eq!(
@@ -940,7 +940,7 @@ $a"#;
             String::from("ValError: Failed to convert value \"1a\" to type Int")
         );
 
-        let input = r#" [double] $elo = "1a": $elo"#;
+        let input = r#" [double] $elo = "1a"; $elo"#;
         let script_res = p.parse_script(input).unwrap();
         assert_eq!(script_res.result(), PsValue::Null);
         assert_eq!(

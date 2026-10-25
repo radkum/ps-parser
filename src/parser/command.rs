@@ -721,6 +721,49 @@ mod tests {
     }
 
     #[test]
+    fn unknown_variable_argument_keeps_the_command() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+        let input = "Register-ScheduledTask -TaskName 'Upd' -Action $action; foreach ($i in 1..2) \
+                     { New-Item -Name \"x$i\" }; Get-Item ($missing + 1)";
+        let commands = p.parse_script(input).unwrap().tokens().commands();
+        let args = |name: &str| {
+            commands
+                .iter()
+                .find(|c| c.name() == name)
+                .map(|c| c.args().clone())
+        };
+        assert_eq!(
+            args("Register-ScheduledTask").unwrap(),
+            ["-taskname", "Upd", "-action", "$action"]
+        );
+        assert!(args("New-Item").is_some(), "{commands:?}");
+        assert!(args("Get-Item").is_some(), "{commands:?}");
+    }
+
+    #[test]
+    fn commands_in_unevaluated_statement_blocks() {
+        let input = "try { New-Item -Name a } catch { Remove-Item b } finally { Get-Item c }; \
+                     while ($true) { Set-Item d }; do { Clear-Item e } until ($true); for ($i = \
+                     0; $i -lt 2; $i++) { Move-Item f }; $sb = { try { Copy-Item g } catch {} }";
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+        let commands = p.parse_script(input).unwrap().tokens().commands();
+        for name in [
+            "New-Item",
+            "Remove-Item",
+            "Get-Item",
+            "Set-Item",
+            "Clear-Item",
+            "Move-Item",
+            "Copy-Item",
+        ] {
+            assert!(
+                commands.iter().any(|c| c.name() == name),
+                "{name}: {commands:?}"
+            );
+        }
+    }
+
+    #[test]
     fn encoded_command3() {
         let mut p = PowerShellSession::new();
         let input = r#"& (gcm ('ie{0}' -f 'x')) ("Wr"+"it"+"e-H"+"ost 'H"+"el"+"lo, fr"+"om P"+"ow"+"erS"+"h"+"ell!'")"#;

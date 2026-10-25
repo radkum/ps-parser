@@ -957,9 +957,35 @@ impl<'a> PowerShellSession {
             Rule::switch_statement => self.parse_switch_statement(token),
             Rule::EOI => Ok(Val::Null),
             _ => {
+                self.collect_block_tokens(token.clone());
                 not_implemented!(token)
             }
         }
+    }
+
+    // collects tokens of try, while... blocks, which are not evaluated
+    fn collect_block_tokens(&mut self, token: Pair<'a>) {
+        fn blocks<'a>(token: Pair<'a>, out: &mut Vec<Pair<'a>>) {
+            for pair in token.into_inner() {
+                if pair.as_rule() == Rule::statement_block {
+                    out.push(pair);
+                } else {
+                    blocks(pair, out);
+                }
+            }
+        }
+
+        let mut statement_blocks = vec![];
+        blocks(token, &mut statement_blocks);
+        let results = self.results.clone();
+        let current_variables = self.variables.clone();
+        for block in statement_blocks {
+            if let Err(err) = self.eval_statement_block(block) {
+                log::debug!("Error during collect_block_tokens: {:?}", err);
+            }
+        }
+        self.variables = current_variables;
+        self.results = results;
     }
 
     fn safe_eval_sub_expr(&mut self, token: Pair<'a>) -> ParserResult<Val> {
@@ -2232,20 +2258,25 @@ impl<'a> PowerShellSession {
                 Rule::command_argument => {
                     let arg_token = command_element_token.into_inner().next().unwrap();
                     let arg = match arg_token.as_rule() {
-                        Rule::array_literal_exp => self.eval_array_literal_exp(arg_token)?,
-                        Rule::script_block_expression => {
-                            Val::ScriptBlock(self.parse_script_block_expression(arg_token)?)
-                        }
+                        Rule::array_literal_exp => self.eval_array_literal_exp(arg_token.clone()),
+                        Rule::script_block_expression => Ok(Val::ScriptBlock(
+                            self.parse_script_block_expression(arg_token.clone())?,
+                        )),
                         Rule::parenthesized_expression => {
-                            self.eval_parenthesized_expression(arg_token)?
+                            self.eval_parenthesized_expression(arg_token.clone())
                         }
                         Rule::generic_token => {
                             let s = arg_token.as_str();
                             self.tokens.push(Token::String(s.into()));
-                            Val::ScriptText(s.into())
+                            Ok(Val::ScriptText(s.into()))
                         }
-                        _ => Val::ScriptText(arg_token.as_str().to_string()),
+                        _ => Ok(Val::ScriptText(arg_token.as_str().to_string())),
                     };
+                    // an argument that cannot be evaluated, e.g. an unknown variable, stays as text
+                    let arg = arg.unwrap_or_else(|err| {
+                        self.errors.push(err);
+                        Val::ScriptText(arg_token.as_str().to_string())
+                    });
                     args.push(CommandElem::Argument(arg));
                 }
                 Rule::command_parameter => {
