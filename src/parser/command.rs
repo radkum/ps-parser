@@ -764,6 +764,37 @@ mod tests {
     }
 
     #[test]
+    fn call_operator_with_a_string_name_invokes_the_command() {
+        let invoke = |input: &str| {
+            let s = PowerShellSession::new().parse_script(input).unwrap();
+            let commands = s
+                .tokens()
+                .methods_and_commands()
+                .iter()
+                .map(|c| c.to_string())
+                .collect::<Vec<_>>();
+            (s.deobfuscated(), commands)
+        };
+
+        let (deobfuscated, commands) = invoke(
+            r#"function Invoke-QaTest { "body-ran" }; & ("Invoke-Qa" + "Test"); . 'Invoke-QaTest'"#,
+        );
+        assert_eq!(commands, ["Invoke-QaTest"]);
+        assert_eq!(
+            deobfuscated,
+            [
+                "function Invoke-QaTest { \"body-ran\" }",
+                "\"body-ran\"",
+                "\"body-ran\""
+            ]
+            .join(NEWLINE)
+        );
+
+        let (_, commands) = invoke(r#"& "C:\Program Files\x.exe" -a 1"#);
+        assert_eq!(commands, [r"C:\Program Files\x.exe"]);
+    }
+
+    #[test]
     fn encoded_command3() {
         let mut p = PowerShellSession::new();
         let input = r#"& (gcm ('ie{0}' -f 'x')) ("Wr"+"it"+"e-H"+"ost 'H"+"el"+"lo, fr"+"om P"+"ow"+"erS"+"h"+"ell!'")"#;

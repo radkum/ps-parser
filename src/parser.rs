@@ -2392,7 +2392,7 @@ impl<'a> PowerShellSession {
                 if let Val::ScriptBlock(script_block) = primary {
                     Command::script_block(script_block)
                 } else {
-                    Command::cmdlet(&primary.cast_to_script())
+                    Command::cmdlet(&primary.cast_to_string())
                 }
             }
             Rule::path_command_name => Command::path(token_inner.as_str()),
