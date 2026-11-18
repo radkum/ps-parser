@@ -249,6 +249,9 @@ pub fn format_ps(format: &str, args: &[String]) -> Result<String, FormatError> {
                     }
                 }
 
+                if !crate::parser::charge(formatted.len()) {
+                    break;
+                }
                 output.push_str(&formatted);
             }
         }

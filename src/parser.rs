@@ -64,9 +64,33 @@ macro_rules! not_implemented {
     };
 }
 
-// stack overflow aborts the process, so deep nesting is rejected with an error before that happens
+// stack overflow aborts the process, so deep nesting is rejected with an error
+// before that happens
 const STACK_BUDGET: usize = 512 * 1024;
-const PEST_STACK_PER_LEVEL: usize = if cfg!(debug_assertions) { 40 * 1024 } else { 8 * 1024 };
+const PEST_STACK_PER_LEVEL: usize = if cfg!(debug_assertions) {
+    40 * 1024
+} else {
+    8 * 1024
+};
+// kept free at the stack bottom when the host thread has a small stack
+const STACK_RESERVE: usize = 128 * 1024;
+
+#[cfg(windows)]
+fn stack_low() -> Option<usize> {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentThreadStackLimits(low: *mut usize, high: *mut usize);
+    }
+    let (mut low, mut high) = (0, 0);
+    // SAFETY: both pointers are valid for writes
+    unsafe { GetCurrentThreadStackLimits(&mut low, &mut high) };
+    Some(low)
+}
+
+#[cfg(not(windows))]
+fn stack_low() -> Option<usize> {
+    None
+}
 
 thread_local! {
     static STACK_BASE: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
@@ -79,8 +103,11 @@ impl StackBase {
         let here = 0u8;
         let outermost = STACK_BASE.with(|base| base.get().is_none());
         if outermost {
-            STACK_BASE.with(|base| base.set(Some(&here as *const u8 as usize)));
+            let here = &here as *const u8 as usize;
+            let base = stack_low().map_or(here, |low| here.max(low + STACK_RESERVE + STACK_BUDGET));
+            STACK_BASE.with(|b| b.set(Some(base)));
             EVAL_STEPS.set(0);
+            MEM_USED.set(0);
             DEADLINE.set(Some(std::time::Instant::now() + TIME_BUDGET));
         }
         StackBase(outermost)
@@ -114,8 +141,12 @@ const EVAL_STEPS_BUDGET: u64 = 100_000;
 // a step's cost is not bounded (a call re-parses the function body), so parse and eval time is capped too
 const TIME_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
 
+// values are deep-copied on read, so copies of large strings are capped
+const MEM_BUDGET: usize = 128 * 1024 * 1024;
+
 thread_local! {
     static EVAL_STEPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static MEM_USED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static DEADLINE: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
 }
 
@@ -126,10 +157,25 @@ fn deadline_passed() -> bool {
 fn eval_step() -> ParserResult<()> {
     let steps = EVAL_STEPS.get() + 1;
     EVAL_STEPS.set(steps);
-    if steps > EVAL_STEPS_BUDGET || deadline_passed() {
+    if steps > EVAL_STEPS_BUDGET || MEM_USED.get() > MEM_BUDGET || deadline_passed() {
         Err(ParserError::EvalBudgetExceeded)
     } else {
         Ok(())
+    }
+}
+
+// false once the script copied too much; the next eval_step stops it
+pub(crate) fn charge(bytes: usize) -> bool {
+    let used = MEM_USED.get().saturating_add(bytes);
+    MEM_USED.set(used);
+    used <= MEM_BUDGET
+}
+
+fn charge_val(val: &Val) -> ParserResult<()> {
+    if charge(val.heap_len()) {
+        Ok(())
+    } else {
+        Err(ParserError::EvalBudgetExceeded)
     }
 }
 
@@ -221,7 +267,11 @@ thread_local! {
 pub(crate) fn parse_step<T>(state: T) -> Result<T, T> {
     let steps = PARSE_STEPS.get() + 1;
     PARSE_STEPS.set(steps);
-    if steps > PARSE_BUDGET.get() || (steps % 4096 == 0 && deadline_passed()) {
+    // pest also recurses on `!!!1` or `[int][int]1`, without brackets
+    if steps > PARSE_BUDGET.get()
+        || (steps % 4096 == 0 && deadline_passed())
+        || check_stack(0).is_err()
+    {
         PARSE_BUDGET.set(0);
         Err(state)
     } else {
@@ -231,17 +281,19 @@ pub(crate) fn parse_step<T>(state: T) -> Result<T, T> {
 
 fn parse_program(input: &str) -> ParserResult<Pairs<'_>> {
     PARSE_STEPS.set(0);
-    PARSE_BUDGET.set(
-        PARSE_STEPS_BASE.saturating_add(PARSE_STEPS_PER_BYTE.saturating_mul(input.len() as u64)),
-    );
+    let budget =
+        PARSE_STEPS_BASE.saturating_add(PARSE_STEPS_PER_BYTE.saturating_mul(input.len() as u64));
+    PARSE_BUDGET.set(budget);
     let res = PowerShellSession::parse(Rule::program, input);
-    let exceeded = PARSE_STEPS.get() > PARSE_BUDGET.get();
+    let aborted = PARSE_STEPS.get() > PARSE_BUDGET.get();
     PARSE_BUDGET.set(u64::MAX);
     res.map_err(|err| {
-        if exceeded {
+        if !aborted {
+            err.into()
+        } else if PARSE_STEPS.get() > budget || deadline_passed() {
             ParserError::ParseBudgetExceeded
         } else {
-            err.into()
+            ParserError::NestingTooDeep
         }
     })
 }
@@ -539,6 +591,14 @@ impl<'a> PowerShellSession {
                         .or_else(|| payload.downcast_ref::<String>().cloned())
                         .unwrap_or_default();
                     Err(ParserError::Panic(msg))
+                })
+                // values may be truncated once over the memory budget
+                .and_then(|val| {
+                    if MEM_USED.get() > MEM_BUDGET {
+                        Err(ParserError::EvalBudgetExceeded)
+                    } else {
+                        Ok(val)
+                    }
                 });
                 self.variables.set_status(result.is_ok());
 
@@ -1114,6 +1174,7 @@ impl<'a> PowerShellSession {
                 var_name.name,
             )));
         };
+        charge_val(&var)?;
         Ok(var)
     }
 
@@ -1138,7 +1199,7 @@ impl<'a> PowerShellSession {
         let mut pair = token.into_inner();
         let token = pair.next().unwrap();
         let mut val = self.eval_value(token)?;
-        if let Some(access) = pair.next() {
+        if let Some(access) = pair.next().filter(|a| a.as_rule() == Rule::element_access) {
             let _ = self.eval_element_access_ref(access, &mut val)?;
         }
         Err(ParserError::Skip)
@@ -1348,6 +1409,7 @@ impl<'a> PowerShellSession {
 
         let access = pairs.next().unwrap();
         let method_name = self.eval_member_access(access)?;
+        charge_val(object)?;
 
         let args = if let Some(token) = pairs.next() {
             check_rule!(token, Rule::argument_list);
@@ -1787,11 +1849,15 @@ impl<'a> PowerShellSession {
         let v = match token.as_rule() {
             Rule::decimal_integer => {
                 let int_val = token.into_inner().next().unwrap();
-                Val::Int(int_val.as_str().parse::<i64>().unwrap())
+                // too large for Int64 becomes Double, as in PowerShell
+                match int_val.as_str().parse::<i64>() {
+                    Ok(i) => Val::Int(i),
+                    Err(_) => Val::Float(int_val.as_str().parse::<f64>()?),
+                }
             }
             Rule::hex_integer => {
                 let int_val = token.into_inner().next().unwrap();
-                Val::Int(i64::from_str_radix(int_val.as_str(), 16).unwrap())
+                Val::Int(u64::from_str_radix(int_val.as_str(), 16).map_err(ValError::from)? as i64)
             }
             Rule::float => {
                 let float_str = token.as_str().trim();
@@ -1804,6 +1870,7 @@ impl<'a> PowerShellSession {
     }
 
     fn eval_unary_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_stack(0)?;
         check_rule!(token, Rule::unary_exp);
         let token = token.into_inner().next().unwrap();
         match token.as_rule() {
@@ -1814,6 +1881,7 @@ impl<'a> PowerShellSession {
     }
 
     fn eval_array_literal_exp_special_case(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_stack(0)?;
         check_rule!(token, Rule::array_literal_exp_special_case);
         let mut pairs = token.into_inner();
         let token = pairs.next().unwrap();
@@ -1932,6 +2000,7 @@ impl<'a> PowerShellSession {
         format: Vec<Val>,
         mut pairs: Pairs<'a>,
     ) -> ParserResult<Option<Vec<Val>>> {
+        check_stack(0)?;
         Ok(if let Some(token) = pairs.next() {
             let second_fmt = self.eval_range_exp(token)?;
             let format_arg =
@@ -2434,6 +2503,7 @@ impl<'a> PowerShellSession {
             let right_op = self.eval_bitwise_exp(mult)?;
             res = Val::Bool(fun(res, right_op));
         }
+        charge_val(&res)?;
         self.tokens
             .push(Token::expression(token_string, res.clone().into()));
 
@@ -2858,5 +2928,83 @@ $ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([b
         };
         assert!(hit_budget);
         assert!(start.elapsed().as_secs() < 10, "{:?}", start.elapsed());
+    }
+
+    #[test]
+    fn deep_chains_do_not_overflow_small_stacks() {
+        let chains = [
+            "!", "-not ", "-bnot ", ",", "[int]", "$a = ", "$a += ", "1 -f ", "(", "$(", "{",
+            "@{a=",
+        ];
+        for stack in [256 * 1024, 1024 * 1024] {
+            for chain in chains {
+                for n in [100, 1000, 20000] {
+                    let script = format!("{}1", chain.repeat(n));
+                    std::thread::Builder::new()
+                        .stack_size(stack)
+                        .spawn(move || PowerShellSession::new().parse_script(&script).map(|_| ()))
+                        .unwrap()
+                        .join()
+                        .unwrap()
+                        .ok();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unsupported_values_do_not_panic() {
+        for script in [
+            "@(1,2) -gt 1",
+            "@(1,2) -le 1",
+            "$null.GetType().BaseType",
+            "[int].BaseType.BaseType.BaseType",
+            "99999999999999999999",
+            "0xFFFFFFFFFFFFFFFFFF",
+        ] {
+            let res = PowerShellSession::new().parse_script(script).unwrap();
+            assert!(
+                !res.errors()
+                    .iter()
+                    .any(|e| matches!(e, ParserError::Panic(_))),
+                "{script}: {:?}",
+                res.errors()
+            );
+        }
+        let mut ps = PowerShellSession::new();
+        assert_eq!(
+            ps.safe_eval("99999999999999999999").unwrap(),
+            "100000000000000000000"
+        );
+        assert_eq!(ps.safe_eval("0xFFFFFFFFFFFFFFFF").unwrap(), "-1");
+    }
+
+    #[test]
+    fn amplified_strings_hit_memory_budget() {
+        let refs = vec!["$s"; 20].join(",");
+        for script in [
+            format!("$s = 'a' * 16000000; $a = @({refs}); 1"),
+            format!("$s = 'a' * 16000000; $a = \"{}\"; 1", "$s".repeat(20)),
+            "$s = 'a' * 16000000; $a = @($s) * 20; 1".to_string(),
+            "$a = ('a' * 100000) -replace 'a', ('b' * 10000); 1".to_string(),
+            "$a = ('a' * 100000).Replace('a', ('b' * 10000)); 1".to_string(),
+            "$a = (@(1) * 100000) -join ('x' * 10000); 1".to_string(),
+            "$a = ('{0}' * 1000000) -f ('a' * 1000); 1".to_string(),
+            format!("$a = 1; $a{}", ".ToString()".repeat(6000)),
+        ] {
+            let start = std::time::Instant::now();
+            let res = PowerShellSession::new().parse_script(&script).unwrap();
+            assert!(
+                res.errors().contains(&ParserError::EvalBudgetExceeded),
+                "{}",
+                &script[..60]
+            );
+            assert!(
+                start.elapsed().as_secs() < 10,
+                "{}: {:?}",
+                &script[..60],
+                start.elapsed()
+            );
+        }
     }
 }

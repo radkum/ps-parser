@@ -129,7 +129,7 @@ impl ValType {
 impl RuntimeTypeTrait for ValType {
     fn base_type(&self) -> Box<dyn RuntimeTypeTrait> {
         match self {
-            ValType::Null => unreachable!(),
+            ValType::Null => Box::new(ValType::Null),
             ValType::Char | ValType::Bool | ValType::Switch | ValType::Int | ValType::Float => {
                 Box::new(ValueType {})
             }

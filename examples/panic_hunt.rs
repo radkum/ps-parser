@@ -154,6 +154,12 @@ const TARGETED: &[&str] = &[
     "class B : A { }",
     "class A { [int]$x; A() { } }; [A]::new()",
     "'{0:' + '0' * 70000 + '}' -f 1",
+    "@(1,2) -gt 1",
+    "@(1,2) -le 1",
+    "$null.GetType().BaseType",
+    "[int].BaseType.BaseType.BaseType",
+    "99999999999999999999",
+    "0xFFFFFFFFFFFFFFFFFF",
 ];
 
 // each case on a 1 MB stack (Windows main thread size), with a timeout; a stack overflow aborts the whole run
@@ -175,6 +181,12 @@ fn depth_matrix() {
         ("cast", "[int](", ")"),
         ("sb", "{", "}"),
         ("cmd", "echo (", ")"),
+        ("bang", "!", ""),
+        ("not", "-not ", ""),
+        ("comma", ",", ""),
+        ("casts", "[int]", ""),
+        ("assign", "$a = ", ""),
+        ("fmt", "1 -f ", ""),
     ];
     let only = std::env::args().nth(2);
     let depths: Vec<usize> = match std::env::args().nth(3) {

@@ -55,7 +55,18 @@ impl StringPred {
         }
 
         if let Some(compare) = ComparisonPred::get(name_lowercase.as_str()) {
-            return Some(Box::new(move |v1, v2| Ok(Val::Bool(compare(v1, v2)))));
+            return Some(Box::new(move |v1, v2| {
+                Ok(match v1 {
+                    // An array on the left is filtered, not compared
+                    Val::Array(items) => Val::Array(
+                        items
+                            .into_iter()
+                            .filter(|item| compare(item.clone(), v2.clone()))
+                            .collect(),
+                    ),
+                    _ => Val::Bool(compare(v1, v2)),
+                })
+            }));
         }
 
         if let Some(replace) = ReplacePred::get(name_lowercase.as_str()) {

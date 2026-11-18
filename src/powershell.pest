@@ -261,7 +261,8 @@ pipeline_with_tail = !{(redirected_expression | command) ~ pipeline_tail?}
 redirected_expression = { expression ~ redirection? }
 pipeline_tail = { ("|" ~ command)+ }
 
-assignment_exp = !{ type_literal? ~ assignable_variable ~ assignement_op ~ (if_statement | pipeline) }
+// ordered choice: an optional cast would eat `[Console]` and never retry it as `[Console]::Prop`
+assignment_exp = !{ (type_literal ~ assignable_variable | assignable_variable) ~ assignement_op ~ (if_statement | pipeline) }
 assignable_variable = { variable_access | variable | value_access }
 variable_access = { variable ~ 
     (

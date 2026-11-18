@@ -123,6 +123,17 @@ impl Clone for Val {
     }
 }
 impl Val {
+    // bytes a deep copy of this value allocates
+    pub(crate) fn heap_len(&self) -> usize {
+        match self {
+            Val::String(PsString(s)) | Val::ScriptText(s) => s.len(),
+            Val::Array(v) => v.iter().map(Val::heap_len).sum::<usize>() + size_of_val(v.as_slice()),
+            Val::HashTable(h) => h.iter().map(|(k, v)| k.len() + v.heap_len()).sum(),
+            Val::NonDisplayed(v) => v.heap_len(),
+            _ => 0,
+        }
+    }
+
     fn not_defined(v1: &Val, v2: &Val, op: &str) -> ValError {
         ValError::OperationNotDefined(
             op.to_string(),
@@ -177,7 +188,7 @@ impl Val {
                 }
             }
             Val::ScriptText(_) => false,
-            Val::NonDisplayed(box_val) => box_val.lt(val, case_insensitive)?,
+            Val::NonDisplayed(box_val) => Val::eq(box_val, val, case_insensitive)?,
         })
     }
 
@@ -192,9 +203,9 @@ impl Val {
                 let s2 = val.cast_to_string();
                 str_cmp(s1, &s2, case_insensitive) == std::cmp::Ordering::Greater
             }
-            Val::Array(_) => todo!(),
+            Val::Array(_) => false,     // filtered by the predicate
             Val::HashTable(_) => false, // HashTables can't be compared with >
-            Val::RuntimeObject(_) => todo!(),
+            Val::RuntimeObject(_) => false,
             Val::RuntimeType(_) => false, // Add logic if needed
             Val::ScriptBlock(_) => false, // ScriptBlocks can't be compared
             Val::ScriptText(_) => false,
@@ -213,9 +224,9 @@ impl Val {
                 let s2 = val.cast_to_string();
                 str_cmp(s1, &s2, case_insensitive) == std::cmp::Ordering::Less
             }
-            Val::Array(_) => todo!(),
+            Val::Array(_) => false,     // filtered by the predicate
             Val::HashTable(_) => false, // HashTables can't be compared with <
-            Val::RuntimeObject(_) => todo!(),
+            Val::RuntimeObject(_) => false,
             Val::RuntimeType(_) => false, // Add logic if needed
             Val::ScriptBlock(_) => false, // ScriptBlocks can't be compared
             Val::ScriptText(_) => false,
@@ -254,11 +265,18 @@ impl Val {
                 };
             }
             Val::Char(_) | Val::String(_) => {
-                *self = Val::String(PsString(
-                    self.cast_to_string() + val.cast_to_string().as_str(),
-                ))
+                let (a, b) = (self.cast_to_string(), val.cast_to_string());
+                let len = a.len() + b.len();
+                if len > MAX_STRING_LEN || !crate::parser::charge(len) {
+                    Err(ValError::ArgumentOutOfRange("+".to_string(), len as i64))?
+                }
+                *self = Val::String(PsString(a + b.as_str()))
             }
             Val::Array(arr) => {
+                let len = arr.len() + if let Val::Array(v) = &val { v.len() } else { 1 };
+                if !crate::parser::charge(len * size_of::<Val>()) {
+                    Err(ValError::ArgumentOutOfRange("+".to_string(), len as i64))?
+                }
                 if let Val::Array(val_arr) = val {
                     arr.extend(val_arr);
                 } else {
@@ -388,16 +406,20 @@ impl Val {
             ))?,
             Val::String(PsString(s)) => {
                 let repeat_count = val.cast_to_int()?;
-                if repeat_count < 0 || s.len().saturating_mul(repeat_count as usize) > MAX_STRING_LEN
+                if repeat_count < 0
+                    || s.len().saturating_mul(repeat_count as usize) > MAX_STRING_LEN
+                    || !crate::parser::charge(s.len() * repeat_count as usize)
                 {
                     Err(ValError::ArgumentOutOfRange("*".to_string(), repeat_count))?
                 }
                 Ok(Val::String(PsString(s.repeat(repeat_count as usize))))
             }
             Val::Array(v) => {
+                let size = v.iter().map(Val::heap_len).sum::<usize>() + size_of_val(v.as_slice());
                 let repeat_count = val.cast_to_int()?;
                 if repeat_count < 0
                     || v.len().max(1).saturating_mul(repeat_count as usize) > MAX_ARRAY_LEN
+                    || !crate::parser::charge(size.saturating_mul(repeat_count as usize))
                 {
                     Err(ValError::ArgumentOutOfRange("*".to_string(), repeat_count))?
                 }

@@ -1011,6 +1011,72 @@ $a"#;
     }
 
     #[test]
+    fn static_property_assignment() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+
+        for input in [
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
+            "[Console]::OutputEncoding = [Text.Encoding]::UTF8",
+            "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
+            r#"[System.Environment]::CurrentDirectory = 'C:\'"#,
+        ] {
+            let errors = p.parse_script(input).expect(input).errors();
+            assert!(
+                !errors.iter().any(|e| e.to_string().starts_with("Panic")),
+                "{input}: {errors:?}"
+            );
+            let script = format!("$y = 1\n{input}\n$y = 3; $y");
+            assert_eq!(p.parse_script(&script).unwrap().result(), PsValue::Int(3));
+        }
+
+        let script_res = p.parse_script(" [int]$x = '5'; $x + 1 ").unwrap();
+        assert_eq!(script_res.result(), PsValue::Int(6));
+
+        let script_res = p.parse_script(" [string]$s = 5; $s ").unwrap();
+        assert_eq!(script_res.result(), PsValue::String("5".into()));
+    }
+
+    #[test]
+    fn comparison_with_an_array_on_the_left_filters_it() {
+        let mut p = PowerShellSession::new().with_variables(Variables::env());
+        let ints = |v: &[i64]| PsValue::Array(v.iter().map(|i| PsValue::Int(*i)).collect());
+        let strs =
+            |v: &[&str]| PsValue::Array(v.iter().map(|s| PsValue::String(s.to_string())).collect());
+
+        for (input, expected) in [
+            ("@(1,2,3) -gt 1", ints(&[2, 3])),
+            ("@(1,2,3) -ge 2", ints(&[2, 3])),
+            ("@(1,2,3) -lt 3", ints(&[1, 2])),
+            ("@(1,2,3) -le 1", ints(&[1])),
+            ("@(1,2,3) -eq 2", ints(&[2])),
+            ("@(1,2,3) -ne 2", ints(&[1, 3])),
+            ("@(1,2,3) -gt 5", ints(&[])),
+            ("@('ab','b','AC') -like 'a*'", strs(&["ab", "AC"])),
+            ("@('ab','b','AC') -clike 'a*'", strs(&["ab"])),
+            ("@('ab','b') -match '^b'", strs(&["b"])),
+            ("@('ab','b') -notmatch '^b'", strs(&["ab"])),
+        ] {
+            assert_eq!(p.parse_script(input).unwrap().result(), expected, "{input}");
+        }
+
+        // An empty result is falsy, a non-empty one truthy, as in PowerShell.
+        let script_res = p
+            .parse_script("if (@(1,2) -gt 5) { 'y' } else { 'n' }")
+            .unwrap();
+        assert_eq!(script_res.result(), PsValue::String("n".into()));
+        let script_res = p
+            .parse_script("if (@(1,2) -gt 1) { 'y' } else { 'n' }")
+            .unwrap();
+        assert_eq!(script_res.result(), PsValue::String("y".into()));
+
+        // A scalar on the left still yields a bool.
+        assert_eq!(
+            p.parse_script("3 -gt 1").unwrap().result(),
+            PsValue::Bool(true)
+        );
+    }
+
+    #[test]
     fn format_expresssion() {
         let mut p = PowerShellSession::new().with_variables(Variables::env());
 

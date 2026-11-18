@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::LazyLock};
 
-use regex::Regex;
+use regex::{Captures, Regex};
 
 use super::Val;
 
@@ -26,26 +26,30 @@ impl ReplacePred {
 pub fn ireplace(input: Val, pattern: Val, replacement: Val) -> String {
     let ci_pattern = format!("(?i){}", pattern.cast_to_string()); // make regex case-insensitive
     match Regex::new(&ci_pattern) {
-        Ok(re) => re
-            .replace_all(
-                input.cast_to_string().as_str(),
-                replacement.cast_to_string(),
-            )
-            .to_string(),
+        Ok(re) => replace_all(&re, input, replacement),
         Err(_) => input.cast_to_string(),
     }
 }
 
 fn creplace(input: Val, pattern: Val, replacement: Val) -> String {
     match Regex::new(pattern.cast_to_string().as_str()) {
-        Ok(re) => re
-            .replace_all(
-                input.cast_to_string().as_str(),
-                replacement.cast_to_string(),
-            )
-            .to_string(),
+        Ok(re) => replace_all(&re, input, replacement),
         Err(_) => input.cast_to_string(), // fallback: return input unchanged on invalid regex
     }
+}
+
+// expands matches one by one so a long replacement can't exhaust memory
+fn replace_all(re: &Regex, input: Val, replacement: Val) -> String {
+    let replacement = replacement.cast_to_string();
+    re.replace_all(input.cast_to_string().as_str(), |caps: &Captures| {
+        let mut dst = String::new();
+        caps.expand(&replacement, &mut dst);
+        if !crate::parser::charge(dst.len()) {
+            dst.clear();
+        }
+        dst
+    })
+    .to_string()
 }
 
 #[cfg(test)]
