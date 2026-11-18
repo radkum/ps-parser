@@ -34,7 +34,9 @@ pub fn join(input: Val, delimeter: Val) -> String {
         .into_iter()
         .map(|val| val.cast_to_string())
         .collect::<Vec<String>>();
-    let len = string_vec.iter().map(|s| s.len() + delimeter.len()).sum();
+    let len = string_vec.iter().fold(0usize, |len, s| {
+        len.saturating_add(s.len()).saturating_add(delimeter.len())
+    });
     if !crate::parser::charge(len) {
         return String::new();
     }

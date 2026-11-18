@@ -103,7 +103,8 @@ impl PsString {
 
         let old = args[0].cast_to_string();
         let new = args[1].cast_to_string();
-        if new.len() > old.len() && !crate::parser::charge(input.matches(&old).count() * new.len())
+        if new.len() > old.len()
+            && !crate::parser::charge(input.matches(&old).count().saturating_mul(new.len()))
         {
             return Ok(Val::String(self.clone()));
         }

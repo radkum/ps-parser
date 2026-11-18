@@ -3,7 +3,10 @@ use std::{collections::HashMap, sync::LazyLock, vec};
 use thiserror_no_std::Error;
 
 use super::{SessionScope, StreamMessage, Val, value::ScriptBlock};
-use crate::{PowerShellSession, ScriptResult, parser::ParserError};
+use crate::{
+    PowerShellSession, ScriptResult,
+    parser::{ParserError, over_budget},
+};
 
 #[derive(Error, Debug, PartialEq, Clone)]
 pub enum CommandError {
@@ -239,16 +242,16 @@ fn where_object(
 
     let filtered_elements = if let Val::Array(elements) = argument {
         elements
-            .iter()
-            .filter(|&element| match sb.run(vec![], ps, Some(element.clone())) {
+            .into_iter()
+            .filter_map(|element| match sb.run(vec![], ps, Some(element.clone())) {
+                Err(er) if over_budget(&er) => Some(Err(er)),
                 Err(er) => {
                     ps.errors.push(er);
-                    false
+                    None
                 }
-                Ok(b) => b.val.cast_to_bool(),
+                Ok(b) => b.val.cast_to_bool().then_some(Ok(element)),
             })
-            .cloned()
-            .collect::<Vec<_>>()
+            .collect::<ParserResult<Vec<_>>>()?
     } else if sb
         .run(vec![], ps, Some(argument.clone()))?
         .val
@@ -303,13 +306,14 @@ fn foreach_object(
         elements
             .into_iter()
             .map(|element| match sb.run(vec![], ps, Some(element.clone())) {
+                Err(er) if over_budget(&er) => Err(er),
                 Err(er) => {
                     ps.errors.push(er);
-                    Val::Null
+                    Ok(Val::Null)
                 }
-                Ok(b) => b.val,
+                Ok(b) => Ok(b.val),
             })
-            .collect::<Vec<_>>()
+            .collect::<ParserResult<Vec<_>>>()?
     } else {
         vec![sb.run(vec![], ps, Some(argument))?.val]
     };

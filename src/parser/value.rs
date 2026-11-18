@@ -595,7 +595,13 @@ impl Val {
             Val::Int(i) => *i != 0,
             Val::Float(f) => *f != 0.,
             Val::String(PsString(s)) => !s.is_empty(),
-            Val::Array(v) => !v.is_empty(),
+            // PowerShell takes a one-element array as its element
+            Val::Array(v) => match v.as_slice() {
+                [] => false,
+                [Val::Array(inner)] => !inner.is_empty(),
+                [item] => item.cast_to_bool(),
+                _ => true,
+            },
             Val::HashTable(h) => !h.is_empty(),
             Val::RuntimeObject(rt) => !rt.name().is_empty(),
             Val::RuntimeType(_rt) => true,
