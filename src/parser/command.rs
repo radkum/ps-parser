@@ -473,6 +473,11 @@ fn write_verbose(
     })
 }
 
+// tells the caller that the tokens of an encoded command are missing
+pub(crate) fn not_decoded() -> ParserError {
+    CommandError::ExecutionError("Encoded command not decoded".into()).into()
+}
+
 // Powershell cmdlet implementation. It don't actually invoke a new PowerShell
 // process, only deobfuscates the command.
 fn powershell(
@@ -495,28 +500,82 @@ fn powershell(
             (!name.is_empty()).then(|| name.to_ascii_lowercase())
         }
 
+        // parameters taking the next argument unvalidated, e.g. -ExecutionPolicy -c
+        fn takes_value(name: &str) -> bool {
+            name == "ep"
+                || name.len() >= 2 && "executionpolicy".starts_with(name)
+                || name.len() >= 3 && "configurationname".starts_with(name)
+                || [
+                    "windowstyle",
+                    "inputformat",
+                    "outputformat",
+                    "version",
+                    "psconsolefile",
+                ]
+                .iter()
+                .any(|p| p.starts_with(name))
+        }
+
+        fn is_powershell(elem: Option<&CommandElem>) -> bool {
+            let Some(CommandElem::Argument(Val::ScriptText(s) | Val::String(PsString(s)))) = elem
+            else {
+                return false;
+            };
+            let name = s
+                .rsplit(['\\', '/'])
+                .next()
+                .unwrap_or(s)
+                .to_ascii_lowercase();
+            matches!(
+                name.strip_suffix(".exe").unwrap_or(&name),
+                "powershell" | "pwsh"
+            )
+        }
+
         let mut index_to_decode = vec![];
-        let mut args = args.iter_mut().map(Some).collect::<Vec<_>>();
-        for (i, arg) in args.iter_mut().enumerate() {
-            if let Some(elem) = arg
-                && let CommandElem::Parameter(s) | CommandElem::Argument(Val::ScriptText(s)) =
-                    &**elem
-                && let Some(name) = param_name(s)
-            {
-                // what follows -Command or -File belongs to the command, not to powershell
-                if "command".starts_with(&name) || "file".starts_with(&name) {
+        let mut skip_value = false;
+        for (i, elem) in args.iter().enumerate() {
+            if std::mem::take(&mut skip_value) {
+                continue;
+            }
+            let (CommandElem::Parameter(s) | CommandElem::Argument(Val::ScriptText(s))) = elem
+            else {
+                continue;
+            };
+            let Some(name) = param_name(s) else {
+                continue;
+            };
+            if name == "ec" || "encodedcommand".starts_with(&name) {
+                index_to_decode.push(i + 1);
+                skip_value = true;
+            } else if takes_value(&name) {
+                skip_value = true;
+            } else if "command".starts_with(&name) {
+                // what follows -Command is the command, unless a child powershell
+                if !is_powershell(args.get(i + 1)) {
                     break;
                 }
-                if name == "ec" || "encodedcommand".starts_with(&name) {
-                    index_to_decode.push(i + 1);
-                    **elem = CommandElem::Parameter("-command".to_string());
-                }
+                skip_value = true;
+            } else if "file".starts_with(&name) {
+                break;
             }
         }
+        for &i in &index_to_decode {
+            if let Some(elem) = args.get_mut(i - 1) {
+                *elem = CommandElem::Parameter("-command".to_string());
+            }
+        }
+        let mut args = args.iter_mut().map(Some).collect::<Vec<_>>();
 
         // -enc officially carries UTF-16LE, but malware often encodes plain ASCII
         fn decode_encoded_command(bytes: &[u8]) -> String {
-            if bytes.contains(&0) {
+            // odd-length UTF-16LE has 0 high bytes in most units, ASCII a stray NUL
+            let utf16 = if bytes.len().is_multiple_of(2) {
+                bytes.contains(&0)
+            } else {
+                bytes.iter().skip(1).step_by(2).filter(|b| **b == 0).count() * 4 > bytes.len()
+            };
+            if utf16 {
                 let units = bytes
                     .chunks_exact(2)
                     .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
@@ -524,11 +583,6 @@ fn powershell(
                 return String::from_utf16_lossy(&units);
             }
             String::from_utf8_lossy(bytes).into_owned()
-        }
-
-        // tells the caller that the tokens of an encoded command are missing
-        fn not_decoded() -> ParserError {
-            CommandError::ExecutionError("Encoded command not decoded".into()).into()
         }
 
         struct Nested;
@@ -981,6 +1035,53 @@ mod tests {
             "{}",
             s.deobfuscated()
         );
+    }
+
+    #[test]
+    fn a_child_powershell_after_command_keeps_its_parameters() {
+        // Write-Output 'AmsiUtils'
+        let b64 = "VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAEEAbQBzAGkAVQB0AGkAbABzACcA";
+        for prefix in [
+            "powershell -c powershell -e",
+            "powershell.exe -NoP -NonI -W Hidden -c powershell.exe -enc",
+            r"powershell -c C:\Windows\System32\WindowsPowerShell\v1.0\PowerShell.EXE -e",
+            "powershell -c pwsh -e",
+            "powershell -ExecutionPolicy -c -e",
+            "powershell -ep /file -e",
+            "powershell -ExecutionPolicy -Command -EncodedCommand",
+        ] {
+            assert!(decodes_amsiutils(&format!("{prefix} {b64}")), "{prefix}");
+        }
+    }
+
+    #[test]
+    fn a_not_decoded_command_in_a_script_block_stays_reported() {
+        let inner = "$I = '1..70 | % { powershell -enc \
+                     ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(\"Write-Output \
+                     $_\"))) }'; powershell -enc \
+                     ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($I)))";
+        for input in [
+            format!("$sb = {{ {inner} }}; & $sb"),
+            format!("function f {{ {inner} }}; f"),
+            format!("1 | % {{ {inner} }}"),
+            format!("Invoke-Command {{ {inner} }}"),
+        ] {
+            let s = PowerShellSession::new().parse_script(&input).unwrap();
+            let reported = s
+                .errors()
+                .iter()
+                .filter(|e| e.to_string() == NOT_DECODED)
+                .count();
+            assert!(reported >= 1, "{input}");
+        }
+    }
+
+    #[test]
+    fn an_odd_length_ascii_payload_with_a_nul_is_decoded() {
+        // Write-Output 'AmsiUtils' and a NUL
+        assert!(decodes_amsiutils(
+            "powershell -e V3JpdGUtT3V0cHV0ICdBbXNpVXRpbHMnAA=="
+        ));
     }
 
     #[test]

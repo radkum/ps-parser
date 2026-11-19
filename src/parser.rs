@@ -1748,7 +1748,12 @@ impl<'a> PowerShellSession {
         }
         self.variables = current_variables;
         self.results = results;
-        self.errors = errors;
+        let collected = std::mem::replace(&mut self.errors, errors);
+        // the real run skips commands decoded here, so keep "not decoded"
+        let not_decoded = command::not_decoded();
+        if collected.contains(&not_decoded) && !self.errors.contains(&not_decoded) {
+            self.errors.push(not_decoded);
+        }
     }
 
     fn parse_script_block_expression(&mut self, token: Pair<'a>) -> ParserResult<ScriptBlock> {
