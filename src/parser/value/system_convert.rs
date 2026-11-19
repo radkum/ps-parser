@@ -10,6 +10,7 @@ impl RuntimeTypeTrait for Convert {
     fn static_method(&self, name: MethodName) -> RuntimeResult<StaticFnCallType> {
         match name.name() {
             "frombase64string" => Ok(Box::new(from_base_64_string)),
+            "tobase64string" => Ok(Box::new(to_base_64_string)),
             _ => Err(MethodError::MethodNotFound(name.name().into()).into()),
         }
     }
@@ -49,6 +50,13 @@ fn from_base_64_string(args: Vec<Val>) -> MethodResult<Val> {
     Ok(Val::Array(x.iter().map(|b| Val::Char(*b as u32)).collect()))
 }
 
+fn to_base_64_string(args: Vec<Val>) -> MethodResult<Val> {
+    use base64::prelude::*;
+
+    let bytes = super::system_encoding::bytes_arg("ToBase64String", args)?;
+    Ok(Val::String(BASE64_STANDARD.encode(bytes).into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,6 +82,17 @@ mod tests {
         } else {
             panic!("Expected Val::Array");
         }
+    }
+
+    #[test]
+    fn to_base64_string_without_the_system_prefix() {
+        let mut p = PowerShellSession::new();
+        assert_eq!(
+            p.parse_script(r#" [Convert]::ToBase64String([Convert]::FromBase64String("SGk=")) "#)
+                .unwrap()
+                .result(),
+            PsValue::String("SGk=".into())
+        );
     }
 
     #[test]

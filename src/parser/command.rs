@@ -2,7 +2,10 @@ use std::{collections::HashMap, sync::LazyLock, vec};
 
 use thiserror_no_std::Error;
 
-use super::{SessionScope, StreamMessage, Val, value::ScriptBlock};
+use super::{
+    SessionScope, StreamMessage, Val,
+    value::{PsString, ScriptBlock},
+};
 use crate::{
     PowerShellSession, ScriptResult,
     parser::{ParserError, over_budget},
@@ -503,7 +506,8 @@ fn powershell(
         }
 
         for i in index_to_decode {
-            if let Some(Some(CommandElem::Argument(Val::ScriptText(s)))) = args.get_mut(i)
+            if let Some(Some(CommandElem::Argument(Val::ScriptText(s) | Val::String(PsString(s))))) =
+                args.get_mut(i)
                 && let Ok(decoded_bytes) = BASE64_STANDARD.decode(s.clone())
                 && let Some(decoded_str) = decode_encoded_command(&decoded_bytes)
             {
@@ -721,6 +725,24 @@ mod tests {
             tokens.methods_and_commands().contains("Write-Output"),
             "{:?}",
             tokens.methods_and_commands()
+        );
+    }
+
+    #[test]
+    fn encoded_command_built_at_runtime_is_decoded() {
+        let mut p = PowerShellSession::new();
+        let input = "$body = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('\
+                     JHMgPSAiQW1zaVNjYW5CdWZmZXIiOyAicWEtYzIybSAkcyI=')) + \" # r_$tag\"; $enc = \
+                     [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($body)); \
+                     powershell.exe -NoProfile -EncodedCommand $enc";
+        let s = p.parse_script(input).unwrap();
+        let strings = s.tokens().lowercased_string_set();
+        assert!(strings.contains("amsiscanbuffer"), "{strings:?}");
+        assert!(
+            s.deobfuscated()
+                .contains("-command $s = \"AmsiScanBuffer\""),
+            "{}",
+            s.deobfuscated()
         );
     }
 

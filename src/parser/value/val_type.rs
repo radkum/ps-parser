@@ -98,6 +98,11 @@ impl ValType {
                 if types_map.contains_key(s.as_str()) {
                     return Ok(Self::RuntimeObject(s));
                 }
+                // PowerShell resolves a type name without its System. prefix, e.g. [Convert]
+                let system = format!("system.{s}");
+                if types_map.contains_key(system.as_str()) {
+                    return Ok(Self::RuntimeObject(system));
+                }
                 return Err(ValError::UnknownType(s));
             }
         };
