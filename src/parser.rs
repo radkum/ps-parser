@@ -3218,6 +3218,22 @@ $ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([b
     }
 
     #[test]
+    fn comments_and_redirections_do_not_derail_the_assignment_scan() {
+        let mut redirected = "(1)".to_string();
+        for _ in 0..12 {
+            redirected = format!("({redirected} > f=1)");
+        }
+        for script in [
+            format!("Write-Output (1 <# {} #>)\nInvoke-Mimikatz", "(".repeat(2000)),
+            "(1 # (\n)\n".repeat(3000),
+            "(1 <#(#>)\n".repeat(700),
+            redirected,
+        ] {
+            assert!(parse_program(&script).is_ok(), "{}", &script[..80.min(script.len())]);
+        }
+    }
+
+    #[test]
     fn many_assignment_targets_stop_at_eval_budget() {
         let targets = vec!["$a[0]"; 300].join(", ");
         let script = format!("$a = 1..999999; {targets} = 1; 'next'");

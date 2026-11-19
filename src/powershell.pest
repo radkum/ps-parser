@@ -258,9 +258,9 @@ pipeline_statement = _{ pipeline ~ statement_terminator? }
 // try assignment only when "=" follows, so the left side isn't parsed twice; $ keeps trailing whitespace out of the span
 pipeline = ${ &assignment_scan ~ assignment_exp | pipeline_with_tail ~ !((WHITESPACE | COMMENT)* ~ assignement_op) | !assignment_scan ~ assignment_exp }
 // cheap scan for a top level "=", so an assignment's left side isn't first parsed as an expression
-assignment_scan = _{ (&("(" | "[") ~ assignment_scan_group | !("=" | "(" | ")" | "[" | "]" | "{" | "}" | ";" | "|" | "\"" | "'" | "#" | "\n" | "\r") ~ ANY)* ~ "=" }
+assignment_scan = _{ (&("(" | "[") ~ assignment_scan_group | !("=" | "(" | ")" | "[" | "]" | "{" | "}" | ";" | "|" | "\"" | "'" | "#" | "\n" | "\r" | ">" | "<") ~ ANY)* ~ "=" }
 assignment_scan_group = _{ "(" ~ assignment_scan_inner ~ ")" | "[" ~ assignment_scan_inner ~ "]" }
-assignment_scan_inner = _{ (&("(" | "[") ~ assignment_scan_group | !("(" | ")" | "[" | "]" | "\"" | "'") ~ ANY)* }
+assignment_scan_inner = _{ (&("(" | "[") ~ assignment_scan_group | !("(" | ")" | "[" | "]" | "{" | "}" | ";" | "\"" | "'" | "#") ~ ANY)* }
 pipeline_with_tail = !{(redirected_expression | command) ~ pipeline_tail?}
 redirected_expression = { expression ~ redirection? }
 pipeline_tail = { ("|" ~ command)+ }
