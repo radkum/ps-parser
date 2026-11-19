@@ -1,5 +1,5 @@
 use super::{
-    MethodError, MethodResult, PsString, RuntimeTypeTrait, StaticFnCallType, Val,
+    MethodError, MethodResult, PsString, RuntimeTypeTrait, StaticFnCallType, Val, ValError,
     runtime_object::RuntimeResult, val_type::ObjectType,
 };
 use crate::parser::MethodName;
@@ -43,6 +43,12 @@ fn from_base_64_string(args: Vec<Val>) -> MethodResult<Val> {
         return Err(MethodError::new_incorrect_args("FromBase64String", args));
     };
 
+    let len = s.len().div_ceil(4).saturating_mul(3);
+    if len > super::MAX_ARRAY_LEN || !crate::parser::charge(len.saturating_mul(size_of::<Val>())) {
+        return Err(
+            ValError::ArgumentOutOfRange("FromBase64String".to_string(), len as i64).into(),
+        );
+    }
     let x = BASE64_STANDARD
         .decode(s)
         .map_err(|e| MethodError::RuntimeError(e.to_string()))?;
@@ -92,6 +98,34 @@ mod tests {
                 .unwrap()
                 .result(),
             PsValue::String("SGk=".into())
+        );
+    }
+
+    #[test]
+    fn to_base64_string_of_utf8_bytes() {
+        let mut p = PowerShellSession::new();
+        assert_eq!(
+            p.parse_script(
+                r#" [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('Get-PassHashes')) "#
+            )
+            .unwrap()
+            .result(),
+            PsValue::String("R2V0LVBhc3NIYXNoZXM=".into())
+        );
+    }
+
+    #[test]
+    fn from_base64_string_past_the_array_limit_fails_before_decoding() {
+        let mut p = PowerShellSession::new();
+        let s = p
+            .parse_script("[Convert]::FromBase64String('AAAA' * 400000)")
+            .unwrap();
+        assert!(
+            s.errors()
+                .iter()
+                .any(|e| e.to_string().contains("FromBase64String")),
+            "{:?}",
+            s.errors()
         );
     }
 

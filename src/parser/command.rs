@@ -747,6 +747,20 @@ mod tests {
     }
 
     #[test]
+    fn encoded_command_from_unicode_get_bytes_is_decoded() {
+        let mut p = PowerShellSession::new();
+        let input = "$enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes('\
+                     Invoke-Mimikatz -Target lsass')); powershell -enc $enc";
+        let tokens = p.parse_script(input).unwrap().tokens();
+        assert!(
+            tokens.methods_and_commands().contains("Invoke-Mimikatz"),
+            "{:?}",
+            tokens.methods_and_commands()
+        );
+        assert!(tokens.lowercased_string_set().contains("lsass"));
+    }
+
+    #[test]
     fn unknown_variable_argument_keeps_the_command() {
         let mut p = PowerShellSession::new().with_variables(Variables::env());
         let input = "Register-ScheduledTask -TaskName 'Upd' -Action $action; foreach ($i in 1..2) \
