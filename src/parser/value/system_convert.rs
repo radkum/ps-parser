@@ -30,7 +30,7 @@ impl RuntimeTypeTrait for Convert {
     }
 }
 
-fn from_base_64_string(args: Vec<Val>) -> MethodResult<Val> {
+fn from_base_64_string(mut args: Vec<Val>) -> MethodResult<Val> {
     use base64::prelude::*;
 
     if args.len() != 1 {
@@ -38,19 +38,28 @@ fn from_base_64_string(args: Vec<Val>) -> MethodResult<Val> {
         return Err(MethodError::new_incorrect_args("FromBase64String", args));
     }
 
-    let arg = args[0].clone();
-    let Val::String(PsString(s)) = arg else {
-        return Err(MethodError::new_incorrect_args("FromBase64String", args));
+    let s = match args.swap_remove(0) {
+        Val::String(PsString(s)) => s,
+        arg => {
+            return Err(MethodError::new_incorrect_args(
+                "FromBase64String",
+                vec![arg],
+            ));
+        }
     };
 
-    // Convert.FromBase64String ignores whitespace
-    let s = s.split_ascii_whitespace().collect::<String>();
+    // the whitespace-free copy, the decoded bytes and their Vals
     let len = s.len().div_ceil(4).saturating_mul(3);
-    if !crate::parser::fits(len.saturating_mul(size_of::<Val>())) {
+    if !crate::parser::fits(
+        len.saturating_mul(size_of::<Val>() + 1)
+            .saturating_add(s.len()),
+    ) {
         return Err(
             ValError::ArgumentOutOfRange("FromBase64String".to_string(), len as i64).into(),
         );
     }
+    // Convert.FromBase64String ignores whitespace
+    let s = s.split_ascii_whitespace().collect::<String>();
     let x = BASE64_STANDARD
         .decode(s)
         .map_err(|e| MethodError::RuntimeError(e.to_string()))?;

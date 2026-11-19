@@ -110,8 +110,9 @@ impl StackBase {
             STACK_BASE.with(|b| b.set(Some(base)));
             EVAL_STEPS.set(0);
             MEM_USED.set(0);
-            DECODES.set(0);
             DECODE_DEPTH.set(0);
+            NESTED_DECODES.set(0);
+            DECODED.with_borrow_mut(HashSet::clear);
             DEADLINE.set(Some(std::time::Instant::now() + TIME_BUDGET));
         }
         StackBase(outermost)
@@ -152,9 +153,10 @@ thread_local! {
     static EVAL_STEPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     static MEM_USED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static DEADLINE: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
-    // -EncodedCommand decodes in this scan and their nesting; a self-re-encoding command never stops
-    pub(crate) static DECODES: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    // -EncodedCommand nesting, nested runtime-built decodes and the runtime-built commands decoded in this scan
     pub(crate) static DECODE_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    pub(crate) static NESTED_DECODES: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    pub(crate) static DECODED: std::cell::RefCell<HashSet<String>> = std::cell::RefCell::new(HashSet::new());
 }
 
 fn deadline_passed() -> bool {

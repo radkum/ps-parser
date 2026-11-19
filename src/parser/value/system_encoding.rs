@@ -217,19 +217,24 @@ pub(crate) fn bytes_arg(method: &str, mut args: Vec<Val>) -> MethodResult<Vec<u8
             .iter()
             .map(|v| match v {
                 Val::Char(c) => Some(*c as u8),
+                // truncated like the Char cast below
+                Val::Int(i) if *i >= 0 => Some(*i as u8),
                 _ => None,
             })
             .collect::<Option<Vec<u8>>>()
     {
         bytes
     } else {
-        if !crate::parser::fits(arg.heap_len()) {
-            return Err(
-                ValError::ArgumentOutOfRange(method.to_string(), arg.heap_len() as i64).into(),
-            );
+        // the cast makes a Val per char of a string
+        let cost = match &arg {
+            Val::String(PsString(s)) => s.len().saturating_mul(size_of::<Val>()),
+            _ => arg.heap_len(),
+        };
+        if !crate::parser::fits(cost) {
+            return Err(ValError::ArgumentOutOfRange(method.to_string(), cost as i64).into());
         }
         let Ok(chars) = arg.cast_to_typed_array(Some(Box::new(ValType::Char))) else {
-            return Err(MethodError::new_incorrect_args(method, arg.cast_to_array()));
+            return Err(MethodError::new_incorrect_args(method, vec![arg]));
         };
         chars
             .iter()
@@ -373,6 +378,30 @@ mod tests {
             let result = p.parse_script(&script).unwrap().result();
             assert_eq!(result, PsValue::String(decoded.into()), "{script}");
         }
+    }
+
+    #[test]
+    fn get_string_takes_an_int_array() {
+        let mut p = PowerShellSession::new();
+        assert_eq!(
+            p.parse_script("[Text.Encoding]::ASCII.GetString(@(65, 66, 300))")
+                .unwrap()
+                .result(),
+            PsValue::String("AB,".into())
+        );
+    }
+
+    #[test]
+    fn a_large_argument_is_not_copied_into_the_error() {
+        let mut p = PowerShellSession::new();
+        let errors = p
+            .parse_script("[Text.Encoding]::UTF8.GetBytes(@('a' * 100000))")
+            .unwrap()
+            .errors();
+        assert!(
+            errors.iter().all(|e| e.to_string().len() < 1000),
+            "{errors:?}"
+        );
     }
 
     #[test]

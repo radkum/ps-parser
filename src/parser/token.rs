@@ -184,6 +184,13 @@ impl Tokens {
         self.0.push(token)
     }
 
+    // moves the tokens of `other` here and returns how many
+    pub(crate) fn append(&mut self, other: &mut Tokens) -> usize {
+        let moved = other.0.len();
+        self.0.append(&mut other.0);
+        moved
+    }
+
     pub fn all(&self) -> Vec<Token> {
         self.0.clone()
     }

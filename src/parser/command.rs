@@ -485,15 +485,14 @@ fn powershell(
     ) -> ParserResult<()> {
         use base64::prelude::*;
 
-        use crate::parser::{DECODE_DEPTH, DECODES, Token, charge, eval_step};
+        use crate::parser::{
+            DECODE_DEPTH, DECODED, NESTED_DECODES, Token, charge, eval_step, fits,
+        };
 
-        // -e, -enc, ... -EncodedCommand and -ec, also with a / prefix
-        fn is_encoded_command(p: &str) -> bool {
-            let Some(name) = p.strip_prefix('-').or_else(|| p.strip_prefix('/')) else {
-                return false;
-            };
-            let name = name.to_ascii_lowercase();
-            name == "ec" || (!name.is_empty() && "encodedcommand".starts_with(&name))
+        // a parameter name without its -, /, en dash, em dash or horizontal bar
+        fn param_name(p: &str) -> Option<String> {
+            let name = p.strip_prefix(['-', '/', '\u{2013}', '\u{2014}', '\u{2015}'])?;
+            (!name.is_empty()).then(|| name.to_ascii_lowercase())
         }
 
         let mut index_to_decode = vec![];
@@ -502,10 +501,16 @@ fn powershell(
             if let Some(elem) = arg
                 && let CommandElem::Parameter(s) | CommandElem::Argument(Val::ScriptText(s)) =
                     &**elem
-                && is_encoded_command(s)
+                && let Some(name) = param_name(s)
             {
-                index_to_decode.push(i + 1);
-                **elem = CommandElem::Parameter("-command".to_string());
+                // what follows -Command or -File belongs to the command, not to powershell
+                if "command".starts_with(&name) || "file".starts_with(&name) {
+                    break;
+                }
+                if name == "ec" || "encodedcommand".starts_with(&name) {
+                    index_to_decode.push(i + 1);
+                    **elem = CommandElem::Parameter("-command".to_string());
+                }
             }
         }
 
@@ -526,55 +531,98 @@ fn powershell(
             CommandError::ExecutionError("Encoded command not decoded".into()).into()
         }
 
-        const MAX_DECODES: u32 = 64;
-        const MAX_DECODE_DEPTH: u32 = 8;
+        struct Nested;
+        impl Nested {
+            fn enter() -> Self {
+                DECODE_DEPTH.set(DECODE_DEPTH.get() + 1);
+                Nested
+            }
+        }
+        impl Drop for Nested {
+            fn drop(&mut self) {
+                DECODE_DEPTH.set(DECODE_DEPTH.get().saturating_sub(1));
+            }
+        }
+
+        // the longest command line a real child process gets
+        const MAX_RUNTIME_LEN: usize = 32_767;
+        // a literal shrinks per level; a runtime-built command can rebuild itself
+        const MAX_NESTED_RUNTIME_DECODES: u32 = 64;
 
         for i in index_to_decode {
             eval_step()?;
-            if let Some(Some(CommandElem::Argument(Val::ScriptText(s) | Val::String(PsString(s))))) =
-                args.get_mut(i)
-                && DECODES.get() < MAX_DECODES
-                && DECODE_DEPTH.get() < MAX_DECODE_DEPTH
-                && let Ok(decoded_bytes) =
-                    BASE64_STANDARD.decode(s.split_ascii_whitespace().collect::<String>())
-            {
-                DECODES.set(DECODES.get() + 1);
-                let decoded_str = decode_encoded_command(&decoded_bytes);
-                // a child process sees the environment only, not the parent's variables
-                let mut nested = PowerShellSession::new().with_variables(ps.variables.child());
-                DECODE_DEPTH.set(DECODE_DEPTH.get() + 1);
-                let parsed = nested.parse_script(&decoded_str);
-                DECODE_DEPTH.set(DECODE_DEPTH.get() - 1);
-                if let Ok(script_result) = parsed {
-                    let tokens = script_result.tokens().all();
-                    let deobfuscated = script_result.deobfuscated();
-                    let copied = decoded_str.len() + deobfuscated.len();
-                    if !charge(copied.saturating_add(tokens.len() * size_of::<Token>())) {
-                        return Err(ParserError::EvalBudgetExceeded);
-                    }
-                    for token in tokens {
-                        ps.tokens.push(token);
-                    }
-                    // nested errors stay inside; only a stopped or undecoded nested run is reported
-                    if script_result.errors().iter().any(|e| {
-                        over_budget(e)
-                            || matches!(e, ParserError::NestingTooDeep | ParserError::Panic(_))
-                            || *e == not_decoded()
-                    }) {
-                        ps.errors.push(not_decoded());
-                    }
-                    *s = if deobfuscated.is_empty() {
-                        decoded_str
-                    } else {
-                        deobfuscated
-                    };
-                } else {
-                    log::warn!("Failed to deobfuscate: {}", &decoded_str);
+            let (s, literal) = match args.get_mut(i) {
+                Some(Some(CommandElem::Argument(Val::ScriptText(s)))) => (s, true),
+                Some(Some(CommandElem::Argument(Val::String(PsString(s))))) => (s, false),
+                _ => {
                     ps.errors.push(not_decoded());
-                    *s = decoded_str;
+                    continue;
                 }
-            } else {
+            };
+            if !literal {
+                // an identical command was decoded in this scan already; its tokens are in
+                if DECODED.with_borrow(|seen| seen.contains(s.as_str())) {
+                    continue;
+                }
+                let nested = DECODE_DEPTH.get() > 0;
+                if s.len() > MAX_RUNTIME_LEN
+                    || nested && NESTED_DECODES.get() >= MAX_NESTED_RUNTIME_DECODES
+                    || !charge(s.len())
+                {
+                    ps.errors.push(not_decoded());
+                    continue;
+                }
+                DECODED.with_borrow_mut(|seen| seen.insert(s.clone()));
+                if nested {
+                    NESTED_DECODES.set(NESTED_DECODES.get() + 1);
+                }
+            }
+            // the base64 copy, the decoded bytes and the text
+            if !fits(s.len().saturating_mul(4)) {
                 ps.errors.push(not_decoded());
+                continue;
+            }
+            let Ok(decoded_bytes) =
+                BASE64_STANDARD.decode(s.split_ascii_whitespace().collect::<String>())
+            else {
+                ps.errors.push(not_decoded());
+                continue;
+            };
+            let decoded_str = decode_encoded_command(&decoded_bytes);
+            // a child process sees the environment only, not the parent's variables
+            let mut nested = PowerShellSession::new().with_variables(ps.variables.child());
+            let parsed = {
+                let _nested = Nested::enter();
+                nested.parse_script(&decoded_str)
+            };
+            if let Ok(mut script_result) = parsed {
+                let moved = ps.tokens.append(script_result.tokens_mut());
+                let deobfuscated = script_result.deobfuscated();
+                // nested errors stay inside; only a stopped or undecoded nested run is reported
+                let stopped = script_result.errors_ref().iter().any(|e| {
+                    over_budget(e)
+                        || matches!(e, ParserError::NestingTooDeep | ParserError::Panic(_))
+                        || *e == not_decoded()
+                });
+                if stopped
+                    || !charge(
+                        moved
+                            .saturating_mul(size_of::<Token>())
+                            .saturating_add(deobfuscated.len()),
+                    )
+                {
+                    ps.errors.push(not_decoded());
+                }
+                *s = if deobfuscated.is_empty() {
+                    decoded_str
+                } else {
+                    deobfuscated
+                };
+                eval_step()?;
+            } else {
+                log::warn!("Failed to deobfuscate: {}", &decoded_str);
+                ps.errors.push(not_decoded());
+                *s = decoded_str;
             }
         }
         Ok(())
@@ -843,20 +891,96 @@ mod tests {
 
     #[test]
     fn self_re_encoding_commands_stop_within_the_limits() {
-        let inv = "powershell -enc \
-                   ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(($s -f \
-                   [char]39,$s))))";
-        for n in [2, 3] {
+        // decoded once, its copies are the same command
+        let inv = "powershell -enc                    ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(($s -f                    [char]39,$s))))";
+        for n in [2, 3, 8] {
             let invs = vec![inv; n].join("; ");
-            let input = format!("$s='$s={{0}}{{1}}{{0}}; {invs}'; {invs}");
+            let input = format!("$s='$s={{0}}{{1}}{{0}}; {invs}; Write-Output amsiutils'; {invs}");
             let start = std::time::Instant::now();
-            let s = PowerShellSession::new().parse_script(&input).unwrap();
+            assert!(decodes_amsiutils(&input), "{n}");
             assert!(start.elapsed().as_secs() < 5, "{n}: {:?}", start.elapsed());
+        }
+        // a different command on every level stops at the nested decode limit
+        let inv = "powershell -enc                    ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(($s -f                    [char]39,$s,($n+1)))))";
+        let input = format!("$n=0; $s='$n={{2}}; $s={{0}}{{1}}{{0}}; {inv}; {inv}'; {inv}; {inv}");
+        let start = std::time::Instant::now();
+        let s = PowerShellSession::new().parse_script(&input).unwrap();
+        assert!(start.elapsed().as_secs() < 5, "{:?}", start.elapsed());
+        assert!(s.errors().iter().any(|e| e.to_string() == NOT_DECODED));
+    }
+
+    #[test]
+    fn a_nested_command_past_the_memory_budget_keeps_its_tokens() {
+        // Write-Output 'AmsiUtils'; 'a'*16000000; 'a'*16000000; 'a'*16000000
+        let s = PowerShellSession::new()
+            .parse_script(
+                "powershell -e \
+                 VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAEEAbQBzAGkAVQB0AGkAbABzACcAOwAgACcAYQAnACoAMQA2ADAAMAAwADAAMAAwADsAIAAnAGEAJwAqADEANgAwADAAMAAwADAAMAA7ACAAJwBhACcAKgAxADYAMAAwADAAMAAwADAA",
+            )
+            .unwrap();
+        assert!(s.tokens().lowercased_string_set().contains("amsiutils"));
+        assert!(s.errors().iter().any(|e| e.to_string() == NOT_DECODED));
+    }
+
+    #[test]
+    fn junk_encoded_commands_do_not_hide_the_payload() {
+        // Write-Output 'AmsiUtils'
+        let b64 = "VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAEEAbQBzAGkAVQB0AGkAbABzACcA";
+        let junk = "([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(\"x$_\")))";
+        for input in [
+            format!("1..100 | % {{ powershell -e QQA= }}; powershell -e {b64}"),
+            format!("powershell{} -e {b64}", " -e QQA=".repeat(100)),
+            format!("1..100 | % {{ powershell -e {junk} }}; powershell -e {b64}"),
+            format!(
+                "1..100 | % {{ powershell -e {junk} }}; powershell -e \
+                 ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(\"Write-Output \
+                 'AmsiUtils'\")))"
+            ),
+        ] {
+            assert!(decodes_amsiutils(&input), "{input}");
+        }
+    }
+
+    #[test]
+    fn literal_encoded_commands_are_decoded_at_any_depth() {
+        use base64::prelude::*;
+        let mut input = "Write-Output 'AmsiUtils'".to_string();
+        for _ in 0..12 {
+            input = format!("powershell -enc {}", BASE64_STANDARD.encode(&input));
+        }
+        assert!(decodes_amsiutils(&input));
+    }
+
+    #[test]
+    fn a_runtime_built_command_longer_than_a_command_line_is_not_decoded() {
+        let s = PowerShellSession::new()
+            .parse_script("$e = 'QUFB' * 10000; powershell -e $e; & ('Get-Pass'+'Hashes')")
+            .unwrap();
+        assert!(s.errors().iter().any(|e| e.to_string() == NOT_DECODED));
+        assert!(s.deobfuscated().contains("Get-PassHashes"));
+    }
+
+    #[test]
+    fn arguments_of_the_command_are_not_powershell_parameters() {
+        for input in [
+            r"powershell -c robocopy C:\a D:\b /E",
+            "powershell -c Write-Output /e Get-Date",
+            "powershell -File x.ps1 -e QQA=",
+        ] {
+            let s = PowerShellSession::new().parse_script(input).unwrap();
             assert!(
-                s.errors().iter().any(|e| e.to_string() == NOT_DECODED),
-                "{n}"
+                !s.errors().iter().any(|e| e.to_string() == NOT_DECODED),
+                "{input}"
             );
         }
+        let s = PowerShellSession::new()
+            .parse_script("powershell -c Write-Output /e Get-Date")
+            .unwrap();
+        assert!(
+            s.deobfuscated().contains("/e Get-Date"),
+            "{}",
+            s.deobfuscated()
+        );
     }
 
     #[test]
@@ -929,6 +1053,9 @@ mod tests {
             "/enc",
             "/e",
             "/EncodedCommand",
+            "\u{2013}enc",
+            "\u{2014}e",
+            "\u{2015}enc",
         ] {
             assert!(
                 decodes_amsiutils(&format!("powershell {param} {b64}")),

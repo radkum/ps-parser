@@ -156,6 +156,14 @@ impl ScriptResult {
         self.errors.clone()
     }
 
+    pub(crate) fn errors_ref(&self) -> &[ParserError] {
+        &self.errors
+    }
+
+    pub(crate) fn tokens_mut(&mut self) -> &mut Tokens {
+        &mut self.tokens
+    }
+
     pub fn output(&self) -> String {
         self.stream.join(NEWLINE)
     }

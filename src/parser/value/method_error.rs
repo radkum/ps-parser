@@ -60,7 +60,13 @@ impl MethodError {
     pub(crate) fn new_incorrect_args(name: &str, args: Vec<Val>) -> Self {
         MethodError::IncorrectArgs(
             name.to_string(),
-            args.iter().map(|v| format!("{:?}", v)).collect(),
+            // a large argument would be copied into every error message
+            args.iter()
+                .map(|v| match v.heap_len() {
+                    len if len > 256 => format!("{} of {len} bytes", v.ttype()),
+                    _ => format!("{:?}", v),
+                })
+                .collect(),
         )
     }
 }
