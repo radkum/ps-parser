@@ -505,6 +505,11 @@ fn powershell(
             String::from_utf8(bytes.to_vec()).ok()
         }
 
+        // tells the caller that the tokens of an encoded command are missing
+        fn not_decoded() -> ParserError {
+            CommandError::ExecutionError("Encoded command not decoded".into()).into()
+        }
+
         for i in index_to_decode {
             if let Some(Some(CommandElem::Argument(Val::ScriptText(s) | Val::String(PsString(s))))) =
                 args.get_mut(i)
@@ -513,10 +518,13 @@ fn powershell(
             {
                 // a session of its own: parse_script on `ps` would take the outer tokens and
                 // reset its variables
-                if let Ok(script_result) = ps.clone().parse_script(&decoded_str) {
+                let mut nested = ps.clone();
+                nested.errors.clear();
+                if let Ok(script_result) = nested.parse_script(&decoded_str) {
                     for token in script_result.tokens().all() {
                         ps.tokens.push(token);
                     }
+                    ps.errors.extend(script_result.errors());
                     if script_result.deobfuscated().is_empty() {
                         *s = decoded_str;
                     } else {
@@ -524,8 +532,11 @@ fn powershell(
                     }
                 } else {
                     log::warn!("Failed to deobfuscate: {}", &decoded_str);
+                    ps.errors.push(not_decoded());
                     *s = decoded_str;
                 }
+            } else {
+                ps.errors.push(not_decoded());
             }
         }
     }
@@ -758,6 +769,29 @@ mod tests {
             tokens.methods_and_commands()
         );
         assert!(tokens.lowercased_string_set().contains("lsass"));
+    }
+
+    #[test]
+    fn an_encoded_command_that_is_not_decoded_is_reported() {
+        let not_decoded = |input: &str| {
+            PowerShellSession::new()
+                .parse_script(input)
+                .unwrap()
+                .errors()
+                .iter()
+                .any(|e| e.to_string() == "CommandError: Encoded command not decoded")
+        };
+        // 'unterminated, and powershell -enc of it
+        for input in [
+            "powershell -enc $missing",
+            "powershell -enc JwB1AG4AdABlAHIAbQBpAG4AYQB0AGUAZAA=",
+            "powershell -enc cABvAHcAZQByAHMAaABlAGwAbAAgAC0AZQBuAGMAIABKAHcAQgAxAEEARwA0AEEAZABBAEIAbABBAEgASQBBAGIAUQBCAHAAQQBHADQAQQBZAFEAQgAwAEEARwBVAEEAWgBBAEEAPQA=",
+        ] {
+            assert!(not_decoded(input), "{input}");
+        }
+        assert!(!not_decoded(
+            "powershell -enc VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAEEAbQBzAGkAVQB0AGkAbABzACcA"
+        ));
     }
 
     #[test]
