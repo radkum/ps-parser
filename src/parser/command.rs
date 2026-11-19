@@ -505,15 +505,10 @@ fn powershell(
             name == "ep"
                 || name.len() >= 2 && "executionpolicy".starts_with(name)
                 || name.len() >= 3 && "configurationname".starts_with(name)
-                || [
-                    "windowstyle",
-                    "inputformat",
-                    "outputformat",
-                    "version",
-                    "psconsolefile",
-                ]
-                .iter()
-                .any(|p| p.starts_with(name))
+                || name.len() >= 3 && "inputformat".starts_with(name)
+                || ["windowstyle", "outputformat", "version", "psconsolefile"]
+                    .iter()
+                    .any(|p| p.starts_with(name))
         }
 
         fn is_powershell(elem: Option<&CommandElem>) -> bool {
@@ -569,11 +564,11 @@ fn powershell(
 
         // -enc officially carries UTF-16LE, but malware often encodes plain ASCII
         fn decode_encoded_command(bytes: &[u8]) -> String {
-            // odd-length UTF-16LE has 0 high bytes in most units, ASCII a stray NUL
+            // any ASCII char in UTF-16LE puts a 0 at an odd index
             let utf16 = if bytes.len().is_multiple_of(2) {
                 bytes.contains(&0)
             } else {
-                bytes.iter().skip(1).step_by(2).filter(|b| **b == 0).count() * 4 > bytes.len()
+                bytes.iter().skip(1).step_by(2).any(|b| *b == 0)
             };
             if utf16 {
                 let units = bytes
@@ -1049,6 +1044,8 @@ mod tests {
             "powershell -ExecutionPolicy -c -e",
             "powershell -ep /file -e",
             "powershell -ExecutionPolicy -Command -EncodedCommand",
+            "pwsh -i -e",
+            "pwsh -in -e",
         ] {
             assert!(decodes_amsiutils(&format!("{prefix} {b64}")), "{prefix}");
         }
@@ -1082,6 +1079,21 @@ mod tests {
         assert!(decodes_amsiutils(
             "powershell -e V3JpdGUtT3V0cHV0ICdBbXNpVXRpbHMnAA=="
         ));
+    }
+
+    #[test]
+    fn an_odd_length_utf16_payload_of_mostly_non_ascii_is_decoded() {
+        use base64::prelude::*;
+        let script = format!("Write-Output 'AmsiUtils';<#{}#>", "\u{4e2d}".repeat(40));
+        let mut bytes = script
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<u8>>();
+        bytes.push(b'A');
+        assert!(decodes_amsiutils(&format!(
+            "powershell -e {}",
+            BASE64_STANDARD.encode(bytes)
+        )));
     }
 
     #[test]
