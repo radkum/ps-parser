@@ -44,7 +44,7 @@ fn from_base_64_string(args: Vec<Val>) -> MethodResult<Val> {
     };
 
     let len = s.len().div_ceil(4).saturating_mul(3);
-    if len > super::MAX_ARRAY_LEN || !crate::parser::charge(len.saturating_mul(size_of::<Val>())) {
+    if !crate::parser::charge(len.saturating_mul(size_of::<Val>())) {
         return Err(
             ValError::ArgumentOutOfRange("FromBase64String".to_string(), len as i64).into(),
         );
@@ -115,18 +115,19 @@ mod tests {
     }
 
     #[test]
-    fn from_base64_string_past_the_array_limit_fails_before_decoding() {
-        let mut p = PowerShellSession::new();
-        let s = p
-            .parse_script("[Convert]::FromBase64String('AAAA' * 400000)")
-            .unwrap();
-        assert!(
-            s.errors()
+    fn from_base64_string_past_the_memory_budget_fails_before_decoding() {
+        let decodes = |script: &str| {
+            !PowerShellSession::new()
+                .parse_script(script)
+                .unwrap()
+                .errors()
                 .iter()
-                .any(|e| e.to_string().contains("FromBase64String")),
-            "{:?}",
-            s.errors()
-        );
+                .any(|e| e.to_string().contains("FromBase64String"))
+        };
+        assert!(decodes(
+            "$b = [Convert]::FromBase64String('AAAA' * 400000); $b.Length"
+        ));
+        assert!(!decodes("[Convert]::FromBase64String('AAAA' * 4000000)"));
     }
 
     #[test]
