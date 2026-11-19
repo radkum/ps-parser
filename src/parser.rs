@@ -110,6 +110,8 @@ impl StackBase {
             STACK_BASE.with(|b| b.set(Some(base)));
             EVAL_STEPS.set(0);
             MEM_USED.set(0);
+            DECODES.set(0);
+            DECODE_DEPTH.set(0);
             DEADLINE.set(Some(std::time::Instant::now() + TIME_BUDGET));
         }
         StackBase(outermost)
@@ -150,6 +152,9 @@ thread_local! {
     static EVAL_STEPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     static MEM_USED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static DEADLINE: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
+    // -EncodedCommand decodes in this scan and their nesting; a self-re-encoding command never stops
+    pub(crate) static DECODES: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    pub(crate) static DECODE_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
 fn deadline_passed() -> bool {
@@ -163,7 +168,7 @@ pub(crate) fn over_budget(err: &ParserError) -> bool {
     )
 }
 
-fn eval_step() -> ParserResult<()> {
+pub(crate) fn eval_step() -> ParserResult<()> {
     let steps = EVAL_STEPS.get() + 1;
     EVAL_STEPS.set(steps);
     if steps > EVAL_STEPS_BUDGET || MEM_USED.get() > MEM_BUDGET || deadline_passed() {
@@ -171,6 +176,11 @@ fn eval_step() -> ParserResult<()> {
     } else {
         Ok(())
     }
+}
+
+// whether `bytes` more fit the budget, without charging them
+pub(crate) fn fits(bytes: usize) -> bool {
+    MEM_USED.get().saturating_add(bytes) <= MEM_BUDGET
 }
 
 // false once the script copied too much; the next eval_step stops it

@@ -230,6 +230,15 @@ impl Variables {
         Default::default()
     }
 
+    // what a child powershell inherits: the environment, not the parent's variables
+    pub(crate) fn child(&self) -> Variables {
+        Variables {
+            env: self.env.clone(),
+            force_var_eval: self.force_var_eval,
+            ..Default::default()
+        }
+    }
+
     /// Creates a new Variables container with forced evaluation enabled.
     ///
     /// This constructor creates a Variables instance that will return

@@ -479,30 +479,46 @@ fn powershell(
     args: &mut Vec<CommandElem>,
     ps: &mut PowerShellSession,
 ) -> ParserResult<CommandOutput> {
-    fn deobfuscate_command(args: &mut Vec<CommandElem>, ps: &mut PowerShellSession) {
+    fn deobfuscate_command(
+        args: &mut Vec<CommandElem>,
+        ps: &mut PowerShellSession,
+    ) -> ParserResult<()> {
         use base64::prelude::*;
+
+        use crate::parser::{DECODE_DEPTH, DECODES, Token, charge, eval_step};
+
+        // -e, -enc, ... -EncodedCommand and -ec, also with a / prefix
+        fn is_encoded_command(p: &str) -> bool {
+            let Some(name) = p.strip_prefix('-').or_else(|| p.strip_prefix('/')) else {
+                return false;
+            };
+            let name = name.to_ascii_lowercase();
+            name == "ec" || (!name.is_empty() && "encodedcommand".starts_with(&name))
+        }
+
         let mut index_to_decode = vec![];
         let mut args = args.iter_mut().map(Some).collect::<Vec<_>>();
         for (i, arg) in args.iter_mut().enumerate() {
-            if let Some(CommandElem::Parameter(s)) = arg {
-                let p = s.to_ascii_lowercase();
-                if let Some(_stripped) = "-encodedcommand".strip_prefix(&p) {
-                    index_to_decode.push(i + 1);
-                    *s = "-command".to_string();
-                }
+            if let Some(elem) = arg
+                && let CommandElem::Parameter(s) | CommandElem::Argument(Val::ScriptText(s)) =
+                    &**elem
+                && is_encoded_command(s)
+            {
+                index_to_decode.push(i + 1);
+                **elem = CommandElem::Parameter("-command".to_string());
             }
         }
 
         // -enc officially carries UTF-16LE, but malware often encodes plain ASCII
-        fn decode_encoded_command(bytes: &[u8]) -> Option<String> {
-            if bytes.len().is_multiple_of(2) && bytes.contains(&0) {
+        fn decode_encoded_command(bytes: &[u8]) -> String {
+            if bytes.contains(&0) {
                 let units = bytes
                     .chunks_exact(2)
                     .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
                     .collect::<Vec<u16>>();
-                return String::from_utf16(&units).ok();
+                return String::from_utf16_lossy(&units);
             }
-            String::from_utf8(bytes.to_vec()).ok()
+            String::from_utf8_lossy(bytes).into_owned()
         }
 
         // tells the caller that the tokens of an encoded command are missing
@@ -510,26 +526,48 @@ fn powershell(
             CommandError::ExecutionError("Encoded command not decoded".into()).into()
         }
 
+        const MAX_DECODES: u32 = 64;
+        const MAX_DECODE_DEPTH: u32 = 8;
+
         for i in index_to_decode {
+            eval_step()?;
             if let Some(Some(CommandElem::Argument(Val::ScriptText(s) | Val::String(PsString(s))))) =
                 args.get_mut(i)
-                && let Ok(decoded_bytes) = BASE64_STANDARD.decode(s.clone())
-                && let Some(decoded_str) = decode_encoded_command(&decoded_bytes)
+                && DECODES.get() < MAX_DECODES
+                && DECODE_DEPTH.get() < MAX_DECODE_DEPTH
+                && let Ok(decoded_bytes) =
+                    BASE64_STANDARD.decode(s.split_ascii_whitespace().collect::<String>())
             {
-                // a session of its own: parse_script on `ps` would take the outer tokens and
-                // reset its variables
-                let mut nested = ps.clone();
-                nested.errors.clear();
-                if let Ok(script_result) = nested.parse_script(&decoded_str) {
-                    for token in script_result.tokens().all() {
+                DECODES.set(DECODES.get() + 1);
+                let decoded_str = decode_encoded_command(&decoded_bytes);
+                // a child process sees the environment only, not the parent's variables
+                let mut nested = PowerShellSession::new().with_variables(ps.variables.child());
+                DECODE_DEPTH.set(DECODE_DEPTH.get() + 1);
+                let parsed = nested.parse_script(&decoded_str);
+                DECODE_DEPTH.set(DECODE_DEPTH.get() - 1);
+                if let Ok(script_result) = parsed {
+                    let tokens = script_result.tokens().all();
+                    let deobfuscated = script_result.deobfuscated();
+                    let copied = decoded_str.len() + deobfuscated.len();
+                    if !charge(copied.saturating_add(tokens.len() * size_of::<Token>())) {
+                        return Err(ParserError::EvalBudgetExceeded);
+                    }
+                    for token in tokens {
                         ps.tokens.push(token);
                     }
-                    ps.errors.extend(script_result.errors());
-                    if script_result.deobfuscated().is_empty() {
-                        *s = decoded_str;
-                    } else {
-                        *s = script_result.deobfuscated();
+                    // nested errors stay inside; only a stopped or undecoded nested run is reported
+                    if script_result.errors().iter().any(|e| {
+                        over_budget(e)
+                            || matches!(e, ParserError::NestingTooDeep | ParserError::Panic(_))
+                            || *e == not_decoded()
+                    }) {
+                        ps.errors.push(not_decoded());
                     }
+                    *s = if deobfuscated.is_empty() {
+                        decoded_str
+                    } else {
+                        deobfuscated
+                    };
                 } else {
                     log::warn!("Failed to deobfuscate: {}", &decoded_str);
                     ps.errors.push(not_decoded());
@@ -539,9 +577,10 @@ fn powershell(
                 ps.errors.push(not_decoded());
             }
         }
+        Ok(())
     }
 
-    deobfuscate_command(args, ps);
+    deobfuscate_command(args, ps)?;
 
     Err(CommandError::ExecutionError(
         "Powershell invocation is not supported".into(),
@@ -792,6 +831,119 @@ mod tests {
         assert!(!not_decoded(
             "powershell -enc VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAEEAbQBzAGkAVQB0AGkAbABzACcA"
         ));
+    }
+
+    const NOT_DECODED: &str = "CommandError: Encoded command not decoded";
+
+    fn decodes_amsiutils(input: &str) -> bool {
+        let s = PowerShellSession::new().parse_script(input).unwrap();
+        s.tokens().lowercased_string_set().contains("amsiutils")
+            && !s.errors().iter().any(|e| e.to_string() == NOT_DECODED)
+    }
+
+    #[test]
+    fn self_re_encoding_commands_stop_within_the_limits() {
+        let inv = "powershell -enc \
+                   ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(($s -f \
+                   [char]39,$s))))";
+        for n in [2, 3] {
+            let invs = vec![inv; n].join("; ");
+            let input = format!("$s='$s={{0}}{{1}}{{0}}; {invs}'; {invs}");
+            let start = std::time::Instant::now();
+            let s = PowerShellSession::new().parse_script(&input).unwrap();
+            assert!(start.elapsed().as_secs() < 5, "{n}: {:?}", start.elapsed());
+            assert!(
+                s.errors().iter().any(|e| e.to_string() == NOT_DECODED),
+                "{n}"
+            );
+        }
+    }
+
+    #[test]
+    fn encoded_commands_do_not_copy_the_outer_variables() {
+        let input = format!(
+            "$big = 'a' * 16000000; powershell{}",
+            " -e QQA=".repeat(1000)
+        );
+        let start = std::time::Instant::now();
+        PowerShellSession::new().parse_script(&input).unwrap();
+        assert!(start.elapsed().as_secs() < 3, "{:?}", start.elapsed());
+
+        // Write-Output $e; Write-Output $env:x
+        let vars = Variables::from_ini_string("[env]\nx = amsiutils").unwrap();
+        let s = PowerShellSession::new()
+            .with_variables(vars)
+            .parse_script(
+                "$e = 'outer'; powershell -enc VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAkAGUA; \
+                 powershell -enc VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAkAGUAbgB2ADoAeAA=",
+            )
+            .unwrap();
+        let deobfuscated = s.deobfuscated();
+        assert!(deobfuscated.contains("-command \"$e\""), "{deobfuscated}");
+        assert!(
+            deobfuscated.contains("-command \"amsiutils\""),
+            "{deobfuscated}"
+        );
+    }
+
+    #[test]
+    fn a_stopped_nested_command_reports_only_that_it_was_not_decoded() {
+        // function f { f }; f; & ('Invoke-Mimi'+'katz')
+        let s = PowerShellSession::new()
+            .parse_script(
+                "Write-Output 'VirtualAlloc'; powershell -enc \
+                 ZgB1AG4AYwB0AGkAbwBuACAAZgAgAHsAIABmACAAfQA7ACAAZgA7ACAAJgAgACgAJwBJAG4AdgBvAGsAZQAtAE0AaQBtAGkAJwArACcAawBhAHQAegAnACkA",
+            )
+            .unwrap();
+        let errors = s.errors().iter().map(|e| e.to_string()).collect::<Vec<_>>();
+        assert!(errors.iter().any(|e| e == NOT_DECODED), "{errors:?}");
+        assert!(
+            !errors
+                .iter()
+                .any(|e| e == "Nesting too deep" || e == "Skip" || e.starts_with("Panic")),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn odd_lossy_and_spaced_payloads_are_decoded() {
+        for input in [
+            // UTF-16LE Write-Output amsiutils, one byte more
+            "powershell -enc VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIABhAG0AcwBpAHUAdABpAGwAcwBB",
+            // and with a lone surrogate after a comment
+            "powershell -enc VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIABhAG0AcwBpAHUAdABpAGwAcwAgACMAANg=",
+            "powershell -enc \"VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIABhAG0AcwBpAHUAd\nABpAGwAcwBB \"",
+        ] {
+            assert!(decodes_amsiutils(input), "{input}");
+        }
+    }
+
+    #[test]
+    fn encoded_command_parameter_spellings() {
+        // Write-Output 'AmsiUtils'
+        let b64 = "VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAEEAbQBzAGkAVQB0AGkAbABzACcA";
+        for param in [
+            "-e",
+            "-ec",
+            "-EncodedCommand",
+            "/enc",
+            "/e",
+            "/EncodedCommand",
+        ] {
+            assert!(
+                decodes_amsiutils(&format!("powershell {param} {b64}")),
+                "{param}"
+            );
+        }
+        for param in ["-ex", "-ExecutionPolicy"] {
+            let s = PowerShellSession::new()
+                .parse_script(&format!("powershell {param} Bypass -c Get-Date"))
+                .unwrap();
+            assert!(
+                !s.errors().iter().any(|e| e.to_string() == NOT_DECODED),
+                "{param}"
+            );
+        }
     }
 
     #[test]

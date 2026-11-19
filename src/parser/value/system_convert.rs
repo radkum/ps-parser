@@ -43,8 +43,10 @@ fn from_base_64_string(args: Vec<Val>) -> MethodResult<Val> {
         return Err(MethodError::new_incorrect_args("FromBase64String", args));
     };
 
+    // Convert.FromBase64String ignores whitespace
+    let s = s.split_ascii_whitespace().collect::<String>();
     let len = s.len().div_ceil(4).saturating_mul(3);
-    if !crate::parser::charge(len.saturating_mul(size_of::<Val>())) {
+    if !crate::parser::fits(len.saturating_mul(size_of::<Val>())) {
         return Err(
             ValError::ArgumentOutOfRange("FromBase64String".to_string(), len as i64).into(),
         );
@@ -128,6 +130,29 @@ mod tests {
             "$b = [Convert]::FromBase64String('AAAA' * 400000); $b.Length"
         ));
         assert!(!decodes("[Convert]::FromBase64String('AAAA' * 4000000)"));
+    }
+
+    #[test]
+    fn a_large_base64_blob_does_not_stop_the_rest_of_the_script() {
+        // refused before decoding, without using up the budget
+        let script = "[Convert]::FromBase64String('AAAA' * 4000000); & ('Get-Pass'+'Hashes')";
+        let s = PowerShellSession::new().parse_script(script).unwrap();
+        assert!(
+            s.deobfuscated().contains("Get-PassHashes"),
+            "{}",
+            s.deobfuscated()
+        );
+    }
+
+    #[test]
+    fn from_base64_string_ignores_whitespace() {
+        let mut p = PowerShellSession::new();
+        assert_eq!(
+            p.parse_script("[Convert]::ToBase64String([Convert]::FromBase64String('QU JD'))")
+                .unwrap()
+                .result(),
+            PsValue::String("QUJD".into())
+        );
     }
 
     #[test]

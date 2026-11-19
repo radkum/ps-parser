@@ -142,7 +142,7 @@ fn get_bytes(kind: Kind, args: Vec<Val>) -> MethodResult<Val> {
         Kind::Utf32 => 4,
     };
     let len = s.len().saturating_mul(factor);
-    if len > super::MAX_ARRAY_LEN || !crate::parser::charge(len.saturating_mul(size_of::<Val>())) {
+    if !crate::parser::fits(len.saturating_mul(size_of::<Val>())) {
         return Err(ValError::ArgumentOutOfRange("getbytes".to_string(), len as i64).into());
     }
     let bytes: Vec<u8> = match kind {
@@ -203,27 +203,49 @@ fn get_string(_: &mut Val, args: Vec<Val>) -> MethodResult<Val> {
     ))
 }
 
-pub(crate) fn bytes_arg(method: &str, args: Vec<Val>) -> MethodResult<Vec<u8>> {
+pub(crate) fn bytes_arg(method: &str, mut args: Vec<Val>) -> MethodResult<Vec<u8>> {
     use crate::parser::ValType;
     let arg = if args.len() == 1 {
-        args[0].to_owned()
+        args.swap_remove(0)
     } else {
         Val::Array(args)
     };
 
-    let Ok(chars) = arg.cast_to_typed_array(Some(Box::new(ValType::Char))) else {
-        return Err(MethodError::new_incorrect_args(method, arg.cast_to_array()));
+    // a byte array converts without the typed copy below
+    let bytes = if let Val::Array(v) = &arg
+        && let Some(bytes) = v
+            .iter()
+            .map(|v| match v {
+                Val::Char(c) => Some(*c as u8),
+                _ => None,
+            })
+            .collect::<Option<Vec<u8>>>()
+    {
+        bytes
+    } else {
+        if !crate::parser::fits(arg.heap_len()) {
+            return Err(
+                ValError::ArgumentOutOfRange(method.to_string(), arg.heap_len() as i64).into(),
+            );
+        }
+        let Ok(chars) = arg.cast_to_typed_array(Some(Box::new(ValType::Char))) else {
+            return Err(MethodError::new_incorrect_args(method, arg.cast_to_array()));
+        };
+        chars
+            .iter()
+            .map(|v| {
+                let Val::Char(c) = v else {
+                    return Err(MethodError::new_incorrect_args(method, arg.cast_to_array()));
+                };
+                Ok(*c as u8)
+            })
+            .collect::<Result<Vec<u8>, _>>()?
     };
-
-    chars
-        .iter()
-        .map(|v| {
-            let Val::Char(c) = v else {
-                return Err(MethodError::new_incorrect_args(method, arg.cast_to_array()));
-            };
-            Ok(*c as u8)
-        })
-        .collect()
+    // GetString and ToBase64String output at most 4 bytes per input byte
+    if !crate::parser::fits(bytes.len().saturating_mul(4)) {
+        return Err(ValError::ArgumentOutOfRange(method.to_string(), bytes.len() as i64).into());
+    }
+    Ok(bytes)
 }
 
 fn string_from_vec(mut buf: Vec<u8>) -> String {
@@ -366,11 +388,24 @@ mod tests {
     }
 
     #[test]
-    fn get_bytes_past_the_array_limit_fails() {
+    fn get_bytes_past_the_memory_budget_fails_and_the_script_goes_on() {
         let mut p = PowerShellSession::new();
         let s = p
-            .parse_script("[Text.Encoding]::UTF32.GetBytes('a' * 300000)")
+            .parse_script("[Text.Encoding]::UTF32.GetBytes('a' * 4000000); & ('Get-Pass'+'Hashes')")
             .unwrap();
+        assert!(
+            s.deobfuscated().contains("Get-PassHashes"),
+            "{}",
+            s.deobfuscated()
+        );
+        assert!(
+            p.parse_script(
+                "[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('x' * 900000))"
+            )
+            .unwrap()
+            .errors()
+            .is_empty()
+        );
         assert!(
             s.errors()
                 .iter()
