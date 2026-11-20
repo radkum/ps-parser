@@ -332,6 +332,98 @@ $nestedData = @{
     }
 
     #[test]
+    fn hash_table_cast_value() {
+        let mut p = PowerShellSession::new();
+        for (input, expected) in [
+            (
+                "$x = '5'; @{ a = [int]$x; b = 2 }",
+                HashMap::from([
+                    ("a".to_string(), PsValue::Int(5)),
+                    ("b".to_string(), PsValue::Int(2)),
+                ]),
+            ),
+            (
+                "$h = @{ Prop = 7 }; @{ a = [int]$h.Prop; b = 2 }",
+                HashMap::from([
+                    ("a".to_string(), PsValue::Int(7)),
+                    ("b".to_string(), PsValue::Int(2)),
+                ]),
+            ),
+            (
+                "$x = '5'; @{ a = [int]$x }",
+                HashMap::from([("a".to_string(), PsValue::Int(5))]),
+            ),
+            (
+                "$x = '5'; [pscustomobject]@{ a = [string]$x; b = 'y' }",
+                HashMap::from([
+                    ("a".to_string(), PsValue::String("5".into())),
+                    ("b".to_string(), PsValue::String("y".into())),
+                ]),
+            ),
+        ] {
+            let script_res = p.parse_script(input).unwrap();
+            assert_eq!(
+                script_res.result(),
+                PsValue::HashTable(expected),
+                "{input}: {:?}",
+                script_res.errors()
+            );
+        }
+    }
+
+    #[test]
+    fn hash_table_cast_value_before_next_key() {
+        let mut p = PowerShellSession::new();
+        for (input, expected) in [
+            (
+                "$x = '5'; @{ a = [int]$x; out = 1 }",
+                HashMap::from([
+                    ("a".to_string(), PsValue::Int(5)),
+                    ("out".to_string(), PsValue::Int(1)),
+                ]),
+            ),
+            (
+                "$x = '5'; @{ a = [int]$x\nb = 2 }",
+                HashMap::from([
+                    ("a".to_string(), PsValue::Int(5)),
+                    ("b".to_string(), PsValue::Int(2)),
+                ]),
+            ),
+            (
+                "$h = @{ Prop = 7 }; @{ a = [int]$h.Prop; out = 1 }",
+                HashMap::from([
+                    ("a".to_string(), PsValue::Int(7)),
+                    ("out".to_string(), PsValue::Int(1)),
+                ]),
+            ),
+        ] {
+            let script_res = p.parse_script(input).unwrap();
+            assert_eq!(
+                script_res.result(),
+                PsValue::HashTable(expected),
+                "{input}: {:?}",
+                script_res.errors()
+            );
+        }
+    }
+
+    #[test]
+    fn hash_table_value_without_cast() {
+        let mut p = PowerShellSession::new();
+        let input = "$x = '5'; @{ a = $x; b = 2 }";
+        let script_res = p.parse_script(input).unwrap();
+        assert_eq!(
+            script_res.result(),
+            PsValue::HashTable(HashMap::from([
+                ("a".to_string(), PsValue::String("5".into())),
+                ("b".to_string(), PsValue::Int(2)),
+            ])),
+            "{input}: {:?}",
+            script_res.errors()
+        );
+    }
+
+    #[test]
     fn test_simple_arithmetic() {
         let input = r#"
 Write-Host "=== Test 3: Arithmetic Operations ===" -ForegroundColor Green

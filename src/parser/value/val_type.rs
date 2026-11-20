@@ -92,7 +92,7 @@ impl ValType {
             "array" => Self::Array(None),
             "object" => Self::Array(None),
             "scriptblock" => Self::ScriptBlock,
-            "hashtable" => Self::HashTable,
+            "hashtable" | "pscustomobject" => Self::HashTable,
             "switch" => Self::Switch,
             _ => {
                 if types_map.contains_key(s.as_str()) {
