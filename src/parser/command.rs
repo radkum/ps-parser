@@ -502,13 +502,34 @@ fn powershell(
 
         // parameters taking the next argument unvalidated, e.g. -ExecutionPolicy -c
         fn takes_value(name: &str) -> bool {
-            name == "ep"
+            matches!(name, "ep" | "if" | "of" | "wd" | "wo")
                 || name.len() >= 2 && "executionpolicy".starts_with(name)
+                || name.len() >= 2 && "settingsfile".starts_with(name)
+                || name.len() >= 2 && "custompipename".starts_with(name)
                 || name.len() >= 3 && "configurationname".starts_with(name)
+                || name.len() >= 3 && "configurationfile".starts_with(name)
                 || name.len() >= 3 && "inputformat".starts_with(name)
-                || ["windowstyle", "outputformat", "version", "psconsolefile"]
-                    .iter()
-                    .any(|p| p.starts_with(name))
+                || [
+                    "windowstyle",
+                    "outputformat",
+                    "version",
+                    "psconsolefile",
+                    "workingdirectory",
+                ]
+                .iter()
+                .any(|p| p.starts_with(name))
+        }
+
+        // a parameter of the enclosing block has no value before the block is called
+        fn is_unknown_param(elem: Option<&CommandElem>, ps: &PowerShellSession) -> bool {
+            let Some(CommandElem::Argument(Val::ScriptText(s))) = elem else {
+                return false;
+            };
+            let Some(name) = s.strip_prefix('$') else {
+                return false;
+            };
+            let name = name.rsplit(':').next().unwrap_or(name);
+            ps.unknown_params.contains(&name.to_ascii_lowercase())
         }
 
         fn is_powershell(elem: Option<&CommandElem>) -> bool {
@@ -541,12 +562,21 @@ fn powershell(
                 continue;
             };
             if name == "ec" || "encodedcommand".starts_with(&name) {
-                index_to_decode.push(i + 1);
+                // a function parameter reference has no value to decode
+                if !is_unknown_param(args.get(i + 1), ps) {
+                    index_to_decode.push(i + 1);
+                }
                 skip_value = true;
             } else if takes_value(&name) {
                 skip_value = true;
             } else if "command".starts_with(&name) {
                 // what follows -Command is the command, unless a child powershell
+                if !is_powershell(args.get(i + 1)) {
+                    break;
+                }
+                skip_value = true;
+            } else if name == "cwa" || name.len() >= 8 && "commandwithargs".starts_with(&name) {
+                // what follows -CommandWithArgs is the command, like -Command
                 if !is_powershell(args.get(i + 1)) {
                     break;
                 }
@@ -931,6 +961,52 @@ mod tests {
     }
 
     const NOT_DECODED: &str = "CommandError: Encoded command not decoded";
+
+    #[test]
+    fn an_encoded_command_from_a_function_parameter_is_not_reported() {
+        // the function is never invoked, so $c has no value to decode yet
+        let s = PowerShellSession::new()
+            .parse_script("function f($c){ powershell -enc $c }")
+            .unwrap();
+        assert!(
+            !s.errors().iter().any(|e| e.to_string() == NOT_DECODED),
+            "{:?}",
+            s.errors()
+        );
+    }
+
+    #[test]
+    fn an_encoded_command_from_a_method_parameter_is_not_reported() {
+        // the method is never called, so $c has no value to decode yet
+        let s = PowerShellSession::new()
+            .parse_script("class C { [string] m($c) { powershell -enc $c } }")
+            .unwrap();
+        assert!(
+            !s.errors().iter().any(|e| e.to_string() == NOT_DECODED),
+            "{:?}",
+            s.errors()
+        );
+    }
+
+    #[test]
+    fn pwsh_value_parameters_do_not_shift_the_encoded_command() {
+        // Write-Output 'AmsiUtils'
+        let b64 = "VwByAGkAdABlAC0ATwB1AHQAcAB1AHQAIAAnAEEAbQBzAGkAVQB0AGkAbABzACcA";
+        for prefix in [
+            "pwsh -WorkingDirectory /c -enc",
+            "pwsh -wd /c -enc",
+            "pwsh -wo /c -enc",
+            "pwsh -CustomPipeName -c -enc",
+            "pwsh -SettingsFile /e -enc",
+            "pwsh -ConfigurationFile /file -enc",
+        ] {
+            assert!(decodes_amsiutils(&format!("{prefix} {b64}")), "{prefix}");
+        }
+        // -CommandWithArgs runs the command, so -enc after it is not a pwsh parameter
+        assert!(!decodes_amsiutils(&format!(
+            "pwsh -cwa Write-Output -enc {b64}"
+        )));
+    }
 
     fn decodes_amsiutils(input: &str) -> bool {
         let s = PowerShellSession::new().parse_script(input).unwrap();

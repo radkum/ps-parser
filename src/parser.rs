@@ -350,6 +350,8 @@ pub struct PowerShellSession {
     types_map: HashMap<String, Box<dyn RuntimeTypeTrait>>,
     // blocks whose tokens were already collected; re-collecting nested blocks is exponential
     collected: HashSet<String>,
+    // parameters of the block being collected; parsing its body gives them no value
+    unknown_params: HashSet<String>,
     // index of the last failed element access, reused by parse_access instead of evaluating it again
     failed_index: Option<((usize, usize), Val)>,
 }
@@ -410,6 +412,7 @@ impl<'a> PowerShellSession {
             default_scope: TopScope::Session,
             types_map,
             collected: HashSet::new(),
+            unknown_params: HashSet::new(),
             failed_index: None,
         }
     }
@@ -715,7 +718,12 @@ impl<'a> PowerShellSession {
         };
         check_rule!(next_token, Rule::script_block);
 
-        let mut script_block = self.parse_script_block(next_token)?;
+        let saved_params = self.unknown_params.clone();
+        self.unknown_params
+            .extend(params.iter().map(|p| p.name().to_string()));
+        let parsed = self.parse_script_block(next_token);
+        self.unknown_params = saved_params;
+        let mut script_block = parsed?;
 
         if script_block.params.0.is_empty() {
             script_block = script_block.with_params(params);
@@ -1019,7 +1027,12 @@ impl<'a> PowerShellSession {
                     check_rule!(token, Rule::script_block);
 
                     let method_name = MethodName::new(method_name.as_str(), &parameters);
-                    let script_block = self.parse_script_block(token)?.with_params(parameters);
+                    let saved_params = self.unknown_params.clone();
+                    self.unknown_params
+                        .extend(parameters.iter().map(|p| p.name().to_string()));
+                    let parsed = self.parse_script_block(token);
+                    self.unknown_params = saved_params;
+                    let script_block = parsed?.with_params(parameters);
                     methods.insert(method_name.full_name().to_string(), script_block);
                 }
                 Rule::statement_terminator | Rule::simple_name => {}
@@ -1728,7 +1741,11 @@ impl<'a> PowerShellSession {
         // format!("{};{}", params_str, deobfuscated_body)) } else {
         //     ScriptBlock::new(params, script_body, raw_text)
         // })
+        let saved_params = self.unknown_params.clone();
+        self.unknown_params
+            .extend(params.iter().map(|p| p.name().to_string()));
         self.script_block_collect_tokens(&script_body);
+        self.unknown_params = saved_params;
 
         Ok(ScriptBlock::new(params, script_body, raw_text))
     }
