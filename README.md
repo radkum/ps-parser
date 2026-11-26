@@ -3,7 +3,7 @@
 [![Crates.io](https://img.shields.io/crates/v/ps-parser.svg)](https://crates.io/crates/ps-parser)
 [![Crates.io](https://img.shields.io/crates/d/ps-parser.svg)](https://crates.io/crates/ps-parser)
 [![Docs.rs](https://docs.rs/ps-parser/badge.svg)](https://docs.rs/ps-parser)
-[![License](https://img.shields.io/crates/l/ps-parser.svg)](LICENSE)
+[![License](https://img.shields.io/crates/l/ps-parser.svg)](LICENSE_MIT)
 
 A PowerShell parser written in Rust.
 Parse, evaluate and deobfuscate PowerShell scripts with idiomatic Rust types.
@@ -100,7 +100,7 @@ use ps_parser::PowerShellSession;
 
 let mut ps = PowerShellSession::new(); 
 let script = r#"
-$ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([byTE]0x61)+[cHaR](103)+[cHar](101*64/64)+[chaR]([byTE]0x6d)+[cHAr](101)+[CHAr]([byTE]0x6e)+[Char](116*103/103)).$([Char]([ByTe]0x41)+[Char](117+70-70)+[CHAr]([ByTE]0x74)+[CHar]([bYte]0x6f)+[CHar]([bytE]0x6d)+[ChaR]([ByTe]0x61)+[CHar]([bYte]0x74)+[CHAR]([byte]0x69)+[Char](111*26/26)+[chAr]([BYTe]0x6e)).$(('Ârmí'+'Ùtìl'+'s').NORmalizE([ChAR](44+26)+[chAR](111*9/9)+[cHar](82+32)+[ChaR](109*34/34)+[cHaR](68+24-24)) -replace [ChAr](92)+[CHaR]([BYTe]0x70)+[Char]([BytE]0x7b)+[CHaR]([BYTe]0x4d)+[chAR](110)+[ChAr](15+110))";
+$ilryNQSTt="System.$([cHAR]([ByTE]0x4d)+[ChAR]([byte]0x61)+[chAr](110)+[cHar]([byTE]0x61)+[cHaR](103)+[cHar](101*64/64)+[chaR]([byTE]0x6d)+[cHAr](101)+[CHAr]([byTE]0x6e)+[Char](116*103/103)).$([Char]([ByTe]0x41)+[Char](117+70-70)+[CHAr]([ByTE]0x74)+[CHar]([bYte]0x6f)+[CHar]([bytE]0x6d)+[ChaR]([ByTe]0x61)+[CHar]([bYte]0x74)+[CHAR]([byte]0x69)+[Char](111*26/26)+[chAr]([BYTe]0x6e)).$(('├érm├¡'+'├Öt├¼l'+'s').NORmalizE([ChAR](44+26)+[chAR](111*9/9)+[cHar](82+32)+[ChaR](109*34/34)+[cHaR](68+24-24)) -replace [ChAr](92)+[CHaR]([BYTe]0x70)+[Char]([BytE]0x7b)+[CHaR]([BYTe]0x4d)+[chAR](110)+[ChAr](15+110))";
 
 $encoded = [syStem.texT.EncoDInG]::unIcoDe.geTstRiNg([SYSTem.cOnVERT]::froMbasE64striNg("ZABlAGMAbwBkAGUAZAA="));
 "#;
@@ -172,4 +172,4 @@ errors: [ValError(InvalidCast("String", "Int"))]
 ## License
 
 Licensed under MIT or Apache-2.0, at your option.
-See [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE) for details.
+See [LICENSE_MIT](LICENSE_MIT) and [LICENSE-APACHE](LICENSE-APACHE) for details.
